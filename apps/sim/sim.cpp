@@ -49,9 +49,6 @@ Arguments parse_args(int argc, char **argv) {
     return conf;
 }
 
-class UAV {
-};
-
 class Model {
 public:
     typedef std::shared_ptr<Model> Ptr;
@@ -73,6 +70,9 @@ public:
 
 constexpr float pi = std::acos(-1.0f);
 
+class UAV {
+};
+
 class Copter : public UAV {
 public:
     Model::Ptr model;
@@ -88,15 +88,16 @@ public:
     math::Quaternion<float> q;
     math::Vec3f omega;
     math::Vec3f v;
-   
-    std::array<float, 6> motor_thrusts;
     
     // Physics
     math::Matrix3f Ii;
     float m;
     float gamma;
+    float drag_coef;
 
-    Copter() : x(0.0f, 0.0f, 4.0f), v(0.0f, 0.0f, 0.0f), q(math::Vec3f(0.0f, 0.0f, 1.0f), pi / 2.0f), omega(0.0f), m(5.0f), gamma(0.1f) {
+    Copter() : x(0.0f, 0.0f, 4.0f), v(0.0f, 0.0f, 0.0f),
+        q(math::Vec3f(0.0f, 0.0f, 1.0f), pi / 2.0f), omega(0.0f),
+        m(5.0f), gamma(0.1f), drag_coef(0.75f) {
         math::Matrix3f I;
         math::matrix_set_identity(I.begin(), 4);
         I(0, 0) = 0.25 * m;    
@@ -117,7 +118,13 @@ public:
         q.to_rotation_matrix(R.begin());
         math::Vec3f up = R.col(2);
        
+        float air_speed = v.norm();
+        float csarea = 0.2f + 0.1f;//calculate properly
+
         math::Vec3f f = math::Vec3f(0.0, 0.0f, -9.81f * m);
+        if (air_speed > 0.0f) {
+            f += -v.normalized() * drag_coef * csarea * air_speed * air_speed;
+        }
         math::Vec3f tau = math::Vec3f(0.0f);
         for (std::size_t i = 0; i < 6; ++i) {
             math::Vec3f thrust = up * motors[i].speed;
@@ -172,6 +179,8 @@ enum ShaderType {
 };
 ogl::Camera scene_cam;
 Copter copter;
+
+std::vector<math::Vec3f> trajectory;
 
 void load_texture(std::string const & path, ogl::Texture::Ptr * texture_ptr) {
     std::cout << "loading texture: " << path << std::endl;
@@ -277,7 +286,7 @@ void init(void) {
     
     
 
-    scene_cam.pos = math::Vec3f(0.0f, 2.0f, 20.0f);
+    scene_cam.pos = math::Vec3f(0.0f, 2.0f, 50.0f);
     scene_cam.update_matrices();
     
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
@@ -316,6 +325,30 @@ void render_motors() {
     ret->draw();
 }
 
+void render_trajectory(void) {
+    mve::TriangleMesh::Ptr mesh(mve::TriangleMesh::create());
+    mve::TriangleMesh::VertexList& verts(mesh->get_vertices());
+    mve::TriangleMesh::FaceList& faces(mesh->get_faces());
+    mve::TriangleMesh::ColorList& colors(mesh->get_vertex_colors());
+
+    math::Vec4f color(0.0f, 0.0f, 1.0f, 1.0f);
+    
+    verts.insert(verts.end(), trajectory.begin(), trajectory.end());
+    faces.resize(2 * (trajectory.size() - 1));
+    colors.resize(trajectory.size(), color);
+
+    for (uint i = 0; i < trajectory.size() - 1; ++i) {
+        faces[2 * i + 0] = i;
+        faces[2 * i + 1] = i + 1;
+    }
+   
+    ogl::MeshRenderer::Ptr ret(ogl::MeshRenderer::create());
+    ret->set_primitive(GL_LINES);
+    ret->set_shader(shaders[VCOLOR]);
+    ret->set_mesh(mesh);
+    ret->draw();
+}
+
 void render(ogl::Camera const & cam) {
     for (ogl::ShaderProgram::Ptr & sp : shaders) {
         sp->bind();
@@ -331,6 +364,7 @@ void render(ogl::Camera const & cam) {
     }
 
     render_motors();
+    render_trajectory();
 
     for (Model::Ptr const & model : models) {
         ogl::ShaderProgram::Ptr & sp = model->shader;
@@ -382,7 +416,7 @@ int main(int argc, char **argv) {
     if (!glfwInit())
         exit(EXIT_FAILURE);
 
-    window = glfwCreateWindow(1920, 1080, "Simple example", NULL, NULL);
+    window = glfwCreateWindow(1920, 1080, "UAVMVS Simulator", NULL, NULL);
     if (!window)
     {
         glfwTerminate();
@@ -411,9 +445,6 @@ int main(int argc, char **argv) {
         float delta = now - past;
         past = now;
 
-        simulate(delta);
-        display();        
-
         math::Matrix3f R;
         copter.q.to_rotation_matrix(R.begin());
         math::Vec3f rates = R.transposed() * copter.omega;
@@ -424,16 +455,19 @@ int main(int argc, char **argv) {
             << " Roll: " << std::acos(R.col(1).dot(math::Vec3f(0.0f, 0.0f, 1.0f))) - pi / 2.0f << "(" << rates[0] << ")"
             << " Yaw: " << std::acos(R.col(0).dot(math::Vec3f(1.0f, 0.0f, 0.0f))) - pi / 2.0f << "(" << rates[2] << ")"
             << std::endl;
+        trajectory.push_back(copter.x);
+
+        simulate(delta);
+        display();        
 
         if (glfwJoystickPresent(GLFW_JOYSTICK_1)) {
             int count;
             const float * axes = glfwGetJoystickAxes(GLFW_JOYSTICK_1, &count);
-            //std::cout << axes[0] << " " << axes[1] << " " << axes[2] << " " << axes[3] << std::endl;
             float turn_rate = 0.5f;
             float yaw_rate = axes[3] * turn_rate;
             float pitch_rate = -axes[1] * turn_rate;
             float roll_rate = -axes[0] * turn_rate;
-            float throttle = (9.81f * 5.0f / 6.0f) * 0.95f + (1.0f + axes[2]) * 3.0f;
+            float throttle = (9.81f * 5.0f / 6.0f) * (1.0f + axes[2]);
 
             math::Vec3f omega(roll_rate, pitch_rate, yaw_rate);
 

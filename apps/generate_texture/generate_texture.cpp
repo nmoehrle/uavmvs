@@ -16,7 +16,6 @@
 #include "tex/texturing.h"
 
 #include "simplex_noise.cpp"
-//#include "perlin_noise.cpp"
 
 typedef unsigned int uint;
 constexpr float inf = std::numeric_limits<float>::infinity();
@@ -243,7 +242,9 @@ int main(int argc, char **argv) {
         }
     }
     std::cout << "done. Obtained " << segments.size() << " segments." << std::endl;
-   
+  
+    init();
+ 
     tex::TexturePatches texture_patches;
     for (std::size_t i = 0; i < segments.size(); ++i) {
         std::vector<uint> const & segment = segments[i];
