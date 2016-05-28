@@ -1,34 +1,35 @@
 ## Style Guide
 
 ##### General
-Stick to the c++11 standard
-Explicit over implicit (func(void), return EXIT_SUCCESS, etc.)
-Do not pass nonconst references to functions
-Avoid pointers but use them to indicate mutating functions
-Return type in the line above the function in cpp files
+- stick to the c++11 standard
+- explicit over implicit (func(void), return EXIT_SUCCESS, etc.)
+- do not pass nonconst references to functions
+- avoid pointers but use them to indicate mutating functions
+- return type in the line above the function in cpp files
 
 ##### Naming conventions
-Types CamelCase
-Variables snake_case
-Filenames snake_case.h snake_case.cpp
-Use dashes in cli arguments --solver-type=ImplicitEuler
+- types CamelCase
+- variables snake_case
+- file extensions .h .cpp
+- filenames snake_case.cpp
+- use dashes in cli arguments ```--solver-type=ImplicitEuler```
 
 ##### Indentation
-Four spaces no tabs
-Indent visibility statements
-'''
+- four spaces no tabs
+- indent visibility statements
+```
     class FileLogger {
         private:
             std::ofstream;
         public:
             FileLogger(std::string const & path);
     }
-'''
-Braces in the
+```
+- braces in the
     - same line for keywords (if, for, while, switch, class, etc.)
     - next line for function declarations
-Allways use braces for control structures except if the only statement is a keyword
-    'if (!condition) return;'
+- always use braces for control structures
+    - exception single keyword statements `if (!condition) return;`
 
 ##### Comments and Documentation
 TODO
