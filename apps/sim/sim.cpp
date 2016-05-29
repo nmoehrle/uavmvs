@@ -3,17 +3,18 @@
 #include <cerrno>
 #include <cstring>
 #include <array>
+#include <mutex>
+#include <condition_variable>
 
 #include "util/arguments.h"
 #include "util/file_system.h"
 #include "util/system.h"
 #include "util/exception.h"
 
-#include "math/quaternion.h"
-
 #include "mve/mesh_io_ply.h"
 #include "mve/mesh_io_obj.h"
 #include "mve/image_io.h"
+#include "mve/image_tools.h"
 
 #include "ogl/mesh_renderer.h"
 #include "ogl/render_tools.h"
@@ -414,7 +415,7 @@ void display(void) {
     glViewport(0, 0, 960, 1080);
     camera.right = 0.05f;
     camera.top = 0.05f / (960.0f / 1080.0f);
-    camera.pos = math::Vec3f(0.0f, 2.0f, 50.0f);
+    camera.pos = math::Vec3f(0.0f, 0.0f, 150.0f);
     camera.update_matrices();
     render(camera);
 
@@ -427,14 +428,14 @@ void display(void) {
     glViewport(960, 540, 960, 540);
     camera.top = 0.05f;
     camera.right = 0.05f * (960.0f / 540.0f);
-    camera.pos = pose->x + view_dir * 0.5f;
+    camera.pos = pose->x + view_dir * 0.85f;
     camera.viewing_dir = view_dir;
     camera.up_vec = up;
     camera.update_matrices();
     render(camera);
 
     glViewport(960, 0, 960, 540);
-    camera.pos = pose->x + 1.5f * up - view_dir * 3.0f;
+    camera.pos = pose->x + 1.5f * up - view_dir * 2.0f;
     camera.viewing_dir = math::matrix_rotation_from_axis_angle(right, pi / 4) * view_dir;
     camera.up_vec = up;
     camera.update_matrices();
@@ -446,6 +447,27 @@ void display(void) {
 void simulate(float delta) {
     for (Entity::Ptr const & entity : entities) {
         entity->update(delta);
+    }
+}
+
+std::mutex m;
+std::condition_variable cv;
+bool pending = false;
+bool done = false;
+void save(mve::ByteImage::Ptr image) {
+    uint num_images = 0;
+    while (!done) {
+        std::unique_lock<std::mutex> lk(m);
+        cv.wait(lk);
+
+        if (pending) {
+            mve::image::flip<uint8_t>(image, mve::image::FLIP_VERTICAL);
+            std::string filename = std::string("/tmp/test");
+            filename += util::string::get_filled(num_images++, 4) + ".png";
+            mve::image::save_png_file(image, filename);
+            pending = false;
+            std::cout << filename << std::endl;
+        }
     }
 }
 
@@ -470,12 +492,27 @@ int main(int argc, char **argv) {
         std::cout << glfwGetJoystickName(GLFW_JOYSTICK_1) << std::endl;
     }
 
+    int width = 960;
+    int height = 540;
+    mve::ByteImage::Ptr image = mve::ByteImage::create(width, height, 3);
+    std::thread worker(save, image);
+
     double past = 0;
+    double next = 1.0;
     while (window.good())
     {
         double now = glfwGetTime();
         float delta = now - past;
         past = now;
+
+        if (now > next && !pending) {
+            pending = true;
+            glReadPixels(960, 540, width, height, GL_RGB, GL_UNSIGNED_BYTE, image->begin());
+            std::lock_guard<std::mutex> lk(m);
+            cv.notify_one();
+
+            next += 1.0;
+        }
 
         simulate(delta);
         display();
@@ -484,6 +521,13 @@ int main(int argc, char **argv) {
 
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
+
+    done = true;
+    {
+        std::lock_guard<std::mutex> lk(m);
+        cv.notify_all();
+    }
+    worker.join();
 
     return EXIT_SUCCESS;
 }
