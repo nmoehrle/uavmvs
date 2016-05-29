@@ -9,8 +9,11 @@ Window::Window(const char * title, int width, int height) {
         std::exit(EXIT_FAILURE);
     }
 
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
+    glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GL_TRUE);
+    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     this->window = glfwCreateWindow(width, height, title, NULL, NULL);
     if (!this->window)
     {
@@ -18,7 +21,7 @@ Window::Window(const char * title, int width, int height) {
         glfwTerminate();
         std::exit(EXIT_FAILURE);
     }
-    
+
     glfwMakeContextCurrent(this->window);
     glfwSwapInterval(1);
 }
@@ -34,7 +37,7 @@ Window::good(void) {
 }
 
 void
-Window::update(void) {  
+Window::update(void) {
     glfwSwapBuffers(this->window);
     glfwPollEvents();
 }

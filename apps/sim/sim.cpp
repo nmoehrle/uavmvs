@@ -51,16 +51,21 @@ Arguments parse_args(int argc, char **argv) {
 
 constexpr float pi = std::acos(-1.0f);
 
-std::array<ogl::ShaderProgram::Ptr, 3> shaders;
+//TODO get rid of those global variables
+std::array<ogl::ShaderProgram::Ptr, 4> shaders;
 enum ShaderType {
     VCOLOR = 0,
     SURFACE = 1,
-    TEXTURE = 2
+    TEXTURE = 2,
+    LINES = 3
 };
+ogl::VertexArray::Ptr axes;
+std::vector<Entity::Ptr> entities;
+Pose::Ptr pose;
 
-class MeshRenderer : public RenderComponent {
+class ModelRenderer : public RenderComponent {
     public:
-        typedef std::shared_ptr<MeshRenderer> Ptr;
+        typedef std::shared_ptr<ModelRenderer> Ptr;
 
     private:
         Pose::ConstPtr pose;
@@ -74,12 +79,8 @@ class MeshRenderer : public RenderComponent {
         ogl::ShaderProgram::Ptr shader;
 
     public:
-        MeshRenderer(Pose::ConstPtr pose)
-            : pose(pose) {};
-        void set_shader(ogl::ShaderProgram::Ptr shader)
-        {
-            this->shader = shader;
-        }
+        ModelRenderer(Pose::ConstPtr pose, ogl::ShaderProgram::Ptr shader)
+            : pose(pose), shader(shader) {};
 
         void add_mesh(mve::TriangleMesh::Ptr mesh, ogl::Texture::Ptr texture)
         {
@@ -113,10 +114,11 @@ class MeshRenderer : public RenderComponent {
 class TrajectoryRenderer : public RenderComponent {
     private:
         Trajectory::ConstPtr trajectory;
+        ogl::ShaderProgram::Ptr shader;
 
     public:
-        TrajectoryRenderer(Trajectory::ConstPtr trajectory)
-            : trajectory(trajectory) {};
+        TrajectoryRenderer(Trajectory::ConstPtr trajectory, ogl::ShaderProgram::Ptr shader)
+            : trajectory(trajectory), shader(shader) {};
 
         void render(void)
         {
@@ -138,7 +140,12 @@ class TrajectoryRenderer : public RenderComponent {
 
             ogl::MeshRenderer::Ptr mr(ogl::MeshRenderer::create());
             mr->set_primitive(GL_LINES);
-            mr->set_shader(shaders[VCOLOR]);
+            mr->set_shader(shader);
+            math::Matrix4f eye;
+            math::matrix_set_identity(eye.begin(), 4);
+            shader->bind();
+            shader->send_uniform("modelmat", eye);
+            shader->unbind();
             mr->set_mesh(mesh);
             mr->draw();
         }
@@ -148,191 +155,66 @@ class PropulsionRenderer : public RenderComponent {
     private:
         Pose::ConstPtr pose;
         Propulsion::ConstPtr propulsion;
+        ogl::ShaderProgram::Ptr shader;
 
     public:
-        PropulsionRenderer(Pose::ConstPtr pose, Propulsion::ConstPtr propulsion)
-            : pose(pose), propulsion(propulsion) {};
+        PropulsionRenderer(Pose::ConstPtr pose, Propulsion::ConstPtr propulsion,
+            ogl::ShaderProgram::Ptr shader)
+            : pose(pose), propulsion(propulsion), shader(shader) {};
 
         void render(void)
         {
-            //TODO support n
             mve::TriangleMesh::Ptr mesh(mve::TriangleMesh::create());
             mve::TriangleMesh::VertexList& verts(mesh->get_vertices());
             mve::TriangleMesh::FaceList& faces(mesh->get_faces());
             mve::TriangleMesh::ColorList& colors(mesh->get_vertex_colors());
 
+            uint num_engines = 6;//propulsion->engines.size();
+
             math::Vec4f color(0.0f, 1.0f, 0.0f, 1.0f);
 
-            verts.resize(12);
-            faces.resize(12);
-            colors.resize(12, color);
+            verts.resize(2 * num_engines);
+            faces.resize(2 * num_engines);
+            colors.resize(2 * num_engines, color);
 
             math::Matrix3f R;
             pose->q.to_rotation_matrix(R.begin());
 
-            for (int i = 0; i < 6; ++i) {
+            for (int i = 0; i < num_engines; ++i) {
                 verts[2 * i + 0] = pose->x + R * propulsion->rs[i];
                 verts[2 * i + 1] = pose->x + R * propulsion->rs[i] + R.col(2) * (propulsion->thrusts[i] - 9.81f * 5.0f / 6.0f);
             }
 
-            for (uint i = 0; i < 12; ++i) {
+            for (uint i = 0; i < 2 * num_engines; ++i) {
                 faces[i] = i;
             }
 
             ogl::MeshRenderer::Ptr mr(ogl::MeshRenderer::create());
             mr->set_primitive(GL_LINES);
-            mr->set_shader(shaders[VCOLOR]);
+            mr->set_shader(shader);
+            math::Matrix4f eye;
+            math::matrix_set_identity(eye.begin(), 4);
+            shader->bind();
+            shader->send_uniform("modelmat", eye);
+            shader->unbind();
             mr->set_mesh(mesh);
             mr->draw();
         }
 };
 
-class Model {
-public:
+struct Model {
     typedef std::shared_ptr<Model> Ptr;
-public:
-    static Ptr create() {
-        return Ptr(new Model());
-    }
-    math::Matrix4f m;
-
-    struct Component {
+    struct Part {
         mve::TriangleMesh::Ptr mesh;
-        ogl::MeshRenderer::Ptr mr;
         ogl::Texture::Ptr texture;
     };
-    std::vector<Component> components;
-
-    ogl::ShaderProgram::Ptr shader;
+    std::vector<Part> parts;
+    ShaderType shader_type;
 };
 
-class Factory {
-    public:
-        Entity::Ptr static create_copter()
-        {
-            Pose::Ptr pose(new Pose);
-            pose->x = math::Vec3f(0.0f, 0.0f, 20.0f);
-            pose->q = math::Quatf(math::Vec3f(0.0f, 0.0f, 1.0f), 0.0f);
-            std::string basename = util::fs::dirname(util::fs::get_binary_path());
-            mve::TriangleMesh::Ptr mesh;
-            try {
-                mesh = mve::geom::load_ply_mesh(basename + "/models/proxy.ply");
-            } catch (std::exception& e) {
-                std::cerr << "\tCould not load mesh: "<< e.what() << std::endl;
-                std::exit(EXIT_FAILURE);
-            }
-            MeshRenderer::Ptr mr(new MeshRenderer(pose));
-            mr->set_shader(shaders[VCOLOR]); //TODO terrible design because the order matters
-            mr->add_mesh(mesh, nullptr);
-            Entity::Ptr ret(new Entity);
-            ret->add_component(pose);
-            ret->add_component(mr);
-            return ret;
-        }
-};
 
-class Copter {
-public:
-    Model::Ptr model;
-    ogl::Camera fpv_cam;
-    ogl::Camera cam_cam;
-    struct Motor {
-        math::Vec3f pos;
-        float speed;
-    };
-    std::array<Motor, 6> motors;
-    // State
-    math::Vec3f x;
-    math::Quaternion<float> q;
-    math::Vec3f omega;
-    math::Vec3f v;
-
-    // Physics
-    math::Matrix3f Ii;
-    float m;
-    float gamma;
-    float drag_coef;
-
-    Copter() : x(0.0f, 0.0f, 4.0f), v(0.0f, 0.0f, 0.0f),
-        q(math::Vec3f(0.0f, 0.0f, 1.0f), pi / 2.0f), omega(0.0f),
-        m(5.0f), gamma(0.1f), drag_coef(0.75f) {
-        math::Matrix3f I;
-        math::matrix_set_identity(I.begin(), 3);
-        I(0, 0) = 0.25 * m;
-        I(1, 1) = 0.25 * m;
-        I(2, 2) = 0.5 * m;
-        for (std::size_t i = 0; i < 6; ++i) {
-            motors[i].speed = (9.81f * m) / 6.0f;
-            float theta = (2.0f * pi) / 6.0f * i + pi / 6.0f;
-            motors[i].pos = math::Vec3f(0.9 * std::cos(theta), 0.9 * std::sin(theta), 0.0f);
-        }
-
-        Ii = math::matrix_inverse(I);
-    }
-
-    void simulate(float delta) {
-        float h = delta;
-        math::Matrix3f R;
-        q.to_rotation_matrix(R.begin());
-        math::Vec3f up = R.col(2);
-
-        float air_speed = v.norm();
-        float csarea = 0.2f + 0.1f;//calculate properly
-
-        math::Vec3f f = math::Vec3f(0.0, 0.0f, -9.81f * m);
-        if (air_speed > 0.0f) {
-            f += -v.normalized() * drag_coef * csarea * air_speed * air_speed;
-        }
-        math::Vec3f tau = math::Vec3f(0.0f);
-        for (std::size_t i = 0; i < 6; ++i) {
-            math::Vec3f thrust = up * motors[i].speed;
-            f += thrust;
-            tau += (R * -motors[i].pos).cross(thrust);
-            tau += i % 2 ? -gamma * thrust : gamma * thrust;
-        }
-
-        //TODO replace Newton
-        x = x + v * h;
-        v = v + (f / m) * h;
-        omega = omega + R * Ii * R.transposed() * tau * h;
-
-        math::Vec3f qs = R.transposed() * omega * h;
-        float theta = qs.norm();
-        if (std::abs(theta) >= std::numeric_limits<float>::epsilon()) {
-            math::Vec3f e(qs[0] / theta, qs[1] / theta, qs[2] / theta);
-            math::Quaternion<float> qd(e, theta);
-            q = qd * q;
-        }
-    }
-
-    void animate() {
-        math::Matrix3f rot;
-        q.to_rotation_matrix(rot.begin());
-
-        math::Vec3f view_dir = rot.col(0);
-        math::Vec3f right = rot.col(1);
-        math::Vec3f up = rot.col(2);
-        math::Vec3f trans = x;
-        model->m = rot.hstack(trans).vstack(math::Vec4f(0.0f, 0.0f, 0.0f, 1.0f));
-
-        //TODO manual
-        fpv_cam.pos = x + view_dir * 0.5f;
-        fpv_cam.viewing_dir = view_dir;
-        fpv_cam.up_vec = up;
-        fpv_cam.update_matrices();
-        cam_cam.pos = x + 1.5f * up - view_dir * 3.0f;
-        cam_cam.viewing_dir = math::matrix_rotation_from_axis_angle(right, pi / 4) * view_dir;
-        cam_cam.up_vec = up;
-        cam_cam.update_matrices();
-    }
-};
-
-std::vector<ogl::VertexArray::Ptr> primitives;
-std::vector<Model::Ptr> models;
-ogl::Camera scene_cam;
-Copter copter;
-
-void load_texture(std::string const & path, ogl::Texture::Ptr * texture_ptr) {
+ogl::Texture::Ptr
+load_texture(std::string const & path) {
     std::cout << "loading texture: " << path << std::endl;
     ogl::Texture::Ptr texture = ogl::Texture::create();
     mve::ByteImage::Ptr image;
@@ -351,15 +233,14 @@ void load_texture(std::string const & path, ogl::Texture::Ptr * texture_ptr) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     ogl::check_gl_error();
 
-    *texture_ptr = texture;
+    return texture;
 }
 
-void load_model(std::string const & path, Model::Ptr * model_ptr = nullptr) {
+Model::Ptr
+load_model(std::string const & path) {
     std::string ext = util::string::right(path, 4);
 
-    Model::Ptr model = Model::create();
-    math::matrix_set_identity(model->m.begin(), 4);
-
+    Model::Ptr model = Model::Ptr(new Model());
     if (ext == ".ply") {
         mve::TriangleMesh::Ptr mesh;
         try {
@@ -368,17 +249,14 @@ void load_model(std::string const & path, Model::Ptr * model_ptr = nullptr) {
             std::cerr << "\tCould not load mesh: "<< e.what() << std::endl;
             std::exit(EXIT_FAILURE);
         }
-        ShaderType shader_type = mesh->has_vertex_colors() ? VCOLOR : SURFACE;
-        model->shader = shaders[shader_type];
-
         mesh->ensure_normals(true, true);
 
-        model->components.emplace_back();
-        Model::Component & component = model->components.back();
-        component.mr = ogl::MeshRenderer::create();
-        component.mesh = mesh;
-        component.mr->set_mesh(mesh);
-        component.mr->set_shader(model->shader);
+        model->shader_type = mesh->has_vertex_colors() ? VCOLOR : SURFACE;
+
+        model->parts.emplace_back();
+        Model::Part & part = model->parts.back();
+        part.mesh = mesh;
+        part.texture = nullptr;
     } else if (ext == ".obj") {
         std::vector<mve::geom::ObjModelPart> obj_model_parts;
         try {
@@ -388,60 +266,127 @@ void load_model(std::string const & path, Model::Ptr * model_ptr = nullptr) {
             exit(EXIT_FAILURE);
         }
 
-        model->shader = shaders[TEXTURE];
+        model->shader_type = TEXTURE;
 
-        std::size_t num_components = obj_model_parts.size();
-
-        model->components.resize(num_components);
-        for (std::size_t i = 0; i < num_components; ++i) {
-            Model::Component & component = model->components[i];
-            component.mesh = obj_model_parts[i].mesh;
-            load_texture(obj_model_parts[i].texture_filename, &component.texture);
-            component.mr = ogl::MeshRenderer::create();
-            component.mr->set_mesh(component.mesh);
-            component.mr->set_shader(model->shader);
+        model->parts.resize(obj_model_parts.size());
+        for (std::size_t i = 0; i < model->parts.size(); ++i) {
+            model->parts[i].texture = load_texture(obj_model_parts[i].texture_filename);
+            model->parts[i].mesh = obj_model_parts[i].mesh;
         }
 
     } else {
         std::cerr << "Unknown file extension " << ext << std::endl;
         exit(EXIT_FAILURE);
     }
-
-    *model_ptr = model;
+    return model;
 }
 
-std::vector<Entity::Ptr> entities;
+class Factory {
+    public:
+        Entity::Ptr static create_copter()
+        {
+            //TODO extract
+            std::string basename = util::fs::dirname(util::fs::get_binary_path());
+            mve::TriangleMesh::Ptr mesh;
+            try {
+                mesh = mve::geom::load_ply_mesh(basename + "/models/proxy.ply");
+            } catch (std::exception& e) {
+                std::cerr << "\tCould not load mesh: " << e.what() << std::endl;
+                std::exit(EXIT_FAILURE);
+            }
 
-void init(void) {
+            pose = Pose::Ptr(new Pose);
+            pose->x = math::Vec3f(0.0f, 0.0f, 20.0f);
+            pose->q = math::Quatf(math::Vec3f(0.0f, 1.0f, 0.0f), 0.0f);
+            Motion::Ptr motion(new Motion);
+            motion->v = math::Vec3f(0.0f);
+            motion->omega = math::Vec3f(0.0f);
+            Physics::Ptr physics(new Physics);
+            physics->mass = 5.0f;
+            math::Matrix3f I(0.0f);
+            I(0, 0) = 0.25 * physics->mass;
+            I(1, 1) = 0.25 * physics->mass;
+            I(2, 2) = 0.5 * physics->mass;
+            physics->Ii = math::matrix_inverse(I);
+            physics->drag_coeff = 0.75f;
+            Propulsion::Ptr propulsion(new Propulsion);
+            propulsion->rs.resize(6);
+            propulsion->thrusts.resize(6);
+            for (std::size_t i = 0; i < 6; ++i) {
+                propulsion->thrusts[i] = (9.81f * physics->mass) / 6.0f;
+                float theta = (2.0f * pi) / 6.0f * i + pi / 6.0f;
+                propulsion->rs[i] = math::Vec3f(0.9 * std::cos(theta), 0.9 * std::sin(theta), 0.0f);
+            }
+            Trajectory::Ptr trajectory(new Trajectory);
+            Control::Ptr control(new Control);
+            control->omega = math::Vec3f(0.0f);
+
+            PhysicsSimulator::Ptr ps(new PhysicsSimulator(pose, motion, physics, propulsion));
+            Logger::Ptr l(new Logger(pose, motion, trajectory));
+            Receiver::Ptr recv(new Receiver(control));
+            FlightController::Ptr fc(new FlightController(pose, motion, control, propulsion));
+
+            ModelRenderer::Ptr mr(new ModelRenderer(pose, shaders[VCOLOR]));
+            mr->add_mesh(mesh, nullptr);
+            TrajectoryRenderer::Ptr tr(new TrajectoryRenderer(trajectory, shaders[LINES]));
+            PropulsionRenderer::Ptr pr(new PropulsionRenderer(pose, propulsion, shaders[LINES]));
+
+            Entity::Ptr ret(new Entity);
+            ret->add_component(pose);
+            ret->add_component(motion);
+            ret->add_component(physics);
+            ret->add_component(propulsion);
+            ret->add_component(trajectory);
+
+            ret->add_component(ps);
+            ret->add_component(l);
+            ret->add_component(recv);
+            ret->add_component(fc);
+
+            ret->add_component(mr);
+            ret->add_component(tr);
+            ret->add_component(pr);
+            return ret;
+        }
+
+        Entity::Ptr static create_model(std::string const & path)
+        {
+            Pose::Ptr pose(new Pose);
+            pose->x = math::Vec3f(0.0f);
+            pose->q = math::Quatf(math::Vec3f(0.0f, 0.0f, 1.0f), 0.0f);
+            Entity::Ptr ret(new Entity);
+            Model::Ptr model = load_model(path);
+            ModelRenderer::Ptr mr(new ModelRenderer(pose, shaders[model->shader_type]));
+            for (Model::Part const & part : model->parts) {
+                mr->add_mesh(part.mesh, part.texture);
+            }
+            ret->add_component(pose);
+            ret->add_component(mr);
+            return ret;
+        }
+};
+
+void
+load_shader(ShaderType shader_type, std::string const & path) {
+    shaders[shader_type] = ogl::ShaderProgram::create();
+    if (!shaders[shader_type]->try_load_all(path)) {
+        std::cerr << "\tCould not load shaders from: " << path << std::endl;
+        std::exit(EXIT_FAILURE);
+    }
+}
+
+void
+load_shaders(void) {
     std::string basename = util::fs::dirname(util::fs::get_binary_path());
+    load_shader(VCOLOR, basename + "/shaders/vcolor");
+    load_shader(SURFACE, basename + "/shaders/surface");
+    load_shader(TEXTURE, basename + "/shaders/texture");
+    load_shader(LINES, basename + "/shaders/lines");
+}
 
-    shaders[VCOLOR] = ogl::ShaderProgram::create();
-    if (!shaders[VCOLOR]->try_load_all(basename + "/shaders/vcolor")) {
-        std::cerr << "\tCould not load shaders from: " << basename << std::endl;
-        std::exit(EXIT_FAILURE);
-    }
-    shaders[SURFACE] = ogl::ShaderProgram::create();
-    if (!shaders[SURFACE]->try_load_all(basename + "/shaders/surface")) {
-        std::cerr << "\tCould not load shaders from: " << basename << std::endl;
-        std::exit(EXIT_FAILURE);
-    }
-    shaders[TEXTURE] = ogl::ShaderProgram::create();
-    if (!shaders[TEXTURE]->try_load_all(basename + "/shaders/texture")) {
-        std::cerr << "\tCould not load shaders from: " << basename << std::endl;
-        std::exit(EXIT_FAILURE);
-    }
-
-    primitives.push_back(ogl::create_axis_renderer(shaders[VCOLOR]));
-
-    load_model(basename + "/models/proxy.ply", &copter.model);
-    models.push_back(copter.model);
-
-    entities.push_back(Factory::create_copter());
-
-    scene_cam.pos = math::Vec3f(0.0f, 2.0f, 50.0f);
-    scene_cam.update_matrices();
-
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+void
+init_opengl(void) {
+    glClearColor(0.9f, 0.9f, 0.9f, 1.0f);
     glEnable(GL_DEPTH_TEST);
 }
 
@@ -455,44 +400,53 @@ void render(ogl::Camera const & cam) {
         sp->send_uniform("modelmat", eye);
         sp->unbind();
     }
-    for (ogl::VertexArray::Ptr const & primitive : primitives) {
-        primitive->draw();
-    }
-
+    axes->draw();
     for (Entity::Ptr const & entity : entities) {
         entity->render();
-    }
-
-    for (Model::Ptr const & model : models) {
-        ogl::ShaderProgram::Ptr & sp = model->shader;
-        sp->bind();
-        sp->send_uniform("modelmat", model->m);
-        sp->unbind();
-        for (Model::Component const & component : model->components) {
-            if (component.texture != nullptr) {
-                component.texture->bind();
-            }
-            component.mr->draw();
-        }
     }
 }
 
 void display(void) {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+    ogl::Camera camera;
+
     glViewport(0, 0, 960, 1080);
-    render(scene_cam);
+    camera.right = 0.05f;
+    camera.top = 0.05f / (960.0f / 1080.0f);
+    camera.pos = math::Vec3f(0.0f, 2.0f, 50.0f);
+    camera.update_matrices();
+    render(camera);
+
+    math::Matrix3f rot;
+    pose->q.to_rotation_matrix(rot.begin());
+    math::Vec3f view_dir = rot.col(0);
+    math::Vec3f right = rot.col(1);
+    math::Vec3f up = rot.col(2);
+
     glViewport(960, 540, 960, 540);
-    render(copter.fpv_cam);
+    camera.top = 0.05f;
+    camera.right = 0.05f * (960.0f / 540.0f);
+    camera.pos = pose->x + view_dir * 0.5f;
+    camera.viewing_dir = view_dir;
+    camera.up_vec = up;
+    camera.update_matrices();
+    render(camera);
+
     glViewport(960, 0, 960, 540);
-    render(copter.cam_cam);
+    camera.pos = pose->x + 1.5f * up - view_dir * 3.0f;
+    camera.viewing_dir = math::matrix_rotation_from_axis_angle(right, pi / 4) * view_dir;
+    camera.up_vec = up;
+    camera.update_matrices();
+    render(camera);
 
     glFlush();
 }
 
 void simulate(float delta) {
-    copter.simulate(delta);
-    copter.animate();
+    for (Entity::Ptr const & entity : entities) {
+        entity->update(delta);
+    }
 }
 
 /* ---------------------------------------------------------------- */
@@ -504,18 +458,17 @@ int main(int argc, char **argv) {
     Arguments args = parse_args(argc, argv);
 
     Window window("UAVMVS Simulator", 1920, 1080);
+    init_opengl();
 
-    init();
-    Model::Ptr model;
-    load_model(args.model, &model);
-    models.push_back(model);
+    load_shaders(); //TODO store shaders...
+
+    axes = ogl::create_axis_renderer(shaders[LINES]);
+    entities.push_back(Factory::create_copter());
+    entities.push_back(Factory::create_model(args.model));
 
     if (glfwJoystickPresent(GLFW_JOYSTICK_1)) {
         std::cout << glfwGetJoystickName(GLFW_JOYSTICK_1) << std::endl;
     }
-
-    math::Vec3f last_error(0.0f);
-    math::Vec3f last_integral(0.0f);
 
     double past = 0;
     while (window.good())
@@ -524,55 +477,10 @@ int main(int argc, char **argv) {
         float delta = now - past;
         past = now;
 
-        math::Matrix3f R;
-        copter.q.to_rotation_matrix(R.begin());
-        math::Vec3f rates = R.transposed() * copter.omega;
-        std::cout << std::fixed << std::setprecision(4)
-            << " Altitude: " << copter.x[2]
-            << " Airspeed: " << copter.v.norm()
-            << " Pitch: " << std::acos(R.col(0).dot(math::Vec3f(0.0f, 0.0f, 1.0f))) - pi / 2.0f << "(" << rates[1] << ")"
-            << " Roll: " << std::acos(R.col(1).dot(math::Vec3f(0.0f, 0.0f, 1.0f))) - pi / 2.0f << "(" << rates[0] << ")"
-            << " Yaw: " << std::acos(R.col(0).dot(math::Vec3f(1.0f, 0.0f, 0.0f))) - pi / 2.0f << "(" << rates[2] << ")"
-            << std::endl;
-
         simulate(delta);
         display();
+
         window.update();
-
-        if (glfwJoystickPresent(GLFW_JOYSTICK_1)) {
-            int count;
-            const float * axes = glfwGetJoystickAxes(GLFW_JOYSTICK_1, &count);
-            float turn_rate = 0.5f;
-            float yaw_rate = axes[3] * turn_rate;
-            float pitch_rate = -axes[1] * turn_rate;
-            float roll_rate = -axes[0] * turn_rate;
-            float throttle = (9.81f * 5.0f / 6.0f) * (1.0f + axes[2]);
-
-            math::Vec3f omega(roll_rate, pitch_rate, yaw_rate);
-
-            math::Vec3f error = R.transposed() * copter.omega - omega;
-
-            math::Vec3f integral = last_integral + error * delta;
-            last_integral = integral;
-
-            math::Vec3f derivative = (error - last_error) / delta;
-
-            float p = 0.5f, i = 0.03f, d = 0.04f;
-
-            math::Vec3f out = p * error + i * integral + d * derivative;
-
-            out[0] = std::max(-0.2f, std::min(0.2f, out[0]));
-            out[1] = std::max(-0.2f, std::min(0.2f, out[1]));
-            out[2] = std::max(-0.2f, std::min(0.2f, out[2]));
-
-            //std::cout << std::fixed << std::setprecision(4) << std::abs(out[0]) << " " << std::abs(out[1]) << " " << std::abs(out[2]) << std::endl;
-            copter.motors[0].speed = throttle * (1.0f - out[2]) * (1.0f + 0.25f * out[0]) * (1.0f - out[1]);
-            copter.motors[1].speed = throttle * (1.0f + out[2]) * (1.0f + 0.50f * out[0]);
-            copter.motors[2].speed = throttle * (1.0f - out[2]) * (1.0f + 0.25f * out[0]) * (1.0f + out[1]);
-            copter.motors[3].speed = throttle * (1.0f + out[2]) * (1.0f - 0.25f * out[0]) * (1.0f + out[1]);
-            copter.motors[4].speed = throttle * (1.0f - out[2]) * (1.0f - 0.50f * out[0]);
-            copter.motors[5].speed = throttle * (1.0f + out[2]) * (1.0f - 0.25f * out[0]) * (1.0f - out[1]);
-        }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
