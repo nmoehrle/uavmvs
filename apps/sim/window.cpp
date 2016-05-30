@@ -3,6 +3,12 @@
 
 #include "window.h"
 
+static void key_callback(GLFWwindow* window, int key, int /*scancode*/, int action, int /*mods*/) {
+    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
+        glfwSetWindowShouldClose(window, GL_TRUE);
+    }
+}
+
 Window::Window(const char * title, int width, int height) {
     if (!glfwInit()) {
         std::cerr << "Could not initialize GLFW" << std::endl;
@@ -21,6 +27,8 @@ Window::Window(const char * title, int width, int height) {
         glfwTerminate();
         std::exit(EXIT_FAILURE);
     }
+
+    glfwSetKeyCallback(this->window, key_callback);
 
     glfwMakeContextCurrent(this->window);
     glfwSwapInterval(1);
@@ -44,10 +52,4 @@ Window::update(void) {
 
 //glfwSetWindowSizeCallback(window, window_size_callback);
 //glfwSetWindowUserPointer(window)
-
-static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
-    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
-        glfwSetWindowShouldClose(window, GL_TRUE);
-    }
-}
 

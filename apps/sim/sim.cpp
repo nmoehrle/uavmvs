@@ -1,10 +1,8 @@
 #include <iostream>
-#include <fstream>
-#include <cerrno>
-#include <cstring>
 #include <array>
 #include <mutex>
 #include <condition_variable>
+#include <tuple>
 
 #include "util/arguments.h"
 #include "util/file_system.h"
@@ -21,25 +19,29 @@
 #include "ogl/texture.h"
 #include "ogl/camera.h"
 
+#include "acc/kd_tree.h"
+
 #include "window.h"
 #include "entity.h"
 
 struct Arguments {
     std::string model;
+    std::string proxy;
 };
 
 Arguments parse_args(int argc, char **argv) {
     util::Arguments args;
     args.set_exit_on_error(true);
-    args.set_nonopt_maxnum(1);
-    args.set_nonopt_minnum(1);
+    args.set_nonopt_maxnum(2);
+    args.set_nonopt_minnum(2);
     args.set_helptext_indent(28);
-    args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] MODEL");
+    args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] MODEL PROXY");
     args.set_description("TODO");
     args.parse(argc, argv);
 
     Arguments conf;
     conf.model = args.get_nth_nonopt(0);
+    conf.proxy = args.get_nth_nonopt(1);
 
     for (util::ArgResult const* i = args.next_option(); i != 0; i = args.next_option()) {
         switch (i->opt->sopt) {
@@ -181,7 +183,7 @@ class PropulsionRenderer : public RenderComponent {
             math::Matrix3f R;
             pose->q.to_rotation_matrix(R.begin());
 
-            for (int i = 0; i < num_engines; ++i) {
+            for (uint i = 0; i < num_engines; ++i) {
                 verts[2 * i + 0] = pose->x + R * propulsion->rs[i];
                 verts[2 * i + 1] = pose->x + R * propulsion->rs[i] + R.col(2) * (propulsion->thrusts[i] - 9.81f * 5.0f / 6.0f);
             }
@@ -488,6 +490,19 @@ int main(int argc, char **argv) {
     entities.push_back(Factory::create_copter());
     entities.push_back(Factory::create_model(args.model));
 
+    mve::TriangleMesh::Ptr mesh;
+    try {
+        mesh = mve::geom::load_ply_mesh(args.proxy);
+    } catch (std::exception& e) {
+        std::cerr << "\tCould not load mesh: "<< e.what() << std::endl;
+        std::exit(EXIT_FAILURE);
+    }
+
+    std::vector<math::Vec3f> const & verts = mesh->get_vertices();
+    std::cout << "Building acceleration structure... " << std::flush;
+    acc::KDTree<3, uint> tree(verts);
+    std::cout << "done." << std::endl;
+
     if (glfwJoystickPresent(GLFW_JOYSTICK_1)) {
         std::cout << glfwGetJoystickName(GLFW_JOYSTICK_1) << std::endl;
     }
@@ -497,8 +512,8 @@ int main(int argc, char **argv) {
     mve::ByteImage::Ptr image = mve::ByteImage::create(width, height, 3);
     std::thread worker(save, image);
 
-    double past = 0;
-    double next = 1.0;
+    double past = glfwGetTime();
+    double next = past + 1.0;
     while (window.good())
     {
         double now = glfwGetTime();
@@ -516,6 +531,11 @@ int main(int argc, char **argv) {
 
         simulate(delta);
         display();
+
+        uint nn;
+        float dist;
+        std::tie(nn, dist) = tree.find_nn(pose->x, 5.0f);
+        if (nn != -1) std::cout << "Proximity alert " << dist << "m" << std::endl;
 
         window.update();
 

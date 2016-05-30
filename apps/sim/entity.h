@@ -161,7 +161,7 @@ class PhysicsSimulator : public UpdateComponent {
             math::Vec3f f = math::Vec3f(0.0, 0.0f, -9.81f * physics->mass);
 
             // Drag
-            float csarea = 0.2f + 0.1f;//calculate properly
+            float csarea = 0.15f; //0.2f + 0.1f;//calculate properly
             if (air_speed > 0.0f) {
                 f += -motion->v.normalized() * physics->drag_coeff * csarea * air_speed * air_speed;
             }
@@ -213,8 +213,8 @@ class FlightController : public UpdateComponent {
     private:
         Pose::ConstPtr pose;
         Motion::ConstPtr motion;
-        Propulsion::Ptr propulsion;
         Control::ConstPtr control;
+        Propulsion::Ptr propulsion;
 
         math::Vec3f last_error;
         math::Vec3f last_integral;
@@ -266,7 +266,7 @@ class Logger : public UpdateComponent {
         Logger(Pose::ConstPtr pose, Motion::Ptr motion, Trajectory::Ptr trajectory)
             : pose(pose), motion(motion), trajectory(trajectory) {};
 
-        void update(double delta_time)
+        void update(double)
         {
 #if 0
             //math::Matrix3f rot;

@@ -45,7 +45,7 @@ AppSettings parse_args(int argc, char **argv) {
     args.add_option('n',"noise_scale", true, "scale mesh coordinates [1.0f]");
     args.add_option('f',"factor", true, "scale noise [1.0f]");
     args.add_option('g',"grid_scale", true, "scale grid [5.0f]");
-    args.add_option('r',"resoluiton", true, "sampling resolution [100.0f]");
+    args.add_option('r',"resolution", true, "sampling resolution [100.0f]");
     args.parse(argc, argv);
 
     AppSettings conf;
