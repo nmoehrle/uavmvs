@@ -1,0 +1,6 @@
+[submodule "libs/acc"]
+	path = libs/acc
+	url = https://github.com/nmoehrle/libacc.git
+[submodule "libs/cacc"]
+	path = libs/cacc
+	url = https://github.com/nmoehrle/libcacc.git
