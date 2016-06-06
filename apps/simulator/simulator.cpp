@@ -11,6 +11,7 @@
 
 #include "mve/mesh_io_ply.h"
 #include "mve/mesh_io_obj.h"
+#include "mve/mesh_tools.h"
 #include "mve/image_io.h"
 #include "mve/image_tools.h"
 
@@ -27,21 +28,23 @@
 struct Arguments {
     std::string model;
     std::string proxy;
+    std::string aabb;
 };
 
 Arguments parse_args(int argc, char **argv) {
     util::Arguments args;
     args.set_exit_on_error(true);
-    args.set_nonopt_maxnum(2);
-    args.set_nonopt_minnum(2);
+    args.set_nonopt_maxnum(3);
+    args.set_nonopt_minnum(3);
     args.set_helptext_indent(28);
-    args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] MODEL PROXY");
+    args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] MODEL PROXY AABB");
     args.set_description("TODO");
     args.parse(argc, argv);
 
     Arguments conf;
     conf.model = args.get_nth_nonopt(0);
     conf.proxy = args.get_nth_nonopt(1);
+    conf.aabb = args.get_nth_nonopt(2);
 
     for (util::ArgResult const* i = args.next_option(); i != 0; i = args.next_option()) {
         switch (i->opt->sopt) {
@@ -63,6 +66,7 @@ enum ShaderType {
     LINES = 3
 };
 ogl::VertexArray::Ptr axes;
+Entity::Ptr aabb;
 std::vector<Entity::Ptr> entities;
 Pose::Ptr pose;
 
@@ -299,7 +303,7 @@ class Factory {
             }
 
             pose = Pose::Ptr(new Pose);
-            pose->x = math::Vec3f(0.0f, 0.0f, 20.0f);
+            pose->x = math::Vec3f(0.0f, 0.0f, 30.0f);
             pose->q = math::Quatf(math::Vec3f(0.0f, 1.0f, 0.0f), 0.0f);
             Motion::Ptr motion(new Motion);
             motion->v = math::Vec3f(0.0f);
@@ -367,6 +371,87 @@ class Factory {
             ret->add_component(mr);
             return ret;
         }
+
+        Entity::Ptr static create_aabb(std::string const & path)
+        {
+            Pose::Ptr pose(new Pose);
+            pose->x = math::Vec3f(0.0f);
+            pose->q = math::Quatf(math::Vec3f(0.0f, 0.0f, 1.0f), 0.0f);
+            Entity::Ptr ret(new Entity);
+            Model::Ptr model = load_model(path);
+            ModelRenderer::Ptr mr(new ModelRenderer(pose, shaders[model->shader_type]));
+            for (Model::Part const & part : model->parts) {
+                mr->add_mesh(part.mesh, part.texture);
+            }
+            ret->add_component(pose);
+            ret->add_component(mr);
+            return ret;
+        }
+
+        Entity::Ptr static create_trajectory(mve::TriangleMesh::Ptr aabb, acc::KDTree<3> const & tree) {
+            Pose::Ptr pose = Pose::Ptr(new Pose);
+            pose->x = math::Vec3f(0.0f, 0.0f, 30.0f);
+            pose->q = math::Quatf(math::Vec3f(0.0f, 1.0f, 0.0f), 0.0f);
+            Motion::Ptr motion(new Motion);
+            motion->v = math::Vec3f(0.0f);
+            motion->omega = math::Vec3f(0.0f);
+            Physics::Ptr physics(new Physics);
+            physics->mass = 5.0f;
+            math::Matrix3f I(0.0f);
+            I(0, 0) = 0.25 * physics->mass;
+            I(1, 1) = 0.25 * physics->mass;
+            I(2, 2) = 0.5 * physics->mass;
+            physics->Ii = math::matrix_inverse(I);
+            physics->drag_coeff = 0.75f;
+            Propulsion::Ptr propulsion(new Propulsion);
+            propulsion->rs.resize(6);
+            propulsion->thrusts.resize(6);
+            for (std::size_t i = 0; i < 6; ++i) {
+                propulsion->thrusts[i] = (9.81f * physics->mass) / 6.0f;
+                float theta = (2.0f * pi) / 6.0f * i + pi / 6.0f;
+                propulsion->rs[i] = math::Vec3f(0.9 * std::cos(theta), 0.9 * std::sin(theta), 0.0f);
+            }
+            Trajectory::Ptr trajectory(new Trajectory);
+            Control::Ptr control(new Control);
+            control->omega = math::Vec3f(0.0f);
+
+            PhysicsSimulator::Ptr ps(new PhysicsSimulator(pose, motion, physics, propulsion));
+            Logger::Ptr l(new Logger(pose, motion, trajectory));
+            FlightController::Ptr fc(new FlightController(pose, motion, control, propulsion));
+
+
+            math::Vec3f min, max;
+            mve::geom::mesh_find_aabb(aabb, min, max);
+            std::random_device rd;
+            std::mt19937 gen(rd());
+            std::discrete_distribution<> d({10, 20, 40, 20, 10});
+
+            control->throttle = 1.0f;
+            float delta_time = 0.5f;
+            for (float time = 0.0f; time < 100.0f; time += delta_time) {
+
+                control->omega[0] = ((d(gen) - 2) / 2.0f);
+                control->omega[1] = ((d(gen) - 2) / 2.0f);
+                control->omega[2] = ((d(gen) - 2) / 2.0f);
+                ps->update(delta_time);
+                l->update(delta_time);
+                fc->update(delta_time);
+                for (int d = 0; d < 3; ++d) {
+                    if (pose->x[d] < min[d] || max[d] < pose->x[d]) break;
+                }
+                if (tree.find_nn(pose->x, 5.0f).second < 5.0f) break;
+            }
+
+            std::cout << trajectory->xs.size() << std::endl;
+
+            TrajectoryRenderer::Ptr tr(new TrajectoryRenderer(trajectory, shaders[LINES]));
+            Entity::Ptr ret(new Entity);
+            ret->add_component(pose);
+            ret->add_component(trajectory);
+            ret->add_component(tr);
+            return ret;
+        }
+
 };
 
 void
@@ -391,6 +476,7 @@ void
 init_opengl(void) {
     glClearColor(0.9f, 0.9f, 0.9f, 1.0f);
     glEnable(GL_DEPTH_TEST);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 }
 
 void render(ogl::Camera const & cam) {
@@ -407,6 +493,9 @@ void render(ogl::Camera const & cam) {
     for (Entity::Ptr const & entity : entities) {
         entity->render();
     }
+    glEnable(GL_BLEND);
+    //aabb->render();
+    glDisable(GL_BLEND);
 }
 
 void display(void) {
@@ -489,6 +578,14 @@ int main(int argc, char **argv) {
     axes = ogl::create_axis_renderer(shaders[LINES]);
     entities.push_back(Factory::create_copter());
     entities.push_back(Factory::create_model(args.model));
+    aabb = Factory::create_model("/media/nmoehrle/scratch/experiments/medina-slums/aabb-color.ply");
+    mve::TriangleMesh::Ptr aabb;
+    try {
+        aabb = mve::geom::load_ply_mesh(args.aabb);
+    } catch (std::exception& e) {
+        std::cerr << "\tCould not load mesh: "<< e.what() << std::endl;
+        std::exit(EXIT_FAILURE);
+    }
 
     mve::TriangleMesh::Ptr mesh;
     try {
@@ -502,6 +599,10 @@ int main(int argc, char **argv) {
     std::cout << "Building acceleration structure... " << std::flush;
     acc::KDTree<3, uint> tree(verts);
     std::cout << "done." << std::endl;
+
+    for (int i = 0; i < 100; ++i) {
+        entities.push_back(Factory::create_trajectory(aabb, tree));
+    }
 
     if (glfwJoystickPresent(GLFW_JOYSTICK_1)) {
         std::cout << glfwGetJoystickName(GLFW_JOYSTICK_1) << std::endl;
@@ -520,6 +621,7 @@ int main(int argc, char **argv) {
         float delta = now - past;
         past = now;
 
+#if TAKE_IMAGES
         if (now > next && !pending) {
             pending = true;
             glReadPixels(960, 540, width, height, GL_RGB, GL_UNSIGNED_BYTE, image->begin());
@@ -528,14 +630,17 @@ int main(int argc, char **argv) {
 
             next += 1.0;
         }
+#endif
 
         simulate(delta);
         display();
 
+#if 1
         uint nn;
         float dist;
         std::tie(nn, dist) = tree.find_nn(pose->x, 5.0f);
         if (nn != -1) std::cout << "Proximity alert " << dist << "m" << std::endl;
+#endif
 
         window.update();
 
