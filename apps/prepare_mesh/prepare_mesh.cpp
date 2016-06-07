@@ -82,7 +82,7 @@ int main(int argc, char **argv) {
     opts.write_face_normals = true;
     opts.write_vertex_colors = true;
     //opts.write_vertex_colors = false;
-    opts.write_vertex_argsidences = false;
+    opts.write_vertex_confidences = false;
     opts.write_vertex_values = false;
     opts.write_vertex_normals = false;
     mve::geom::save_ply_mesh(mesh, args.out_mesh, opts);
