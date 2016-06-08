@@ -4,3 +4,6 @@
 [submodule "libs/cacc"]
 	path = libs/cacc
 	url = https://github.com/nmoehrle/libcacc.git
+[submodule "libs/col"]
+	path = libs/col
+	url = https://github.com/nmoehrle/libcol.git
