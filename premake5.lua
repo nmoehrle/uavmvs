@@ -3,6 +3,11 @@ workspace "uavmvs"
     flags { "C++11" }
     location "build"
 
+    includedirs { "libs" }
+
+    filter { "system:linux", "not toolset:nvcc" }
+        linkoptions "-pthread"
+
     configuration "release"
         targetdir "build/release"
         optimize "On"
@@ -11,17 +16,13 @@ workspace "uavmvs"
         targetdir "build/debug"
         defines { "Symbols" }
 
-    filter { "system:linux" }
-        linkoptions "-pthread"
-
     os.execute("git submodule init")
     os.execute("git submodule update")
 
     premake.path = premake.path .. ";" .. path.getabsolute("elibs")
 
-    includedirs { "libs" }
-
     include("apps/generate_texture")
     include("apps/prepare_mesh")
     include("apps/generate_point_cloud")
     include("apps/simulator")
+    include("apps/evaluate_trajectory")
