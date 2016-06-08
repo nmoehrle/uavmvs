@@ -1,6 +1,5 @@
-#include "cacc/matrix.h"
-#include "cacc/point_cloud.h"
 #include "cacc/tracing.h"
+
 #include "kernel.h"
 
 __forceinline__ __device__
@@ -17,7 +16,8 @@ void
 kernel(cacc::Mat4f w2c, cacc::Mat3f calib, cacc::Vec3f view_pos,
     int width, int height,
     cacc::BVHTree<cacc::DEVICE>::Data bvh_tree,
-    cacc::PointCloud<cacc::DEVICE>::Data cloud, uint * n_ptr)
+    cacc::PointCloud<cacc::DEVICE>::Data cloud,
+    cacc::VectorArray<cacc::DEVICE, cacc::Vec2f>::Data dir_hist)
 {
     int const bx = blockIdx.x;
     int const tx = threadIdx.x;
@@ -43,6 +43,11 @@ kernel(cacc::Mat4f w2c, cacc::Mat3f calib, cacc::Vec3f view_pos,
     cacc::tracing::trace(bvh_tree, ray, &hit_face_id);
     if (hit_face_id != cacc::tracing::NAI) return;
 
-    atomicAdd(n_ptr, 1);
-    //atomicInc(n_ptr, -1);
+    uint row = dir_hist.num_rows_ptr[id] + 1;
+
+    if (row > dir_hist.max_rows) return;
+
+    dir_hist.num_rows_ptr[id] = row;
+    cacc::Vec2f dir(atan2(ray.dir[1], ray.dir[0]), acos(ray.dir[2]));
+    dir_hist.data_ptr[row * dir_hist.pitch + id] = dir;
 }
