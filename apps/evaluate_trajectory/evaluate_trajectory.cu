@@ -23,6 +23,8 @@
 
 typedef unsigned char uchar;
 
+#define GPU 1
+
 inline
 uint divup(uint a, uint b) {
     return a / b  + (a % b != 0);
@@ -68,6 +70,21 @@ load_mesh_as_bvh_tree(std::string const & path)
     std::vector<math::Vec3f> const & vertices = mesh->get_vertices();
     std::vector<uint> const & faces = mesh->get_faces();
     return acc::BVHTree<uint, math::Vec3f>::create(faces, vertices);
+}
+
+void load_scene_as_trajectory(std::string const & path, std::vector<mve::CameraInfo> * trajectory) {
+    mve::Scene::Ptr scene;
+    try {
+        scene = mve::Scene::create(path);
+    } catch (std::exception& e) {
+        std::cerr << "Could not open scene: " << e.what() << std::endl;
+        std::exit(EXIT_FAILURE);
+    }
+
+    for (mve::View::Ptr const & view : scene->get_views()) {
+        if (view == nullptr) continue;
+        trajectory->push_back(view->get_camera());
+    }
 }
 
 struct Arguments {
