@@ -4,6 +4,8 @@
 #include "util/arguments.h"
 #include "mve/mesh.h"
 #include "mve/mesh_io_ply.h"
+#include "mve/bundle.h"
+#include "mve/bundle_io.h"
 
 typedef unsigned int uint;
 
@@ -35,6 +37,8 @@ Arguments parse_args(int argc, char **argv) {
     return conf;
 }
 
+#define SAVE_MESH 1
+#define APPLY_TRANSFORM 1
 int main(int argc, char **argv) {
     Arguments args = parse_args(argc, argv);
 
@@ -49,15 +53,39 @@ int main(int argc, char **argv) {
     mesh->ensure_normals(true, false);
 
     uint const num_faces = mesh->get_faces().size() / 3;
-    std::vector<math::Vec3f> const & vertices = mesh->get_vertices();
+    std::vector<math::Vec3f> & vertices = mesh->get_vertices();
     std::vector<uint> & faces = mesh->get_faces();
     std::vector<math::Vec4f> & colors = mesh->get_vertex_colors();
-    colors.resize(vertices.size());
-    for (math::Vec4f & color : colors) {
-        color = math::Vec4f(0.7f, 0.7f, 0.7f, 0.3f);
+
+#if APPLY_TRANSFORM
+    math::Matrix4f m(0.0f);
+    m[0] =  0.938468f; m[1] = 0.345367f; m[3] = -23.886090f;
+    m[4] = -0.345367f; m[5] = 0.938468f; m[7] = -30.941100f;
+    m[10] = 1.0f;
+    m[15] = 1.0f;
+
+    for (math::Vec3f & vertex : vertices) {
+        vertex = m.mult(vertex, 1.0f);
+    }
+#endif
+
+#if CONVERT_TO_BUNDLE
+    mve::Bundle::Ptr bundle = mve::Bundle::create();
+    std::vector<mve::Bundle::Feature3D> & features = bundle->get_features();
+    features.resize(vertices.size());
+
+    for (std::size_t i = 0; i < vertices.size(); ++i) {
+        mve::Bundle::Feature3D & feature = features[i];
+        math::Vec3f const & vertex = vertices[i];
+        math::Vec4f const & color = colors[i];
+        std::copy(vertex.begin(), vertex.end(), feature.pos);
+        std::copy(color.begin(), color.end() - 1, feature.color);
     }
 
-#if 0
+    mve::save_mve_bundle(bundle, args.out_mesh);
+#endif
+
+#if REMOVE_BOTTOM_FACES
     std::vector<uint> new_faces;
     new_faces.reserve(faces.size());
 
@@ -77,6 +105,7 @@ int main(int argc, char **argv) {
     faces.swap(new_faces);
 #endif
 
+#if SAVE_MESH
     mve::geom::SavePLYOptions opts;
     opts.write_face_colors = false;
     opts.write_face_normals = true;
@@ -86,4 +115,5 @@ int main(int argc, char **argv) {
     opts.write_vertex_values = false;
     opts.write_vertex_normals = false;
     mve::geom::save_ply_mesh(mesh, args.out_mesh, opts);
+#endif
 }
