@@ -24,7 +24,7 @@ Arguments parse_args(int argc, char **argv) {
     args.set_nonopt_minnum(2);
     args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] IN_MESH OUT_CLOUD");
     args.set_description("Create point cloud by uniformly sampling the mesh surface");
-    args.add_option('s', "samples", true, "point samples pre unit square [100]");
+    args.add_option('s', "samples", true, "point samples per unit square [100]");
     args.parse(argc, argv);
 
     Arguments conf;

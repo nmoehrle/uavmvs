@@ -19,7 +19,7 @@
 
 #include "col/mpl_viridis.h"
 
-#include "kernel.h"
+#include "kernels.h"
 
 typedef unsigned char uchar;
 
@@ -99,6 +99,7 @@ Arguments parse_args(int argc, char **argv) {
     args.set_nonopt_maxnum(3);
     args.set_nonopt_minnum(3);
     args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] SCENE PROXY_MESH PROXY_CLOUD");
+    args.add_option('e', "--export", true, "export per surface point reconstructability as point cloud");
     args.set_description("Evaluate trajectory");
     args.parse(argc, argv);
 
@@ -136,7 +137,7 @@ int main(int argc, char * argv[])
     dcloud = cacc::PointCloud<cacc::DEVICE>::create<cacc::HOST>(cloud);
 
     uint num_vertices = dcloud->cdata().num_vertices;
-    uint max_cameras = 10;
+    uint max_cameras = 20;
 
     cacc::VectorArray<cacc::HOST, cacc::Vec2f>::Ptr hdir_hist;
     hdir_hist = cacc::VectorArray<cacc::HOST, cacc::Vec2f>::create(num_vertices, max_cameras);
@@ -186,13 +187,15 @@ int main(int argc, char * argv[])
 
                 if (bvh_tree->intersect(ray)) continue;
 
-                uint row = dir_hist.num_rows_ptr[i] + 1;
-
+                uint row = dir_hist.num_rows_ptr[i];
                 if (row >= dir_hist.max_rows) continue;
 
                 dir_hist.num_rows_ptr[i] = row;
                 cacc::Vec2f dir(atan2(ray.dir[1], ray.dir[0]), acos(ray.dir[2]));
-                dir_hist.data_ptr[row * dir_hist.pitch / sizeof(cacc::Vec2f) + i] = dir;
+                int const stride = dir_hist.pitch / sizeof(cacc::Vec2f
+                dir_hist.data_ptr[row * stride + i] = dir;
+
+                dir_hist.num_rows_ptr[i] += 1;
             }
 
         }
@@ -215,7 +218,7 @@ int main(int argc, char * argv[])
             cam.fill_world_to_cam(w2c.begin());
             cam.fill_camera_pos(view_pos.begin());
 
-            kernel<<<grid, block, 0, stream>>>(
+            populate_histogram<<<grid, block, 0, stream>>>(
                 cacc::Mat4f(w2c.begin()), cacc::Mat3f(calib.begin()),
                 cacc::Vec3f(view_pos.begin()), width, height,
                 dbvh_tree->cdata(), dcloud->cdata(), ddir_hist->cdata()
@@ -226,6 +229,13 @@ int main(int argc, char * argv[])
     end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> diff = end - start;
     std::cout << "GPU: " << diff.count() << std::endl;
+
+    {
+        dim3 grid(divup(dcloud->cdata().num_vertices, KERNEL_BLOCK_SIZE));
+        dim3 block(KERNEL_BLOCK_SIZE);
+        evaluate_histogram<<<grid, block>>>(ddir_hist->cdata());
+        CHECK(cudaDeviceSynchronize());
+    }
 
     *hdir_hist = *ddir_hist;
 #endif
@@ -240,11 +250,18 @@ int main(int argc, char * argv[])
 
     std::vector<math::Vec4f> & colors = mesh->get_vertex_colors();
     colors.resize(num_vertices);
-    for (std::size_t i = 0; i < num_vertices; ++i) {
-        float samples = hdir_hist->cdata().num_rows_ptr[i];
-        uchar quality = 255 * (samples / max_cameras);
-        math::Vec3f color(col::maps::viridis[quality]);
-        colors[i] = math::Vec4f(color[0], color[1], color[2], 1.0f);
+
+    {
+        cacc::VectorArray<cacc::HOST, cacc::Vec2f>::Data const & dir_hist = hdir_hist->cdata();
+        int const stride = dir_hist.pitch / sizeof(cacc::Vec2f);
+        #pragma omp parallel for
+        for (std::size_t i = 0; i < num_vertices; ++i) {
+            //uint num_samples = dir_hist.num_rows_ptr[i];
+            cacc::Vec2f eigen = dir_hist.data_ptr[(max_cameras - 1) * stride + i];
+            uchar quality = 255 * std::max(0.0f, std::min(eigen[0], 1.0f));
+            math::Vec3f color(col::maps::viridis[quality]);
+            colors[i] = math::Vec4f(color[0], color[1], color[2], 1.0f);
+        }
     }
 
     mve::geom::SavePLYOptions opts;
