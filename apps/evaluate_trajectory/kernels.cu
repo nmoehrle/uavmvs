@@ -27,16 +27,21 @@ populate_histogram(cacc::Mat4f w2c, cacc::Mat3f calib, cacc::Vec3f view_pos,
 
     if (id >= cloud.num_vertices) return;
     cacc::Vec3f v = cloud.vertices_ptr[id];
+    cacc::Vec3f n = cloud.normals_ptr[id];
     cacc::Vec3f v2c = view_pos - v;
-    float n = norm(v2c);
-    //if (n > 80.0f) return; //TODO make configurable
+    float l = norm(v2c);
+
+    // 0.995f ~ cos(5.0f / 180.0f * pi)
+    if (dot(v2c / l, n) < 0.995f) return;
+
+    //if (l > 80.0f) return; //TODO make configurable
     cacc::Vec2f p = project(v, w2c, calib);
 
     if (p[0] < 0.0f || width <= p[0] || p[1] < 0.0f || height <= p[1]) return;
 
     cacc::Ray ray;
     ray.origin = v + v2c * 0.001f;
-    ray.dir = v2c / n;
+    ray.dir = v2c / l;
     ray.set_tmin(0.0f);
     ray.set_tmax(inf);
 
@@ -94,5 +99,6 @@ evaluate_histogram(cacc::VectorArray<cacc::DEVICE, cacc::Vec2f>::Data dir_hist)
     float tmp = sqrt((trace * trace) / 4.0f - det);
 
     cacc::Vec2f eigen(trace / 2.0f + tmp, trace / 2.0f - tmp);
+    dir_hist.data_ptr[(dir_hist.max_rows - 2) * stride + id] = mean;
     dir_hist.data_ptr[(dir_hist.max_rows - 1) * stride + id] = eigen;
 }

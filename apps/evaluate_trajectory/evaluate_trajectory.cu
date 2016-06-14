@@ -91,6 +91,7 @@ struct Arguments {
     std::string scene;
     std::string proxy_mesh;
     std::string proxy_cloud;
+    std::string export_cloud;
 };
 
 Arguments parse_args(int argc, char **argv) {
@@ -99,7 +100,7 @@ Arguments parse_args(int argc, char **argv) {
     args.set_nonopt_maxnum(3);
     args.set_nonopt_minnum(3);
     args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] SCENE PROXY_MESH PROXY_CLOUD");
-    args.add_option('e', "--export", true, "export per surface point reconstructability as point cloud");
+    args.add_option('e', "export", true, "export per surface point reconstructability as point cloud");
     args.set_description("Evaluate trajectory");
     args.parse(argc, argv);
 
@@ -111,6 +112,9 @@ Arguments parse_args(int argc, char **argv) {
     for (util::ArgResult const* i = args.next_option();
          i != nullptr; i = args.next_option()) {
         switch (i->opt->sopt) {
+        case 'e':
+            conf.export_cloud = i->arg;
+        break;
         default:
             throw std::invalid_argument("Invalid option");
         }
@@ -251,7 +255,7 @@ int main(int argc, char * argv[])
     std::vector<math::Vec4f> & colors = mesh->get_vertex_colors();
     colors.resize(num_vertices);
 
-    {
+    if (!args.export_cloud.empty()) {
         cacc::VectorArray<cacc::HOST, cacc::Vec2f>::Data const & dir_hist = hdir_hist->cdata();
         int const stride = dir_hist.pitch / sizeof(cacc::Vec2f);
         #pragma omp parallel for
@@ -262,9 +266,8 @@ int main(int argc, char * argv[])
             math::Vec3f color(col::maps::viridis[quality]);
             colors[i] = math::Vec4f(color[0], color[1], color[2], 1.0f);
         }
+        mve::geom::SavePLYOptions opts;
+        opts.write_vertex_colors = true;
+        mve::geom::save_ply_mesh(mesh, args.export_cloud, opts);
     }
-
-    mve::geom::SavePLYOptions opts;
-    opts.write_vertex_colors = true;
-    mve::geom::save_ply_mesh(mesh, "/tmp/test.ply", opts);
 }
