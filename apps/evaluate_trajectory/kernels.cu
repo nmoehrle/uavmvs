@@ -42,8 +42,8 @@ populate_histogram(cacc::Mat4f w2c, cacc::Mat3f calib, cacc::Vec3f view_pos,
     cacc::Ray ray;
     ray.origin = v + v2c * 0.001f;
     ray.dir = v2c / l;
-    ray.set_tmin(0.0f);
-    ray.set_tmax(inf);
+    ray.set_tmin(0.0f); //TODO check if l * 0.001f works
+    ray.set_tmax(l);
 
     uint hit_face_id;
     cacc::tracing::trace(bvh_tree, ray, &hit_face_id);
