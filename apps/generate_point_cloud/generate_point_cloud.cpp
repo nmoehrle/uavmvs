@@ -63,6 +63,7 @@ int main(int argc, char **argv) {
 
     mve::TriangleMesh::Ptr omesh = mve::TriangleMesh::create();
     std::vector<math::Vec3f> & overts = omesh->get_vertices();
+    std::vector<math::Vec3f> & onormals = omesh->get_vertex_normals();
 
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -71,18 +72,21 @@ int main(int argc, char **argv) {
     #pragma omp parallel
     {
         std::vector<math::Vec3f> samples;
+        std::vector<math::Vec3f> normals;
 
         #pragma omp for
         for (std::size_t i = 0; i < faces.size(); i += 3) {
             math::Vec3f v0 = verts[faces[i + 0]];
             math::Vec3f v1 = verts[faces[i + 1]];
             math::Vec3f v2 = verts[faces[i + 2]];
+            math::Vec3f normal = (v2 - v0).cross(v1 - v0);
 
             float area = math::geom::triangle_area(v0, v1, v2);
 
             uint num_samples = std::ceil(area * args.samples);
 
             samples.reserve(samples.size() + num_samples);
+            normals.reserve(normals.size() + num_samples);
             for (uint j = 0; j < num_samples; ++j) {
                 float u = dist(gen);
                 float v = dist(gen);
@@ -94,13 +98,18 @@ int main(int argc, char **argv) {
                 float w = 1.0f - v - u;
 
                 samples.push_back(u * v0 + v * v1 + w * v2);
+                normals.push_back(normal);
             }
         }
 
         #pragma omp critical
         {
             overts.insert(overts.end(), samples.begin(), samples.end());
+            onormals.insert(onormals.end(), normals.begin(), normals.end());
         }
     }
-    mve::geom::save_ply_mesh(omesh, args.out_cloud);
+    mve::geom::SavePLYOptions opts;
+    opts.write_vertex_normals = true;
+    opts.write_face_colors = false; //Only necessary to fix output PR pending
+    mve::geom::save_ply_mesh(omesh, args.out_cloud, opts);
 }

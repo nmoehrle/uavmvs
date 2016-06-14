@@ -110,7 +110,6 @@ int main(int argc, char **argv) {
     opts.write_face_colors = false;
     opts.write_face_normals = true;
     opts.write_vertex_colors = true;
-    //opts.write_vertex_colors = false;
     opts.write_vertex_confidences = false;
     opts.write_vertex_values = false;
     opts.write_vertex_normals = false;
