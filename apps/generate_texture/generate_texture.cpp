@@ -20,9 +20,7 @@
 typedef unsigned int uint;
 constexpr float inf = std::numeric_limits<float>::infinity();
 
-/* ---------------------------- initialize argument parser ---------------------------- */
-
-struct AppSettings {
+struct Arguments {
     std::string in_mesh;
     std::string out_prefix;
     float factor;
@@ -33,7 +31,7 @@ struct AppSettings {
     float resolution;
 };
 
-AppSettings parse_args(int argc, char **argv) {
+Arguments parse_args(int argc, char **argv) {
     util::Arguments args;
     args.set_exit_on_error(true);
     args.set_nonopt_maxnum(2);
@@ -42,13 +40,13 @@ AppSettings parse_args(int argc, char **argv) {
     args.set_description("Generate noise textures for the mesh with simplex noise.");
     args.add_option('o', "octaves", true, "octaves of noise [6]");
     args.add_option('p', "persistence", true, "persistence of noise [0.6]");
-    args.add_option('n', "noise_scale", true, "scale mesh coordinates [1.0f]");
+    args.add_option('n', "noise-scale", true, "scale mesh coordinates [1.0f]");
     args.add_option('f', "factor", true, "scale noise [1.0f]");
-    args.add_option('g', "grid_scale", true, "scale grid [5.0f]");
+    args.add_option('g', "grid-scale", true, "scale grid [5.0f]");
     args.add_option('r', "resolution", true, "sampling resolution [100.0f]");
     args.parse(argc, argv);
 
-    AppSettings conf;
+    Arguments conf;
     conf.in_mesh = args.get_nth_nonopt(0);
     conf.out_prefix = args.get_nth_nonopt(1);
     conf.factor = 1.0f;
@@ -135,7 +133,7 @@ void convex_hull(std::vector<math::Vec2f> const & vertices, std::list<uint> * co
     }
 }
 
-void surr_rect(std::vector<math::Vec2f> const & vertices, std::vector<math::Vec2f> * surr_rect_ptr) {
+void surrounding_rect(std::vector<math::Vec2f> const & vertices, std::vector<math::Vec2f> * rect_ptr) {
     std::list<uint> hull;
     convex_hull(vertices, &hull);
 
@@ -171,7 +169,7 @@ void surr_rect(std::vector<math::Vec2f> const & vertices, std::vector<math::Vec2
             math::Vec2f c = b + h * n;
             math::Vec2f d = a + h * n;
 
-            *surr_rect_ptr = {a, b, c, d};
+            *rect_ptr = {a, b, c, d};
         }
     }
 }
@@ -186,15 +184,13 @@ math::Vec3f orthogonal(math::Vec3f const & vec) {
     }
 }
 
-/* ---------------------------------------------------------------- */
-
 int main(int argc, char **argv) {
-    AppSettings conf = parse_args(argc, argv);
+    Arguments args = parse_args(argc, argv);
 
     std::cout << "Load mesh: " << std::endl;
     mve::TriangleMesh::Ptr mesh;
     try {
-        mesh = mve::geom::load_ply_mesh(conf.in_mesh);
+        mesh = mve::geom::load_ply_mesh(args.in_mesh);
     } catch (std::exception& e) {
         std::cerr << "\tCould not load mesh: "<< e.what() << std::endl;
         std::exit(EXIT_FAILURE);
@@ -272,7 +268,7 @@ int main(int argc, char **argv) {
 
         /* Determine a surrounding rectangle of the projections */
         std::vector<math::Vec2f> rect;
-        surr_rect(ps_2d, &rect);
+        surrounding_rect(ps_2d, &rect);
 
         /* Zero area faces have no surrounding rect...*/
         if (rect.size() != 4) continue;
@@ -290,8 +286,8 @@ int main(int argc, char **argv) {
         n0 = ab.normalized();
         n1 = ad.normalized();
 
-        int w = std::ceil(ab.norm() * conf.resolution);
-        int h = std::ceil(ad.norm() * conf.resolution);
+        int w = std::ceil(ab.norm() * args.resolution);
+        int h = std::ceil(ad.norm() * args.resolution);
 
         std::cout << w << 'x' << h << std::endl;
 
@@ -313,15 +309,15 @@ int main(int argc, char **argv) {
 
                 /* Calculate noise */
                 math::Vec3f v = (v0 + fx * n0 + fy * n1);
-                math::Vec3f sv = v * conf.noise_scale;
-                float value = 0.5f + simplex_noise(sv[0], sv[1], sv[2], conf.octaves, conf.persistence) * conf.factor;
+                math::Vec3f sv = v * args.noise_scale;
+                float value = 0.5f + simplex_noise(sv[0], sv[1], sv[2], args.octaves, args.persistence) * args.factor;
 
                 /* Blend with 3D grid */
                 float dist = inf;
-                dist = std::min(dist, std::abs(std::fmod(v.dot(diag0), conf.grid_scale)));
-                dist = std::min(dist, std::abs(std::fmod(v.dot(diag1), conf.grid_scale)));
-                dist = std::min(dist, std::abs(std::fmod(v.dot(diag2), conf.grid_scale)));
-                value = value * (1.0f - math::gaussian(dist, conf.grid_scale / 100.0f));
+                dist = std::min(dist, std::abs(std::fmod(v.dot(diag0), args.grid_scale)));
+                dist = std::min(dist, std::abs(std::fmod(v.dot(diag1), args.grid_scale)));
+                dist = std::min(dist, std::abs(std::fmod(v.dot(diag2), args.grid_scale)));
+                value = value * (1.0f - math::gaussian(dist, args.grid_scale / 100.0f));
 
                 value = std::min(1.0f, std::max(0.0f, value));
                 image->at(x, y, 0) = value * 255.0f;
@@ -339,5 +335,5 @@ int main(int argc, char **argv) {
 
     tex::Model model;
     tex::build_model(mesh, texture_atlases, &model);
-    tex::Model::save(model, conf.out_prefix);
+    tex::Model::save(model, args.out_prefix);
 }
