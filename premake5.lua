@@ -14,7 +14,7 @@ workspace "uavmvs"
 
     configuration "debug"
         targetdir "build/debug"
-        defines { "Symbols" }
+        flags { "Symbols" }
 
     os.execute("git submodule init")
     os.execute("git submodule update")

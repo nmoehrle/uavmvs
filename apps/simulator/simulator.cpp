@@ -2,6 +2,7 @@
 #include <array>
 #include <mutex>
 #include <condition_variable>
+#include <random>
 #include <tuple>
 
 #include "util/arguments.h"
