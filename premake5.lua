@@ -22,7 +22,7 @@ workspace "uavmvs"
     premake.path = premake.path .. ";" .. path.getabsolute("elibs")
 
     include("apps/generate_texture")
-    include("apps/prepare_mesh")
     include("apps/generate_point_cloud")
     include("apps/simulator")
     include("apps/evaluate_trajectory")
+    include("apps/mesh_tools")

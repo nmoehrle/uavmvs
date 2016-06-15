@@ -11,6 +11,19 @@ project(cacc::Vec3f const & v,
     return cacc::Vec2f(p[0] / p[2] - 0.5f, p[1] / p[2] - 0.5f);
 }
 
+__forceinline__ __device__
+cacc::Vec3f
+orthogonal(cacc::Vec3f const & vec)
+{
+    cacc::Vec3f const n0(1.0f, 0.0f, 0.0f);
+    cacc::Vec3f const n1(0.0f, 1.0f, 0.0f);
+    if (abs(dot(n0, vec)) < abs(dot(n1, vec))) {
+        return cross(n0, vec);
+    } else {
+        return cross(n1, vec);
+    }
+}
+
 __global__
 void
 populate_histogram(cacc::Mat4f w2c, cacc::Mat3f calib, cacc::Vec3f view_pos,
@@ -30,9 +43,11 @@ populate_histogram(cacc::Mat4f w2c, cacc::Mat3f calib, cacc::Vec3f view_pos,
     cacc::Vec3f n = cloud.normals_ptr[id];
     cacc::Vec3f v2c = view_pos - v;
     float l = norm(v2c);
+    cacc::Vec3f v2cn = v2c / l;
 
-    // 0.995f ~ cos(5.0f / 180.0f * pi)
-    if (dot(v2c / l, n) < 0.995f) return;
+    float ctheta = dot(v2cn, n);
+    // 0.087f ~ cos(85.0f / 180.0f * pi)
+    //if (abs(ctheta) < 0.087f) return;
 
     //if (l > 80.0f) return; //TODO make configurable
     cacc::Vec2f p = project(v, w2c, calib);
@@ -40,9 +55,9 @@ populate_histogram(cacc::Mat4f w2c, cacc::Mat3f calib, cacc::Vec3f view_pos,
     if (p[0] < 0.0f || width <= p[0] || p[1] < 0.0f || height <= p[1]) return;
 
     cacc::Ray ray;
-    ray.origin = v + v2c * 0.001f;
-    ray.dir = v2c / l;
-    ray.set_tmin(0.0f); //TODO check if l * 0.001f works
+    ray.origin = v;
+    ray.dir = v2cn;
+    ray.set_tmin(l * 0.001f);
     ray.set_tmax(l);
 
     uint hit_face_id;
@@ -53,8 +68,13 @@ populate_histogram(cacc::Mat4f w2c, cacc::Mat3f calib, cacc::Vec3f view_pos,
 
     if (row >= dir_hist.max_rows) return;
 
+    cacc::Vec3f b0 = orthogonal(n).normalize();
+    cacc::Vec3f b1 = cross(n, b0).normalize();
+    cacc::Vec3f x = v2cn - ctheta * n;
+
     dir_hist.num_rows_ptr[id] = row;
-    cacc::Vec2f dir(atan2(ray.dir[1], ray.dir[0]), acos(ray.dir[2]));
+    cacc::Vec2f dir(dot(x, b0), dot(x, b1));
+    //cacc::Vec2f dir(atan2(ray.dir[1], ray.dir[0]), acos(ray.dir[2]));
     dir_hist.data_ptr[row * stride + id] = dir;
 
     dir_hist.num_rows_ptr[id] += 1;
@@ -74,12 +94,15 @@ evaluate_histogram(cacc::VectorArray<cacc::DEVICE, cacc::Vec2f>::Data dir_hist)
 
     uint num_rows = dir_hist.num_rows_ptr[id];
 
+    float mq = 0.0f;
     cacc::Vec2f mean(0.0f);
     for (uint row = 0; row < num_rows; ++row) {
         cacc::Vec2f dir = dir_hist.data_ptr[row * stride + id];
+        mq += sin(acos(norm(dir)));
         mean += dir;
     }
     mean /= num_rows;
+    mq /= num_rows;
 
     //Sample mean/covariance?
 
@@ -97,6 +120,8 @@ evaluate_histogram(cacc::VectorArray<cacc::DEVICE, cacc::Vec2f>::Data dir_hist)
     float det = cacc::det(cov);
 
     float tmp = sqrt((trace * trace) / 4.0f - det);
+
+    mean[0] = mq;
 
     cacc::Vec2f eigen(trace / 2.0f + tmp, trace / 2.0f - tmp);
     dir_hist.data_ptr[(dir_hist.max_rows - 2) * stride + id] = mean;

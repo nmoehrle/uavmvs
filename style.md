@@ -31,5 +31,10 @@
 - always use braces for control structures
     - exception single keyword statements `if (!condition) return;`
 
+##### Spaces
+- spaces around binary operators
+- single space precede curly braces
+    - exception curly brace is first nonspace character in line
+
 ##### Comments and Documentation
 TODO

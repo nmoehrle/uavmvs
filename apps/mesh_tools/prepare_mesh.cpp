@@ -37,8 +37,9 @@ Arguments parse_args(int argc, char **argv) {
     return conf;
 }
 
-#define SAVE_MESH 1
-#define APPLY_TRANSFORM 1
+#define SAVE_MESH 0
+#define APPLY_TRANSFORM 0
+#define CONVERT_TO_BUNDLE 1
 int main(int argc, char **argv) {
     Arguments args = parse_args(argc, argv);
 

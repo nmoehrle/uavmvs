@@ -244,30 +244,29 @@ int main(int argc, char * argv[])
     *hdir_hist = *ddir_hist;
 #endif
 
-    mve::TriangleMesh::Ptr mesh;
-    try {
-        mesh = mve::geom::load_ply_mesh(args.proxy_cloud);
-    } catch (std::exception& e) {
-        std::cerr << "\tCould not load mesh: "<< e.what() << std::endl;
-        std::exit(EXIT_FAILURE);
-    }
-
-    std::vector<math::Vec4f> & colors = mesh->get_vertex_colors();
-    colors.resize(num_vertices);
-
     if (!args.export_cloud.empty()) {
+        mve::TriangleMesh::Ptr mesh;
+        try {
+            mesh = mve::geom::load_ply_mesh(args.proxy_cloud);
+        } catch (std::exception& e) {
+            std::cerr << "\tCould not load mesh: "<< e.what() << std::endl;
+            std::exit(EXIT_FAILURE);
+        }
+
+        std::vector<float> & values = mesh->get_vertex_values();
+        values.resize(num_vertices);
+
         cacc::VectorArray<cacc::HOST, cacc::Vec2f>::Data const & dir_hist = hdir_hist->cdata();
         int const stride = dir_hist.pitch / sizeof(cacc::Vec2f);
         #pragma omp parallel for
         for (std::size_t i = 0; i < num_vertices; ++i) {
-            //uint num_samples = dir_hist.num_rows_ptr[i];
+            cacc::Vec2f mean = dir_hist.data_ptr[(max_cameras - 2) * stride + i];
             cacc::Vec2f eigen = dir_hist.data_ptr[(max_cameras - 1) * stride + i];
-            uchar quality = 255 * std::max(0.0f, std::min(eigen[0], 1.0f));
-            math::Vec3f color(col::maps::viridis[quality]);
-            colors[i] = math::Vec4f(color[0], color[1], color[2], 1.0f);
+            float lambda = std::max(std::abs(eigen[0]), std::abs(eigen[1]));
+            values[i] = mean[0] * (10.0f * std::max(0.0f, std::min(lambda, 1.0f / 10.0f)));
         }
         mve::geom::SavePLYOptions opts;
-        opts.write_vertex_colors = true;
+        opts.write_vertex_values = true;
         mve::geom::save_ply_mesh(mesh, args.export_cloud, opts);
     }
 }
