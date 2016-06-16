@@ -1,6 +1,8 @@
 #include <cstdlib>
 #include <iostream>
 
+#include <GLFW/glfw3.h>
+
 #include "window.h"
 
 static void key_callback(GLFWwindow* window, int key, int /*scancode*/, int action, int /*mods*/) {
@@ -11,8 +13,7 @@ static void key_callback(GLFWwindow* window, int key, int /*scancode*/, int acti
 
 Window::Window(const char * title, int width, int height) {
     if (!glfwInit()) {
-        std::cerr << "Could not initialize GLFW" << std::endl;
-        std::exit(EXIT_FAILURE);
+        throw std::runtime_error("Could not initialize GLFW");
     }
 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
@@ -20,12 +21,15 @@ Window::Window(const char * title, int width, int height) {
     glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GL_TRUE);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+
+    if (title[0] == 0) {
+        glfwWindowHint(GLFW_VISIBLE, GL_FALSE);
+    }
+
     this->window = glfwCreateWindow(width, height, title, NULL, NULL);
     if (!this->window)
     {
-        std::cerr << "Could not create window" << std::endl;
-        glfwTerminate();
-        std::exit(EXIT_FAILURE);
+        throw std::runtime_error("Could not create GLFW window");
     }
 
     glfwSetKeyCallback(this->window, key_callback);

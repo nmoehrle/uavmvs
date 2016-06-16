@@ -58,19 +58,6 @@ Arguments parse_args(int argc, char **argv) {
 
 constexpr float pi = std::acos(-1.0f);
 
-//TODO get rid of those global variables
-std::array<ogl::ShaderProgram::Ptr, 4> shaders;
-enum ShaderType {
-    VCOLOR = 0,
-    SURFACE = 1,
-    TEXTURE = 2,
-    LINES = 3
-};
-ogl::VertexArray::Ptr axes;
-Entity::Ptr aabb;
-std::vector<Entity::Ptr> entities;
-Pose::Ptr pose;
-
 class ModelRenderer : public RenderComponent {
     public:
         typedef std::shared_ptr<ModelRenderer> Ptr;
@@ -103,13 +90,16 @@ class ModelRenderer : public RenderComponent {
 
         void render(void)
         {
-            math::Matrix3f rot;
-            pose->q.to_rotation_matrix(rot.begin());
-            math::Vec3f trans = pose->x;
-            math::Matrix4f m = rot.hstack(trans).vstack(math::Vec4f(0.0f, 0.0f, 0.0f, 1.0f));
-            shader->bind();
-            shader->send_uniform("modelmat", m);
-            shader->unbind();
+            if (pose != nullptr) {
+                math::Matrix3f rot;
+                pose->q.to_rotation_matrix(rot.begin());
+                math::Vec3f trans = pose->x;
+                math::Matrix4f m = rot.hstack(trans).vstack(math::Vec4f(0.0f, 0.0f, 0.0f, 1.0f));
+                shader->bind();
+                shader->send_uniform("modelmat", m);
+                shader->unbind();
+            }
+
             for (Part const & part : parts) {
                 if (part.texture != nullptr) {
                     part.texture->bind();
@@ -210,88 +200,11 @@ class PropulsionRenderer : public RenderComponent {
         }
 };
 
-struct Model {
-    typedef std::shared_ptr<Model> Ptr;
-    struct Part {
-        mve::TriangleMesh::Ptr mesh;
-        ogl::Texture::Ptr texture;
-    };
-    std::vector<Part> parts;
-    ShaderType shader_type;
-};
-
-
-ogl::Texture::Ptr
-load_texture(std::string const & path) {
-    std::cout << "loading texture: " << path << std::endl;
-    ogl::Texture::Ptr texture = ogl::Texture::create();
-    mve::ByteImage::Ptr image;
-    try {
-        image = mve::image::load_file(path);
-    } catch (std::exception& e) {
-        std::cerr << "Could not load image: " << e.what() << std::endl;
-        exit(EXIT_FAILURE);
-    }
-    texture->upload(image);
-
-    texture->bind();
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-    ogl::check_gl_error();
-
-    return texture;
-}
-
-Model::Ptr
-load_model(std::string const & path) {
-    std::string ext = util::string::right(path, 4);
-
-    Model::Ptr model = Model::Ptr(new Model());
-    if (ext == ".ply") {
-        mve::TriangleMesh::Ptr mesh;
-        try {
-            mesh = mve::geom::load_ply_mesh(path);
-        } catch (std::exception& e) {
-            std::cerr << "\tCould not load mesh: "<< e.what() << std::endl;
-            std::exit(EXIT_FAILURE);
-        }
-        mesh->ensure_normals(true, true);
-
-        model->shader_type = mesh->has_vertex_colors() ? VCOLOR : SURFACE;
-
-        model->parts.emplace_back();
-        Model::Part & part = model->parts.back();
-        part.mesh = mesh;
-        part.texture = nullptr;
-    } else if (ext == ".obj") {
-        std::vector<mve::geom::ObjModelPart> obj_model_parts;
-        try {
-             mve::geom::load_obj_mesh(path, &obj_model_parts);
-        } catch (std::exception& e) {
-            std::cerr << "Could not load model: " << e.what() << std::endl;
-            exit(EXIT_FAILURE);
-        }
-
-        model->shader_type = TEXTURE;
-
-        model->parts.resize(obj_model_parts.size());
-        for (std::size_t i = 0; i < model->parts.size(); ++i) {
-            model->parts[i].texture = load_texture(obj_model_parts[i].texture_filename);
-            model->parts[i].mesh = obj_model_parts[i].mesh;
-        }
-
-    } else {
-        std::cerr << "Unknown file extension " << ext << std::endl;
-        exit(EXIT_FAILURE);
-    }
-    return model;
-}
 
 class Factory {
     public:
-        Entity::Ptr static create_copter()
+        Entity::Ptr static create_copter(std::array<ogl::ShaderProgram::Ptr, 4> const & shaders,
+            Pose::Ptr pose, Trajectory::Ptr trajectory)
         {
             //TODO extract
             std::string basename = util::fs::dirname(util::fs::get_binary_path());
@@ -325,7 +238,7 @@ class Factory {
                 float theta = (2.0f * pi) / 6.0f * i + pi / 6.0f;
                 propulsion->rs[i] = math::Vec3f(0.9 * std::cos(theta), 0.9 * std::sin(theta), 0.0f);
             }
-            Trajectory::Ptr trajectory(new Trajectory);
+            trajectory = Trajectory::Ptr(new Trajectory);
             Control::Ptr control(new Control);
             control->omega = math::Vec3f(0.0f);
 
@@ -357,38 +270,20 @@ class Factory {
             return ret;
         }
 
-        Entity::Ptr static create_model(std::string const & path)
+        Entity::Ptr static create_model(std::array<ogl::ShaderProgram::Ptr, 4> const & shaders,
+            std::string const & path)
         {
-            Pose::Ptr pose(new Pose);
-            pose->x = math::Vec3f(0.0f);
-            pose->q = math::Quatf(math::Vec3f(0.0f, 0.0f, 1.0f), 0.0f);
             Entity::Ptr ret(new Entity);
             Model::Ptr model = load_model(path);
-            ModelRenderer::Ptr mr(new ModelRenderer(pose, shaders[model->shader_type]));
+            ModelRenderer::Ptr mr(new ModelRenderer(nullptr, shaders[model->shader_type]));
             for (Model::Part const & part : model->parts) {
                 mr->add_mesh(part.mesh, part.texture);
             }
-            ret->add_component(pose);
             ret->add_component(mr);
             return ret;
         }
 
-        Entity::Ptr static create_aabb(std::string const & path)
-        {
-            Pose::Ptr pose(new Pose);
-            pose->x = math::Vec3f(0.0f);
-            pose->q = math::Quatf(math::Vec3f(0.0f, 0.0f, 1.0f), 0.0f);
-            Entity::Ptr ret(new Entity);
-            Model::Ptr model = load_model(path);
-            ModelRenderer::Ptr mr(new ModelRenderer(pose, shaders[model->shader_type]));
-            for (Model::Part const & part : model->parts) {
-                mr->add_mesh(part.mesh, part.texture);
-            }
-            ret->add_component(pose);
-            ret->add_component(mr);
-            return ret;
-        }
-
+#if 0
         Entity::Ptr static create_trajectory(mve::TriangleMesh::Ptr aabb, acc::KDTree<3> const & tree) {
             Pose::Ptr pose = Pose::Ptr(new Pose);
             pose->x = math::Vec3f(0.0f, 0.0f, 30.0f);
@@ -452,25 +347,26 @@ class Factory {
             ret->add_component(tr);
             return ret;
         }
+#endif
 
 };
 
 void
-load_shader(ShaderType shader_type, std::string const & path) {
-    shaders[shader_type] = ogl::ShaderProgram::create();
-    if (!shaders[shader_type]->try_load_all(path)) {
+load_shader(std::string const & path, ogl::ShaderProgram::Ptr shader) {
+    shader = ogl::ShaderProgram::create();
+    if (!shader->try_load_all(path)) {
         std::cerr << "\tCould not load shaders from: " << path << std::endl;
         std::exit(EXIT_FAILURE);
     }
 }
 
 void
-load_shaders(void) {
+load_shaders(std::array<ogl::ShaderProgram::Ptr, 4> * shaders) {
     std::string basename = util::fs::dirname(util::fs::get_binary_path());
-    load_shader(VCOLOR, basename + "/shaders/vcolor");
-    load_shader(SURFACE, basename + "/shaders/surface");
-    load_shader(TEXTURE, basename + "/shaders/texture");
-    load_shader(LINES, basename + "/shaders/lines");
+    load_shader(basename + "/shaders/vcolor", shaders->at(VCOLOR));
+    load_shader(basename + "/shaders/surface", shaders->at(SURFACE));
+    load_shader(basename + "/shaders/texture", shaders->at(TEXTURE));
+    load_shader(basename + "/shaders/lines", shaders->at(LINES));
 }
 
 void
@@ -480,7 +376,10 @@ init_opengl(void) {
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 }
 
-void render(ogl::Camera const & cam) {
+void render(std::vector<Entity::Ptr> const & entities,
+    std::array<ogl::ShaderProgram::Ptr, 4> shaders,
+    ogl::Camera const & cam)
+{
     for (ogl::ShaderProgram::Ptr & sp : shaders) {
         sp->bind();
         sp->send_uniform("viewmat", cam.view);
@@ -490,7 +389,6 @@ void render(ogl::Camera const & cam) {
         sp->send_uniform("modelmat", eye);
         sp->unbind();
     }
-    axes->draw();
     for (Entity::Ptr const & entity : entities) {
         entity->render();
     }
@@ -499,7 +397,10 @@ void render(ogl::Camera const & cam) {
     glDisable(GL_BLEND);
 }
 
-void display(void) {
+void display(std::vector<Entity::Ptr> const & entities,
+    std::array<ogl::ShaderProgram::Ptr, 4> const & shaders,
+    Pose::Ptr pose)
+{
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     ogl::Camera camera;
@@ -509,7 +410,7 @@ void display(void) {
     camera.top = 0.05f / (960.0f / 1080.0f);
     camera.pos = math::Vec3f(0.0f, 0.0f, 150.0f);
     camera.update_matrices();
-    render(camera);
+    render(entities, shaders, camera);
 
     math::Matrix3f rot;
     pose->q.to_rotation_matrix(rot.begin());
@@ -524,46 +425,23 @@ void display(void) {
     camera.viewing_dir = view_dir;
     camera.up_vec = up;
     camera.update_matrices();
-    render(camera);
+    render(entities, shaders, camera);
 
     glViewport(960, 0, 960, 540);
     camera.pos = pose->x + 1.5f * up - view_dir * 2.0f;
     camera.viewing_dir = math::matrix_rotation_from_axis_angle(right, pi / 4) * view_dir;
     camera.up_vec = up;
     camera.update_matrices();
-    render(camera);
+    render(entities, shaders, camera);
 
     glFlush();
 }
 
-void simulate(float delta) {
+void simulate(std::vector<Entity::Ptr> const & entities, float delta) {
     for (Entity::Ptr const & entity : entities) {
         entity->update(delta);
     }
 }
-
-std::mutex m;
-std::condition_variable cv;
-bool pending = false;
-bool done = false;
-void save(mve::ByteImage::Ptr image) {
-    uint num_images = 0;
-    while (!done) {
-        std::unique_lock<std::mutex> lk(m);
-        cv.wait(lk);
-
-        if (pending) {
-            mve::image::flip<uint8_t>(image, mve::image::FLIP_VERTICAL);
-            std::string filename = std::string("/tmp/test");
-            filename += util::string::get_filled(num_images++, 4) + ".png";
-            mve::image::save_png_file(image, filename);
-            pending = false;
-            std::cout << filename << std::endl;
-        }
-    }
-}
-
-/* ---------------------------------------------------------------- */
 
 int main(int argc, char **argv) {
     util::system::register_segfault_handler();
@@ -574,12 +452,15 @@ int main(int argc, char **argv) {
     Window window("UAVMVS Simulator", 1920, 1080);
     init_opengl();
 
-    load_shaders(); //TODO store shaders...
+    std::array<ogl::ShaderProgram::Ptr, 4> shaders;
+    load_shaders(&shaders);
 
-    axes = ogl::create_axis_renderer(shaders[LINES]);
-    entities.push_back(Factory::create_copter());
-    entities.push_back(Factory::create_model(args.model));
-    aabb = Factory::create_model("/media/nmoehrle/scratch/experiments/medina-slums/aabb-color.ply");
+    std::vector<Entity::Ptr> entities;
+    Trajectory::Ptr trajecory;
+    Pose::Ptr pose;
+    entities.push_back(Factory::create_copter(shaders, pose, trajectory));
+    entities.push_back(Factory::create_model(shaders, args.model));
+
     mve::TriangleMesh::Ptr aabb;
     try {
         aabb = mve::geom::load_ply_mesh(args.aabb);
@@ -601,40 +482,19 @@ int main(int argc, char **argv) {
     acc::KDTree<3, uint> tree(verts);
     std::cout << "done." << std::endl;
 
-    for (int i = 0; i < 100; ++i) {
-        entities.push_back(Factory::create_trajectory(aabb, tree));
-    }
-
     if (glfwJoystickPresent(GLFW_JOYSTICK_1)) {
         std::cout << glfwGetJoystickName(GLFW_JOYSTICK_1) << std::endl;
     }
 
-    int width = 960;
-    int height = 540;
-    mve::ByteImage::Ptr image = mve::ByteImage::create(width, height, 3);
-    std::thread worker(save, image);
-
     double past = glfwGetTime();
-    double next = past + 1.0;
     while (window.good())
     {
         double now = glfwGetTime();
         float delta = now - past;
         past = now;
 
-#if TAKE_IMAGES
-        if (now > next && !pending) {
-            pending = true;
-            glReadPixels(960, 540, width, height, GL_RGB, GL_UNSIGNED_BYTE, image->begin());
-            std::lock_guard<std::mutex> lk(m);
-            cv.notify_one();
-
-            next += 1.0;
-        }
-#endif
-
-        simulate(delta);
-        display();
+        simulate(entities, delta);
+        display(entities, shaders, pose);
 
 #if 1
         uint nn;
@@ -648,12 +508,9 @@ int main(int argc, char **argv) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
-    done = true;
-    {
-        std::lock_guard<std::mutex> lk(m);
-        cv.notify_all();
+    if (!args.trajectory.empty()) {
+        trajectory->save(args.trajectory)
     }
-    worker.join();
 
     return EXIT_SUCCESS;
 }
