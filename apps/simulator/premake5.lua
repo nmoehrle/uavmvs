@@ -4,8 +4,8 @@ project "simulator"
     kind "ConsoleApp"
     language "C++"
 
-    files { "simulator.cpp", "window.cpp" }
+    files { "simulator.cpp" }
 
     mve.use({ "util", "ogl" })
 
-    links { "GL", "glfw" }
+    links { "GL", "glfw", "sim" }

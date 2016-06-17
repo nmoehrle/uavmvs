@@ -125,7 +125,7 @@ int main(int argc, char **argv) {
     Window window("", 640, 480);
     init_opengl();
 
-    Engine::Ptr engine(new Engine("/home/nmoehrle/repos/uavmvs/libs/sim/shaders/"));
+    Engine::Ptr engine(new Engine());
     engine->create_static_model(args.model);
 
     int width = args.width;

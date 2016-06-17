@@ -16,6 +16,7 @@ private:
     std::vector<Entity::Ptr> entities;
     std::unordered_map<ShaderType, Shader::Ptr, std::hash<char> > shaders;
 
+protected:
     Shader::Ptr get_shader(ShaderType shader_type) {
         auto it = shaders.find(shader_type);
         if (it != shaders.end()) return it->second;
@@ -25,8 +26,9 @@ private:
         shaders[shader_type] = ret;
         return ret;
     }
+
 public:
-    Engine(std::string const & basepath) : basepath(basepath) {}
+    Engine(std::string const & basepath = __FILE__) : basepath(basepath) {}
 
     void update(double delta_time) {
         for (Entity::Ptr const & entity : entities) {
@@ -45,6 +47,10 @@ public:
         for (Entity::Ptr const & entity : entities) {
             entity->render();
         }
+    }
+
+    void add_entity(Entity::Ptr entity) {
+        entities.push_back(entity);
     }
 
     Entity::Ptr create_static_model(std::string const & path)

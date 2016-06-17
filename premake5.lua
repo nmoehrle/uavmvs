@@ -25,7 +25,7 @@ workspace "uavmvs"
 
     include("apps/generate_texture")
     include("apps/generate_point_cloud")
+    include("apps/simulator")
     include("apps/capture_trajectory")
-    --include("apps/simulator")
     include("apps/evaluate_trajectory")
     include("apps/mesh_tools")
