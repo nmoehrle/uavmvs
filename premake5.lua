@@ -26,6 +26,7 @@ workspace "uavmvs"
 
     include("libs/sim")
 
+    include("apps/template")
     include("apps/generate_texture")
     include("apps/generate_point_cloud")
     include("apps/simulator")
