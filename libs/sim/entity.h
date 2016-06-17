@@ -90,6 +90,7 @@ struct Propulsion : public DataComponent {
     typedef std::shared_ptr<const Propulsion> ConstPtr;
     std::vector<math::Vec3f> rs;
     std::vector<float> thrusts;
+    float max_thrust;
 };
 
 struct Trajectory : public DataComponent {
@@ -235,24 +236,24 @@ public:
         math::Vec3f derivative = (error - last_error) / delta_time;
 
         //TODO extract PID
-        float p = 0.5f, i = 0.03f, d = 0.04f;
+        float p = 0.5f, i = 0.1f, d = 0.04f;
 
         math::Vec3f out = p * error + i * integral + d * derivative;
 
-        float rate_limit = 0.5f;
+        float rate_limit = 2.0f;
 
         out[0] = std::max(-rate_limit, std::min(rate_limit, out[0]));
         out[1] = std::max(-rate_limit, std::min(rate_limit, out[1]));
         out[2] = std::max(-rate_limit, std::min(rate_limit, out[2]));
 
-        float throttle = 2 * control->throttle * 9.81f;
+        float thrust = control->throttle * propulsion->max_thrust;
 
-        propulsion->thrusts[0] = throttle * (1.0f - out[2]) * (1.0f + 0.25f * out[0]) * (1.0f - out[1]);
-        propulsion->thrusts[1] = throttle * (1.0f + out[2]) * (1.0f + 0.50f * out[0]);
-        propulsion->thrusts[2] = throttle * (1.0f - out[2]) * (1.0f + 0.25f * out[0]) * (1.0f + out[1]);
-        propulsion->thrusts[3] = throttle * (1.0f + out[2]) * (1.0f - 0.25f * out[0]) * (1.0f + out[1]);
-        propulsion->thrusts[4] = throttle * (1.0f - out[2]) * (1.0f - 0.50f * out[0]);
-        propulsion->thrusts[5] = throttle * (1.0f + out[2]) * (1.0f - 0.25f * out[0]) * (1.0f - out[1]);
+        propulsion->thrusts[0] = thrust * (1.0f - out[2]) * (1.0f + 0.25f * out[0]) * (1.0f - out[1]);
+        propulsion->thrusts[1] = thrust * (1.0f + out[2]) * (1.0f + 0.50f * out[0]);
+        propulsion->thrusts[2] = thrust * (1.0f - out[2]) * (1.0f + 0.25f * out[0]) * (1.0f + out[1]);
+        propulsion->thrusts[3] = thrust * (1.0f + out[2]) * (1.0f - 0.25f * out[0]) * (1.0f + out[1]);
+        propulsion->thrusts[4] = thrust * (1.0f - out[2]) * (1.0f - 0.50f * out[0]);
+        propulsion->thrusts[5] = thrust * (1.0f + out[2]) * (1.0f - 0.25f * out[0]) * (1.0f - out[1]);
     }
 };
 

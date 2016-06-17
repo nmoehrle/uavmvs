@@ -27,6 +27,8 @@
 #include "sim/entity.h"
 #include "sim/engine.h"
 
+#define __ABSFILE__ util::fs::join_path(__ROOT__, __FILE__)
+
 struct Arguments {
     std::string model;
     std::string proxy;
@@ -101,13 +103,14 @@ class TrajectoryRenderer : public RenderComponent {
 class PropulsionRenderer : public RenderComponent {
     private:
         Pose::ConstPtr pose;
+        Physics::ConstPtr physics;
         Propulsion::ConstPtr propulsion;
         Shader::Ptr shader;
 
     public:
-        PropulsionRenderer(Pose::ConstPtr pose, Propulsion::ConstPtr propulsion,
-            Shader::Ptr shader)
-            : pose(pose), propulsion(propulsion), shader(shader) {};
+        PropulsionRenderer(Pose::ConstPtr pose, Physics::ConstPtr physics,
+            Propulsion::ConstPtr propulsion, Shader::Ptr shader)
+            : pose(pose), physics(physics), propulsion(propulsion), shader(shader) {};
 
         void render(void)
         {
@@ -129,7 +132,8 @@ class PropulsionRenderer : public RenderComponent {
 
             for (uint i = 0; i < num_engines; ++i) {
                 verts[2 * i + 0] = pose->x + R * propulsion->rs[i];
-                verts[2 * i + 1] = pose->x + R * propulsion->rs[i] + R.col(2) * (propulsion->thrusts[i] - 9.81f * 5.0f / 6.0f);
+                float rel_thrust = propulsion->thrusts[i] - 9.81f * physics->mass / num_engines;
+                verts[2 * i + 1] = pose->x + R * propulsion->rs[i] + R.col(2) * rel_thrust * 0.1f;
             }
 
             for (uint i = 0; i < 2 * num_engines; ++i) {
@@ -156,35 +160,37 @@ private:
 public:
     typedef std::shared_ptr<Simulator> Ptr;
 
-    Simulator(std::string const & path) : basepath(path), Engine() {}
+    Simulator(std::string const & basepath = util::fs::dirname(__ABSFILE__))
+        : basepath(basepath), Engine() {}
 
-    Entity::Ptr create_copter(Pose::Ptr pose, Trajectory::Ptr trajectory)
+    Entity::Ptr create_copter(Pose::Ptr * pose_ptr, Trajectory::Ptr * trajectory_ptr)
     {
-        //TODO extract
-        std::string basename = util::fs::dirname(util::fs::get_binary_path());
         mve::TriangleMesh::Ptr mesh;
         try {
-            mesh = mve::geom::load_ply_mesh(basename + "/models/proxy.ply");
-        } catch (std::exception& e) {
-            std::cerr << "\tCould not load mesh: " << e.what() << std::endl;
-            std::exit(EXIT_FAILURE);
-        }
+            mesh = mve::geom::load_ply_mesh(basepath + "/models/proxy.ply");
+        } catch (std::exception & e) {
+            throw std::runtime_error(std::string("Could not load mesh: ") + e.what());
+        } //TODO extract
 
-        pose = Pose::Ptr(new Pose);
+        Pose::Ptr pose(new Pose);
         pose->x = math::Vec3f(0.0f, 0.0f, 30.0f);
         pose->q = math::Quatf(math::Vec3f(0.0f, 1.0f, 0.0f), 0.0f);
+
         Motion::Ptr motion(new Motion);
         motion->v = math::Vec3f(0.0f);
         motion->omega = math::Vec3f(0.0f);
+
         Physics::Ptr physics(new Physics);
-        physics->mass = 5.0f;
+        physics->mass = 7.51f;
         math::Matrix3f I(0.0f);
         I(0, 0) = 0.25 * physics->mass;
         I(1, 1) = 0.25 * physics->mass;
         I(2, 2) = 0.5 * physics->mass;
         physics->Ii = math::matrix_inverse(I);
         physics->drag_coeff = 0.75f;
+
         Propulsion::Ptr propulsion(new Propulsion);
+        propulsion->max_thrust = 9.81f * 2.85f;
         propulsion->rs.resize(6);
         propulsion->thrusts.resize(6);
         for (std::size_t i = 0; i < 6; ++i) {
@@ -192,7 +198,8 @@ public:
             float theta = (2.0f * pi) / 6.0f * i + pi / 6.0f;
             propulsion->rs[i] = math::Vec3f(0.9 * std::cos(theta), 0.9 * std::sin(theta), 0.0f);
         }
-        trajectory = Trajectory::Ptr(new Trajectory);
+
+        Trajectory::Ptr trajectory(new Trajectory);
         Control::Ptr control(new Control);
         control->omega = math::Vec3f(0.0f);
 
@@ -204,7 +211,7 @@ public:
         DynamicModelRenderer::Ptr mr(new DynamicModelRenderer(pose, this->get_shader(VCOLOR)));
         mr->add_mesh(mesh, nullptr);
         TrajectoryRenderer::Ptr tr(new TrajectoryRenderer(trajectory, this->get_shader(LINES)));
-        PropulsionRenderer::Ptr pr(new PropulsionRenderer(pose, propulsion, this->get_shader(LINES)));
+        PropulsionRenderer::Ptr pr(new PropulsionRenderer(pose, physics, propulsion, this->get_shader(LINES)));
 
         Entity::Ptr ret(new Entity);
         ret->add_component(pose);
@@ -221,6 +228,11 @@ public:
         ret->add_component(mr);
         ret->add_component(tr);
         ret->add_component(pr);
+
+        *pose_ptr = pose;
+        *trajectory_ptr = trajectory;
+
+        this->add_entity(ret);
 
         return ret;
     }
@@ -306,31 +318,28 @@ void display(Simulator::Ptr simulator, Pose::Ptr pose)
 
     ogl::Camera camera;
 
-    glViewport(0, 0, 960, 1080);
-    camera.right = 0.05f;
-    camera.top = 0.05f / (960.0f / 1080.0f);
-    camera.pos = math::Vec3f(0.0f, 0.0f, 150.0f);
-    camera.update_matrices();
-    simulator->render(camera);
-
     math::Matrix3f rot;
     pose->q.to_rotation_matrix(rot.begin());
     math::Vec3f view_dir = rot.col(0);
     math::Vec3f right = rot.col(1);
     math::Vec3f up = rot.col(2);
 
-    glViewport(960, 540, 960, 540);
+    glViewport(0, 0, 1920, 1080);
     camera.top = 0.05f;
     camera.right = 0.05f * (960.0f / 540.0f);
     camera.pos = pose->x + view_dir * 0.85f;
-    camera.viewing_dir = view_dir;
+    camera.viewing_dir = math::matrix_rotation_from_axis_angle(right, - pi / 8.0f) * view_dir;
     camera.up_vec = up;
     camera.update_matrices();
     simulator->render(camera);
 
-    glViewport(960, 0, 960, 540);
+    glViewport(1280, 600, 640, 480);
+    glScissor(1280, 600, 640, 480);
+    glEnable(GL_SCISSOR_TEST);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glDisable(GL_SCISSOR_TEST);
     camera.pos = pose->x + 1.5f * up - view_dir * 2.0f;
-    camera.viewing_dir = math::matrix_rotation_from_axis_angle(right, pi / 4) * view_dir;
+    camera.viewing_dir = math::matrix_rotation_from_axis_angle(right, pi / 4.0f) * view_dir;
     camera.up_vec = up;
     camera.update_matrices();
     simulator->render(camera);
@@ -355,10 +364,11 @@ int main(int argc, char **argv) {
 
     Pose::Ptr pose;
     Trajectory::Ptr trajectory;
-    Simulator::Ptr simulator(new Simulator(std::string(__FILE__)));
-    simulator->create_copter(pose, trajectory);
+    Simulator::Ptr simulator(new Simulator());
+    simulator->create_copter(&pose, &trajectory);
     simulator->create_static_model(args.model);
 
+#if 0
     mve::TriangleMesh::Ptr aabb;
     try {
         aabb = mve::geom::load_ply_mesh(args.aabb);
@@ -366,6 +376,7 @@ int main(int argc, char **argv) {
         std::cerr << "\tCould not load mesh: "<< e.what() << std::endl;
         std::exit(EXIT_FAILURE);
     }
+#endif
 
     mve::TriangleMesh::Ptr mesh;
     try {
@@ -394,12 +405,10 @@ int main(int argc, char **argv) {
         simulator->update(delta_time);
         display(simulator, pose);
 
-#if 1
         uint nn;
         float dist;
         std::tie(nn, dist) = tree.find_nn(pose->x, 5.0f);
         if (nn != -1) std::cout << "Proximity alert " << dist << "m" << std::endl;
-#endif
 
         window.update();
 

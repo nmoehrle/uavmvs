@@ -1,7 +1,10 @@
 workspace "uavmvs"
     configurations { "debug", "release", "profile" }
     flags { "C++11" }
-    location "build"
+    local builddir = path.join(_MAIN_SCRIPT_DIR, "build")
+    location (builddir)
+
+    defines { "__ROOT__=\"" .. builddir .. "\"" }
 
     includedirs { "libs" }
 
