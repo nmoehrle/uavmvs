@@ -1,4 +1,5 @@
 #include <iostream>
+#include <fstream>
 #include <array>
 #include <mutex>
 #include <condition_variable>
@@ -32,26 +33,29 @@
 struct Arguments {
     std::string model;
     std::string proxy;
-    std::string aabb;
+    std::string trajectory;
 };
 
 Arguments parse_args(int argc, char **argv) {
     util::Arguments args;
     args.set_exit_on_error(true);
-    args.set_nonopt_maxnum(3);
-    args.set_nonopt_minnum(3);
+    args.set_nonopt_maxnum(2);
+    args.set_nonopt_minnum(2);
     args.set_helptext_indent(28);
-    args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] MODEL PROXY AABB");
-    args.set_description("TODO");
+    args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] MODEL PROXY");
+    args.add_option('e', "export-trajectory", true, "export trajectory to file");
+    args.set_description("Hexacopter simulator");
     args.parse(argc, argv);
 
     Arguments conf;
     conf.model = args.get_nth_nonopt(0);
     conf.proxy = args.get_nth_nonopt(1);
-    conf.aabb = args.get_nth_nonopt(2);
 
     for (util::ArgResult const* i = args.next_option(); i != 0; i = args.next_option()) {
         switch (i->opt->sopt) {
+        case 'e':
+            conf.trajectory = i->arg;
+        break;
         default:
             throw std::invalid_argument("Invalid option");
         }
@@ -163,7 +167,7 @@ public:
     Simulator(std::string const & basepath = util::fs::dirname(__ABSFILE__))
         : basepath(basepath), Engine() {}
 
-    Entity::Ptr create_copter(Pose::Ptr * pose_ptr, Trajectory::Ptr * trajectory_ptr)
+    Entity::Ptr create_copter(Pose::ConstPtr * pose_ptr, Trajectory::ConstPtr * trajectory_ptr)
     {
         mve::TriangleMesh::Ptr mesh;
         try {
@@ -312,7 +316,7 @@ init_opengl(void) {
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 }
 
-void display(Simulator::Ptr simulator, Pose::Ptr pose)
+void display(Simulator::Ptr simulator, Pose::ConstPtr pose)
 {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -362,8 +366,8 @@ int main(int argc, char **argv) {
     Window window("UAVMVS Simulator", 1920, 1080);
     init_opengl();
 
-    Pose::Ptr pose;
-    Trajectory::Ptr trajectory;
+    Pose::ConstPtr pose;
+    Trajectory::ConstPtr trajectory;
     Simulator::Ptr simulator(new Simulator());
     simulator->create_copter(&pose, &trajectory);
     simulator->create_static_model(args.model);
@@ -415,11 +419,14 @@ int main(int argc, char **argv) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
-#if 0
     if (!args.trajectory.empty()) {
-        trajectory->save(args.trajectory)
+        std::ofstream out(args.trajectory.c_str());
+        if (!out.good()) throw std::runtime_error("Could not open file");
+        for (std::size_t i = 0; i < trajectory->xs.size(); ++i) {
+            out << trajectory->xs[i] << " " << trajectory->qs[i] << std::endl;
+        }
+        out.close();
     }
-#endif
 
     return EXIT_SUCCESS;
 }

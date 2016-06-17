@@ -98,6 +98,7 @@ struct Trajectory : public DataComponent {
     typedef std::shared_ptr<const Trajectory> ConstPtr;
     //std::vector<double> ts
     std::vector<math::Vec3f> xs;
+    std::vector<math::Quatf> qs;
 };
 
 struct Physics : public DataComponent {
@@ -283,6 +284,7 @@ public:
 #endif
         //TODO only every x milliseconds;
         trajectory->xs.push_back(pose->x);
+        trajectory->qs.push_back(pose->q);
     }
 };
 
