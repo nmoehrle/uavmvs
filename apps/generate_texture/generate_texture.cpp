@@ -19,6 +19,7 @@
 
 typedef unsigned int uint;
 constexpr float inf = std::numeric_limits<float>::infinity();
+constexpr float eps = std::numeric_limits<float>::epsilon();
 
 struct Arguments {
     std::string in_mesh;
@@ -282,6 +283,11 @@ int main(int argc, char **argv) {
         /* Determine uv coordinates for the projections */
         math::Vec3f ab = b - a;
         math::Vec3f ad = d - a;
+        float nab = ab.norm();
+        float nad = ad.norm();
+
+        if (nad < eps || nab < eps) continue;
+
         v0 = a;
         n0 = ab.normalized();
         n1 = ad.normalized();
@@ -294,8 +300,8 @@ int main(int argc, char **argv) {
         for (std::size_t j = 0; j < 3 * segment.size(); ++j) {
             math::Vec3f const & p_3d = ps_3d[j];
             math::Vec2f & p_2d = ps_2d[j];
-            p_2d[0] = ((p_3d - v0).dot(n0) / ab.norm()) * static_cast<float>(w - 1);
-            p_2d[1] = ((p_3d - v0).dot(n1) / ad.norm()) * static_cast<float>(h - 1);
+            p_2d[0] = ((p_3d - v0).dot(n0) / nab) * static_cast<float>(w - 1);
+            p_2d[1] = ((p_3d - v0).dot(n1) / nad) * static_cast<float>(h - 1);
         }
 
         /* Sample the volume */
