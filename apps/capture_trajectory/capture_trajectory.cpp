@@ -1,4 +1,5 @@
 #include <iostream>
+#include <future>
 
 #include "util/system.h"
 #include "util/arguments.h"
@@ -130,6 +131,7 @@ int main(int argc, char **argv) {
 
     int width = args.width;
     int height = args.height;
+    std::string image_name = args.image_name;
 
     mve::Scene::Ptr scene;
     try {
@@ -148,7 +150,13 @@ int main(int argc, char **argv) {
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fbo);
     glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
 
-    for (mve::View::Ptr const & view : scene->get_views()) {
+    std::vector<mve::View::Ptr> const & views = scene->get_views();
+    std::size_t num_views = views.size();
+
+    std::vector<std::future<void> > futures;
+    futures.reserve(num_views);
+
+    for (mve::View::Ptr const & view : views) {
         ogl::Camera ogl_cam;
         float const znear = 0.1f;
         float const zfar = 1000.0f;
@@ -171,12 +179,15 @@ int main(int argc, char **argv) {
         glPixelStorei(GL_PACK_ALIGNMENT, 1);
         glReadPixels(0, 0, width, height, GL_RGBA, GL_FLOAT, image->begin());
         ogl::check_gl_error();
-        mve::image::flip<float>(image, mve::image::FLIP_VERTICAL);
 
-        image->delete_channel(3);
+        futures.push_back(std::async(std::launch::async, [view, image, image_name] {
+            mve::image::flip<float>(image, mve::image::FLIP_VERTICAL);
 
-        view->set_image(mve::image::float_to_byte_image(image), args.image_name);
-        view->save_view();
+            image->delete_channel(3);
+
+            view->set_image(mve::image::float_to_byte_image(image), image_name);
+            view->save_view();
+        }));
     }
 
     return EXIT_SUCCESS;
