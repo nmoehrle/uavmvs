@@ -423,7 +423,11 @@ int main(int argc, char **argv) {
         std::ofstream out(args.trajectory.c_str());
         if (!out.good()) throw std::runtime_error("Could not open file");
         for (std::size_t i = 0; i < trajectory->xs.size(); ++i) {
-            out << trajectory->xs[i] << " " << trajectory->qs[i] << std::endl;
+            out << trajectory->xs[i] << std::endl;
+
+            math::Matrix3f rot;
+            trajectory->qs[i].to_rotation_matrix(rot.begin());
+            out << rot;
         }
         out.close();
     }
