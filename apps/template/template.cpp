@@ -28,8 +28,8 @@ Arguments parse_args(int argc, char **argv) {
     args.set_nonopt_minnum(1);
     args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] ARGUMENT");
     args.set_description("Template app");
-    args.add_option('f', "first-option", true, "secondargument");
-    args.add_option('s', "second-option", true, "third argument");
+    args.add_option('f', "first-option", true, "first option");
+    args.add_option('s', "second-option", true, "second option");
     args.add_option('\0', "choice", true, "choices "
             + choices<Choice>(FIRST_CHOICE));
     args.parse(argc, argv);

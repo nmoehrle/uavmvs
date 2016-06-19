@@ -295,8 +295,6 @@ int main(int argc, char **argv) {
         int w = std::ceil(ab.norm() * args.resolution);
         int h = std::ceil(ad.norm() * args.resolution);
 
-        std::cout << w << 'x' << h << std::endl;
-
         for (std::size_t j = 0; j < 3 * segment.size(); ++j) {
             math::Vec3f const & p_3d = ps_3d[j];
             math::Vec2f & p_2d = ps_2d[j];

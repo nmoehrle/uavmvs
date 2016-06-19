@@ -3,6 +3,8 @@
 
 #include "util/system.h"
 #include "util/arguments.h"
+#include "util/tokenizer.h"
+#include "util/progress_counter.h"
 
 #include "mve/scene.h"
 #include "mve/mesh_io_ply.h"
@@ -19,7 +21,7 @@
 struct Arguments {
     std::string scene_dir;
     std::string model;
-    std::string image_name = "undistorted";
+    std::string image_name = "original";
     int width = 1920;
     int height = 1080;
 };
@@ -32,6 +34,7 @@ Arguments parse_args(int argc, char **argv) {
     args.set_helptext_indent(28);
     args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] SCENE_DIR MODEL");
     args.set_description("Renders the model from all trajectory views given as scene");
+    args.add_option('r', "resolution", true, "resolution [1920x1080]");
     args.parse(argc, argv);
 
     Arguments conf;
@@ -40,6 +43,15 @@ Arguments parse_args(int argc, char **argv) {
 
     for (util::ArgResult const* i = args.next_option(); i != 0; i = args.next_option()) {
         switch (i->opt->sopt) {
+        case 'r':
+        {
+            util::Tokenizer tok;
+            tok.split(i->arg, 'x');
+            if (tok.size() != 2) throw std::invalid_argument("Invalid resolution");
+            conf.width = tok.get_as<int>(0);
+            conf.height =  tok.get_as<int>(1);
+        }
+        break;
         default:
             throw std::invalid_argument("Invalid option");
         }
@@ -142,7 +154,7 @@ int main(int argc, char **argv) {
     }
 
     GLuint fbo, rbo_color, rbo_depth;
-    setup_fbo(&fbo, &rbo_color, &rbo_depth, 4, width, height);
+    setup_fbo(&fbo, &rbo_color, &rbo_depth, 2, width, height);
 
     GLuint fbo_final, rbo_color_final, rbo_depth_final;
     setup_fbo(&fbo_final, &rbo_color_final, &rbo_depth_final, 0, width, height);
@@ -156,7 +168,10 @@ int main(int argc, char **argv) {
     std::vector<std::future<void> > futures;
     futures.reserve(num_views);
 
+    ProgressCounter view_counter("Capturing views", num_views);
     for (mve::View::Ptr const & view : views) {
+        view_counter.progress<BASIC>();
+
         ogl::Camera ogl_cam;
         float const znear = 0.1f;
         float const zfar = 1000.0f;
@@ -180,14 +195,19 @@ int main(int argc, char **argv) {
         glReadPixels(0, 0, width, height, GL_RGBA, GL_FLOAT, image->begin());
         ogl::check_gl_error();
 
-        futures.push_back(std::async(std::launch::async, [view, image, image_name] {
-            mve::image::flip<float>(image, mve::image::FLIP_VERTICAL);
+        futures.push_back(std::async(std::launch::async,
+            [view, &image_name] (mve::FloatImage::Ptr image) {
+                mve::image::flip<float>(image, mve::image::FLIP_VERTICAL);
 
-            image->delete_channel(3);
+                image->delete_channel(3);
 
-            view->set_image(mve::image::float_to_byte_image(image), image_name);
-            view->save_view();
-        }));
+                view->set_image(mve::image::float_to_byte_image(image), image_name);
+                view->save_view();
+                view->cache_cleanup();
+            }, image)
+        );
+
+        view_counter.inc();
     }
 
     return EXIT_SUCCESS;
