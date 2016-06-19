@@ -133,7 +133,7 @@ int main(int argc, char * argv[])
     bvh_tree = load_mesh_as_bvh_tree(args.proxy_mesh);
     cacc::BVHTree<cacc::DEVICE>::Ptr dbvh_tree;
     dbvh_tree = cacc::BVHTree<cacc::DEVICE>::create<uint, math::Vec3f>(bvh_tree);
-    cacc::tracing::load_textures(dbvh_tree->cdata());
+    cacc::tracing::bind_textures(dbvh_tree->cdata());
 
     cacc::PointCloud<cacc::HOST>::Ptr cloud;
     cloud = load_point_cloud(args.proxy_cloud);
