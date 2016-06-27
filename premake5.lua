@@ -34,3 +34,4 @@ workspace "uavmvs"
     include("apps/evaluate_trajectory")
     include("apps/mesh_tools")
     include("apps/create_bundle")
+    include("apps/determine_transform")
