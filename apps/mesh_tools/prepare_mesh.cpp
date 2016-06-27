@@ -1,4 +1,5 @@
 #include <iostream>
+#include <fstream>
 #include <vector>
 
 #include "util/arguments.h"
@@ -12,6 +13,7 @@ typedef unsigned int uint;
 struct Arguments {
     std::string in_mesh;
     std::string out_mesh;
+    std::string transform;
 };
 
 Arguments parse_args(int argc, char **argv) {
@@ -21,14 +23,19 @@ Arguments parse_args(int argc, char **argv) {
     args.set_nonopt_minnum(2);
     args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] IN_MESH OUT_MESH");
     args.set_description("Prepare mesh for ...");
+    args.add_option('t', "transform", true, "transform vertices with matrix file");
     args.parse(argc, argv);
 
     Arguments conf;
     conf.in_mesh = args.get_nth_nonopt(0);
     conf.out_mesh = args.get_nth_nonopt(1);
+
     for (util::ArgResult const* i = args.next_option();
          i != nullptr; i = args.next_option()) {
         switch (i->opt->sopt) {
+        case 't':
+            conf.transform = i->arg;
+        break;
         default:
             throw std::invalid_argument("Invalid option");
         }
@@ -37,9 +44,31 @@ Arguments parse_args(int argc, char **argv) {
     return conf;
 }
 
-#define SAVE_MESH 0
-#define APPLY_TRANSFORM 0
-#define CONVERT_TO_BUNDLE 1
+math::Matrix4f
+load_matrix_from_file(std::string const & filename) {
+    math::Matrix4f ret;
+    std::ifstream in(filename.c_str());
+    if (!in.good()) {
+        throw std::runtime_error("Could not open matrix file");
+    }
+
+    for (int i = 0; i < 16; ++i) {
+        in >> ret[i];
+    }
+
+    if (in.fail()) {
+        in.close();
+        throw std::runtime_error("Invalid matrix file");
+    }
+
+    in.close();
+
+    return ret;
+}
+
+#define SAVE_MESH 1
+#define APPLY_TRANSFORM 1
+#define CONVERT_TO_BUNDLE 0
 int main(int argc, char **argv) {
     Arguments args = parse_args(argc, argv);
 
@@ -58,17 +87,13 @@ int main(int argc, char **argv) {
     std::vector<uint> & faces = mesh->get_faces();
     std::vector<math::Vec4f> & colors = mesh->get_vertex_colors();
 
-#if APPLY_TRANSFORM
-    math::Matrix4f m(0.0f);
-    m[0] =  0.936050f; m[1] = 0.351866f; m[3] = -24.849516f;
-    m[4] = -0.351866f; m[5] = 0.936050f; m[7] = -32.347613f;
-    m[10] = 1.0f;
-    m[15] = 1.0f;
+    if (!args.transform.empty()) {
+        math::Matrix4f m = load_matrix_from_file(args.transform);
 
-    for (math::Vec3f & vertex : vertices) {
-        vertex = m.mult(vertex, 1.0f);
+        for (std::size_t i = 0; i < vertices.size(); ++i) {
+            vertices[i] = m.mult(vertices[i], 1.0f);
+        }
     }
-#endif
 
 #if CONVERT_TO_BUNDLE
     mve::Bundle::Ptr bundle = mve::Bundle::create();
