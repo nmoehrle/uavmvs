@@ -33,3 +33,4 @@ workspace "uavmvs"
     include("apps/capture_trajectory")
     include("apps/evaluate_trajectory")
     include("apps/mesh_tools")
+    include("apps/create_bundle")
