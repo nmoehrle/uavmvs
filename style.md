@@ -12,17 +12,17 @@
 - variables snake_case
 - file extensions .h .cpp
 - filenames snake_case.cpp
-- use dashes in cli arguments ```--solver-type=ImplicitEuler```
+- use dashes in cli arguments `--solver-type=ImplicitEuler`
 
 ##### Indentation
 - four spaces no tabs
-- indent visibility statements
+- do not indent visibility statements
 ```
     class FileLogger {
-        private:
-            std::ofstream;
-        public:
-            FileLogger(std::string const & path);
+    private:
+        std::ofstream;
+    public:
+        FileLogger(std::string const & path);
     }
 ```
 - braces in the
@@ -30,6 +30,15 @@
     - next line for function declarations
 - always use braces for control structures
     - exception single keyword statements `if (!condition) return;`
+
+##### Spaces
+- spaces around binary operators
+- single space precede opening curly braces
+    - exception curly brace is first nonspace character in line
+
+##### Includes
+- order from generic to specific
+- distinguish system headers `<>`
 
 ##### Comments and Documentation
 TODO
