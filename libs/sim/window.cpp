@@ -1,13 +1,18 @@
 #include <cstdlib>
 #include <iostream>
 
-#include <GLFW/glfw3.h>
-
 #include "window.h"
 
-static void key_callback(GLFWwindow* window, int key, int /*scancode*/, int action, int /*mods*/) {
+void key_callback_wrapper(GLFWwindow* glfw_window,
+    int key, int /*scancode*/, int action, int /*mods*/)
+{
     if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
-        glfwSetWindowShouldClose(window, GL_TRUE);
+        glfwSetWindowShouldClose(glfw_window, GL_TRUE);
+    }
+
+    Window * window = (Window*) glfwGetWindowUserPointer(glfw_window);
+    if (window->key_callback != nullptr) {
+        window->key_callback(key);
     }
 }
 
@@ -32,7 +37,8 @@ Window::Window(const char * title, int width, int height) {
         throw std::runtime_error("Could not create GLFW window");
     }
 
-    glfwSetKeyCallback(this->window, key_callback);
+    glfwSetWindowUserPointer(this->window, this);
+    glfwSetKeyCallback(this->window, key_callback_wrapper);
 
     glfwMakeContextCurrent(this->window);
     glfwSwapInterval(1);
@@ -41,6 +47,12 @@ Window::Window(const char * title, int width, int height) {
 Window::~Window(void) {
     glfwDestroyWindow(this->window);
     glfwTerminate();
+}
+
+
+void
+Window::set_key_callback(KeyCallback key_callback) {
+    this->key_callback = key_callback;
 }
 
 bool
