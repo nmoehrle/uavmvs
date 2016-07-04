@@ -7,7 +7,7 @@ project "evaluate_trajectory"
 
     flags { "RelocatableDeviceCode" }
     defines { "_MWAITXINTRIN_H_INCLUDED", "_FORCE_INLINES" }
-    buildoptions { "-fopenmp" }
+    buildoptions { "-Xcompiler -fopenmp" }
 
     files {
         "evaluate_trajectory.cu",
