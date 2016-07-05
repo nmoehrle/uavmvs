@@ -1,5 +1,6 @@
-#include <iostream>
+#include <future>
 #include <fstream>
+#include <iostream>
 #include <algorithm>
 #include <unordered_set>
 
@@ -59,9 +60,9 @@ Arguments parse_args(int argc, char **argv) {
 
 typedef std::pair<math::Vec3f, math::Vec3f> Correspondence;
 
+static std::mt19937 gen;
+
 std::vector<uint> choose_random(std::size_t n, std::size_t from, std::size_t to) {
-    std::random_device rd;
-    std::mt19937 gen(rd());
     std::uniform_int_distribution<uint> dis(from, to);
     std::unordered_set<uint> samples;
     while(samples.size() < n) {
@@ -96,11 +97,34 @@ determine_rotation(std::vector<Correspondence> const & ccorrespondences,
     for (std::size_t j = 0; j < ccorrespondences.size(); ++j) {
         math::Vec3f f, c;
         std::tie(f, c) = ccorrespondences[j];
+        //TODO threshold
         if ((R * f - c).norm() > 0.01f || inliers == nullptr) continue;
         inliers->push_back(j);
     }
 
     return R;
+}
+
+std::pair<math::Matrix3f, uint>
+determine_robust_rotation(std::vector<Correspondence> const & ccorrespondences,
+    std::vector<uint> samples)
+{
+    math::Matrix3f R;
+    std::vector<uint> inliers;
+
+    inliers.clear();
+    R = determine_rotation(ccorrespondences, samples, &inliers);
+
+    if (inliers.size() < samples.size()) {
+        return std::make_pair(R, 0);
+    }
+
+    samples.swap(inliers);
+
+    inliers.clear();
+    R = determine_rotation(ccorrespondences, samples, &inliers);
+
+    return std::make_pair(R, inliers.size());
 }
 
 math::Matrix4f
@@ -135,7 +159,7 @@ determine_transform(std::vector<Correspondence> const & correspondences)
     float scale = std::accumulate(scales.begin() + n, scales.end() - n, 0.0)
          / (scales.size() - 2 * n);
 
-    std::cout << "Scale: " << scale << std::endl;
+    std::cout << "\tScale: " << scale << std::endl;
 
     /* Calculate centroids. */
     math::Vec3f centroid1(0.0f), centroid2(0.0f);
@@ -156,38 +180,35 @@ determine_transform(std::vector<Correspondence> const & correspondences)
         ccorrespondences[i].second = scale * (c - centroid2);
     }
 
-    int max_inliers = 0;
+    uint ransac_iterations = 1000;
 
+    std::vector<std::future<std::pair<math::Matrix3f, uint> > > futures;
+    for (int i = 0; i < ransac_iterations; ++i) {
+        std::vector<uint> samples = choose_random(3, 0, ccorrespondences.size() - 1);
+        futures.push_back(std::async(std::launch::async,
+                determine_robust_rotation, ccorrespondences, samples
+            )
+        );
+    }
+
+    int max_inliers = 0;
     math::Matrix4f T;
     math::matrix_set_identity(&T);
-    #pragma omp parallel for
-    for (int i = 0; i < 1000; ++i) {
-        std::vector<uint> samples = choose_random(3, 0, correspondences.size() - 1);
-
+    for (int i = 0; i < futures.size(); ++i) {
         math::Matrix3f R;
-        std::vector<uint> inliers;
-        R = determine_rotation(ccorrespondences, samples, &inliers);
+        uint num_inliers;
+        std::tie(R, num_inliers) = futures[i].get();
 
-        std::size_t num_inliers = inliers.size();
-
-        if (num_inliers < std::max(3, max_inliers)) continue;
-
-        max_inliers = inliers.size();
-        samples.swap(inliers);
-        inliers.clear();
-        R = determine_rotation(ccorrespondences, samples, &inliers);
-
-        std::cout << "Inliers: " << num_inliers << std::endl
-            << "Least squares inliers: " << inliers.size() << std::endl;
-
-        if (inliers.size() < std::max(3, max_inliers)) continue;
-
-        math::Vec3f t = -R * centroid1 + scale * centroid2;
-        math::Vec4f u4(0.0f, 0.0f, 0.0f, 1.0f);
-
-        #pragma omp critical
-        T = (R / scale).hstack(t / scale).vstack(math::Matrix<float, 1, 4>(u4.begin()));
+        if (num_inliers > max_inliers) {
+            max_inliers = num_inliers;
+            math::Vec3f t = -R * centroid1 + scale * centroid2;
+            math::Vec4f u4(0.0f, 0.0f, 0.0f, 1.0f);
+            T = (R / scale).hstack(t / scale).vstack(math::Matrix<float, 1, 4>(u4.begin()));
+        }
     }
+
+    float inliers = max_inliers / static_cast<float>(ccorrespondences.size());
+    std::cout << "\tRANSAC inliers: " << 100.0f * inliers << "%" << std::endl;
 
     return T;
 }
@@ -274,7 +295,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    std::vector<Correspondence> correspondences;
+    std::vector<Correspondence> correspondences(features.size());
 
     #pragma omp parallel for
     for (std::size_t i = 0; i < features.size(); ++i) {
@@ -308,6 +329,7 @@ int main(int argc, char **argv) {
         }
 
         if (projections.empty()) continue;
+        //TODO delete correspondences...
 
         for (int j = 0; j < 3; ++j) {
             std::stable_sort(projections.begin(), projections.end(),
@@ -318,13 +340,38 @@ int main(int argc, char **argv) {
         }
         math::Vec3f projection = projections[projections.size() / 2];
 
-        #pragma omp critical
-        correspondences.emplace_back(feature, projection);
+        correspondences[i] = std::make_pair(feature, projection);
     }
 
-    std::cout << "Found " << correspondences.size() << " correspondences" << std::endl;
+    math::Matrix4f T;
 
-    math::Matrix4f T = determine_transform(correspondences);
+    std::cout << "Estimating transform based on feature correspondences." << std::endl;
+    T = determine_transform(correspondences);
+
+    #pragma omp parallel for
+    for (std::size_t i = 0; i < features.size(); ++i) {
+        math::Vec3f feature = math::Vec3f(features[i].pos);
+        math::Vec3f vertex = T.mult(feature, 1.0f);
+
+        math::Vec3f projection = bvh_tree.closest_point(vertex);
+
+        correspondences[i] = std::make_pair(vertex, projection);
+    }
+
+    std::cout << "Refining transform based on closest points." << std::endl;
+    T = determine_transform(correspondences) * T;
+
+    double ssd = 0.0f;
+    for (std::size_t i = 0; i < features.size(); ++i) {
+        math::Vec3f feature = math::Vec3f(features[i].pos);
+        math::Vec3f vertex = T.mult(feature, 1.0f);
+
+        math::Vec3f projection = bvh_tree.closest_point(vertex);
+
+        ssd += (vertex - projection).norm();
+    }
+    std::cout << "Average distance to surface: " << ssd / features.size() << std::endl;
+
     if (!args.transform.empty()) {
         save_matrix_to_file(T, args.transform);
     } else {
