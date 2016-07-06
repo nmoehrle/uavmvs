@@ -12,7 +12,6 @@
 #include "math/matrix_svd.h"
 
 #include "mve/scene.h"
-#include "mve/bundle.h"
 #include "mve/bundle_io.h"
 #include "mve/mesh_io_ply.h"
 

@@ -3,9 +3,7 @@
 #include <vector>
 
 #include "util/arguments.h"
-#include "mve/mesh.h"
 #include "mve/mesh_io_ply.h"
-#include "mve/bundle.h"
 #include "mve/bundle_io.h"
 
 typedef unsigned int uint;
