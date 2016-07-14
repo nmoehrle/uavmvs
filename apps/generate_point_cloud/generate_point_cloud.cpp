@@ -1,7 +1,7 @@
 #include <iostream>
 #include <vector>
+#include <atomic>
 #include <random>
-#include <deque>
 
 #include "math/geometry.h"
 
@@ -65,17 +65,20 @@ int main(int argc, char **argv) {
     std::vector<math::Vec3f> & overts = omesh->get_vertices();
     std::vector<math::Vec3f> & onormals = omesh->get_vertex_normals();
 
-    std::random_device rd;
-    std::mt19937 gen(rd());
     std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+    std::atomic<int> num_threads(0);
 
     #pragma omp parallel
     {
+        num_threads += 1;
+        std::mt19937 gen;
         std::vector<math::Vec3f> samples;
         std::vector<math::Vec3f> normals;
 
-        #pragma omp for
+        #pragma omp for schedule(static)
         for (std::size_t i = 0; i < faces.size(); i += 3) {
+            gen.seed(i);
+
             math::Vec3f v0 = verts[faces[i + 0]];
             math::Vec3f v1 = verts[faces[i + 1]];
             math::Vec3f v2 = verts[faces[i + 2]];
@@ -102,14 +105,17 @@ int main(int argc, char **argv) {
             }
         }
 
-        #pragma omp critical
-        {
-            overts.insert(overts.end(), samples.begin(), samples.end());
-            onormals.insert(onormals.end(), normals.begin(), normals.end());
+        #pragma omp for ordered
+        for (int i = 0; i < num_threads; ++i) {
+            #pragma omp ordered
+            {
+                overts.insert(overts.end(), samples.begin(), samples.end());
+                onormals.insert(onormals.end(), normals.begin(), normals.end());
+            }
         }
     }
+
     mve::geom::SavePLYOptions opts;
     opts.write_vertex_normals = true;
-    opts.write_face_colors = false; //Only necessary to fix output PR pending
     mve::geom::save_ply_mesh(omesh, args.out_cloud, opts);
 }
