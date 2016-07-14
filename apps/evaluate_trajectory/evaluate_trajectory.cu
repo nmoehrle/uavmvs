@@ -19,7 +19,7 @@
 
 #include "col/mpl_viridis.h"
 
-#include "kernels.h"
+#include "eval/kernels.h"
 
 typedef unsigned char uchar;
 

@@ -34,10 +34,6 @@ if not m.basedir then
     os.exit(-1)
 end
 
-m.libpng = os.findlib("png")
-m.libjpeg = os.findlib("jpeg")
-m.libtiff = os.findlib("tiff")
-
 function m.use(libs)
     includedirs { m.basedir .. "/libs" }
 
@@ -51,7 +47,6 @@ function m.use(libs)
         end
     end
 
-    libdirs { m.libpng, m.libjpeg, m.libtiff }
     links { "jpeg", "png", "tiff" }
 end
 

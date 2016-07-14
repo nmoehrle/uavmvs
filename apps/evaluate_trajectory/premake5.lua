@@ -11,7 +11,7 @@ project "evaluate_trajectory"
 
     files {
         "evaluate_trajectory.cu",
-        "kernels.cu",
+        "../../libs/eval/kernels.cu",
         "../../libs/cacc/bvh_tree.cu",
         "../../libs/cacc/tracing.cu"
     }
