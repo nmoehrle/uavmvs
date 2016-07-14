@@ -2,7 +2,6 @@
 
 #include "util/system.h"
 #include "util/arguments.h"
-#include "util/choices.h"
 
 #include "mve/mesh_io_ply.h"
 #include "acc/bvh_tree.h"
@@ -118,9 +117,9 @@ calculate_accuracy(mve::TriangleMesh::Ptr in_mesh,
 
             if (bvh_tree->intersect(ray, &hit)) {
                 float cosine = ray.dir.dot(gt_face_normals[hit.idx]);
-                if (cosine > 0.0f) continue;
-
-                dist *= -1.0f;
+                if (cosine < 0.0f) {
+                    dist *= -1.0f;
+                }
             }
         }
 
