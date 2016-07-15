@@ -84,6 +84,7 @@ class TrajectoryRenderer : public RenderComponent {
             math::Vec4f color(0.0f, 0.0f, 1.0f, 1.0f);
 
             verts.insert(verts.end(), trajectory->xs.begin(), trajectory->xs.end());
+            if (verts.empty()) return;
             faces.resize(2 * (verts.size() - 1));
             colors.resize(verts.size(), color);
 
