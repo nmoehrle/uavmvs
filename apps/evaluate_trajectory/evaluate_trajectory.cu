@@ -14,7 +14,6 @@
 #include "cacc/point_cloud.h"
 #include "cacc/util.h"
 #include "cacc/matrix.h"
-#include "cacc/bvh_tree.h"
 #include "cacc/tracing.h"
 
 #include "col/mpl_viridis.h"

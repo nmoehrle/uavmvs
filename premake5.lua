@@ -32,6 +32,7 @@ workspace "uavmvs"
     include("apps/simulator")
     include("apps/capture_trajectory")
     include("apps/evaluate_trajectory")
+    include("apps/plan_trajectory")
     include("apps/evaluate_reconstruction")
     include("apps/mesh_tools")
     include("apps/create_bundle")

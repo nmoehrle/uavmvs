@@ -94,6 +94,55 @@ populate_histogram(cacc::Mat4f w2c, cacc::Mat3f calib, cacc::Vec3f view_pos,
     dir_hist.num_rows_ptr[id] += 1;
 }
 
+__forceinline__ __device__
+cacc::Vec2f
+mean(cacc::Vec2f const * values, uint stride, uint n)
+{
+    cacc::Vec2f mean(0.0f);
+    for (uint i = 0; i < n; ++i) {
+        cacc::Vec2f dir = values[i * stride];
+        mean += dir;
+    }
+    return mean / (float)n;
+}
+
+__forceinline__ __device__
+cacc::Mat2f
+covariance(cacc::Vec2f const * values, uint stride, uint n,
+    cacc::Vec2f const & mean)
+{
+    cacc::Mat2f cov(0.0f);
+    for (uint i = 0; i < n; ++i) {
+        cacc::Vec2f dir = values[i * stride] - mean;
+        cov[0][0] += dir[0] * dir[0];
+        cov[0][1] += dir[0] * dir[1];
+        cov[1][0] += dir[1] * dir[0];
+        cov[1][1] += dir[1] * dir[1];
+    }
+    return cov;
+    //return cov / (float)n;
+}
+
+__forceinline__ __device__
+cacc::Vec2f
+eigen_values(cacc::Mat2f const & mat)
+{
+    float trace = cacc::trace(mat);
+    float det = cacc::det(mat);
+
+    float tmp = sqrt((trace * trace) / 4.0f - det);
+
+    return cacc::Vec2f(trace / 2.0f + tmp, trace / 2.0f - tmp);
+}
+
+__forceinline__ __device__
+cacc::Vec2f
+eigen_values(cacc::Vec2f const * values, uint stride, uint n) {
+    cacc::Vec2f mu = mean(values, stride, n);
+    cacc::Mat2f cov = covariance(values, stride, n, mu);
+    return eigen_values(cov);
+}
+
 __global__
 void
 evaluate_histogram(cacc::VectorArray<cacc::DEVICE, cacc::Vec2f>::Data dir_hist)
@@ -108,37 +157,9 @@ evaluate_histogram(cacc::VectorArray<cacc::DEVICE, cacc::Vec2f>::Data dir_hist)
     int const stride = dir_hist.pitch / sizeof(cacc::Vec2f);
     uint num_rows = dir_hist.num_rows_ptr[id];
 
-    float mq = 0.0f;
-    cacc::Vec2f mean(0.0f);
-    for (uint row = 0; row < num_rows; ++row) {
-        cacc::Vec2f dir = dir_hist.data_ptr[row * stride + id];
-        mq += sin(acos(norm(dir)));
-        mean += dir;
-    }
-    mean /= num_rows;
-    mq /= num_rows;
+    cacc::Vec2f * values = dir_hist.data_ptr + id;
+    cacc::Vec2f eigen = eigen_values(values, stride, num_rows);
 
-    //Sample mean/covariance?
-
-    cacc::Mat2f cov(0.0f);
-    for (uint row = 0; row < num_rows; ++row) {
-        cacc::Vec2f dir = dir_hist.data_ptr[row * stride + id] - mean;
-        cov[0][0] += dir[0] * dir[0];
-        cov[0][1] += dir[0] * dir[1];
-        cov[1][0] += dir[1] * dir[0];
-        cov[1][1] += dir[1] * dir[1];
-    }
-    cov /= num_rows;
-
-    float trace = cacc::trace(cov);
-    float det = cacc::det(cov);
-
-    float tmp = sqrt((trace * trace) / 4.0f - det);
-
-    mean[0] = mq;
-
-    cacc::Vec2f eigen(trace / 2.0f + tmp, trace / 2.0f - tmp);
-    dir_hist.data_ptr[(dir_hist.max_rows - 2) * stride + id] = mean;
     dir_hist.data_ptr[(dir_hist.max_rows - 1) * stride + id] = eigen;
 }
 
@@ -153,7 +174,6 @@ void populate_histogram(cacc::Vec3f view_pos,
     int const tx = threadIdx.x;
 
     uint id = bx * blockDim.x + tx;
-    int const stride = dir_hist.pitch / sizeof(cacc::Vec2f);
 
     if (id >= cloud.num_vertices) return;
     cacc::Vec3f v = cloud.vertices_ptr[id];
@@ -168,10 +188,22 @@ void populate_histogram(cacc::Vec3f view_pos,
     float ctheta = dot(v2cn, n);
     cacc::Vec2f dir = relative_angle(v2cn, n, ctheta);
 
-    //TODO actually calculate the reconstructability
-    float recon_before = 0.0f;
-    float recon_after = 0.0f;
-    float contrib = recon_after - recon_before;
+    if (id >= dir_hist.num_cols) return;
+
+    int const stride = dir_hist.pitch / sizeof(cacc::Vec2f);
+    uint num_rows = dir_hist.num_rows_ptr[id];
+
+    float contrib = 0.1f; //TODO determine usefull value
+
+    if (num_rows > 2) {
+        cacc::Vec2f * values = dir_hist.data_ptr + id;
+        cacc::Vec2f eigen_before = eigen_values(values, stride, num_rows);
+        values[num_rows * stride] = dir;
+        cacc::Vec2f eigen_after = eigen_values(values, stride, num_rows + 1);
+        float recon_before = max(abs(eigen_before[0]), abs(eigen_before[1]));
+        float recon_after = max(abs(eigen_after[0]), abs(eigen_after[1]));
+        contrib = recon_after - recon_before;
+    }
 
     float & r = l;
     float theta = acos(v2cn[2] / r);
