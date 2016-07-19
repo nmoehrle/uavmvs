@@ -11,6 +11,9 @@ project "plan_trajectory"
         "plan_trajectory.cu",
         "../../libs/cacc/kd_tree.cu",
         "../../libs/cacc/nnsearch.cu",
+        "../../libs/cacc/bvh_tree.cu",
+        "../../libs/cacc/tracing.cu",
+        "../../libs/eval/kernels.cu",
     }
 
     mve.use({ "util" })

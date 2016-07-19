@@ -13,7 +13,8 @@ project "evaluate_trajectory"
         "evaluate_trajectory.cu",
         "../../libs/eval/kernels.cu",
         "../../libs/cacc/bvh_tree.cu",
-        "../../libs/cacc/tracing.cu"
+        "../../libs/cacc/tracing.cu",
+        "../../libs/cacc/nnsearch.cu",
     }
 
     mve.use({ "util" })
