@@ -17,3 +17,5 @@ project "plan_trajectory"
     }
 
     mve.use({ "util" })
+
+    links { "fmt" }

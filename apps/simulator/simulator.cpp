@@ -358,6 +358,21 @@ void simulate(std::vector<Entity::Ptr> const & entities, float delta) {
     }
 }
 
+void save_trajectory(Trajectory::ConstPtr trajectory, std::string const & path) {
+    std::ofstream out(path.c_str());
+    if (!out.good()) throw std::runtime_error("Could not open file");
+    std::size_t length = trajectory->xs.size() & trajectory->qs.size();
+    out << length << std::endl;
+    for (std::size_t i = 0; i < length; ++i) {
+        out << trajectory->xs[i] << std::endl;
+
+        math::Matrix3f rot;
+        trajectory->qs[i].to_rotation_matrix(rot.begin());
+        out << rot;
+    }
+    out.close();
+}
+
 int main(int argc, char **argv) {
     util::system::register_segfault_handler();
     util::system::print_build_timestamp(argv[0]);
@@ -421,16 +436,7 @@ int main(int argc, char **argv) {
     }
 
     if (!args.trajectory.empty()) {
-        std::ofstream out(args.trajectory.c_str());
-        if (!out.good()) throw std::runtime_error("Could not open file");
-        for (std::size_t i = 0; i < trajectory->xs.size(); ++i) {
-            out << trajectory->xs[i] << std::endl;
-
-            math::Matrix3f rot;
-            trajectory->qs[i].to_rotation_matrix(rot.begin());
-            out << rot;
-        }
-        out.close();
+        save_trajectory(trajectory, args.trajectory);
     }
 
     return EXIT_SUCCESS;

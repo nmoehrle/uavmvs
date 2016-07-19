@@ -7,3 +7,6 @@
 [submodule "libs/col"]
 	path = libs/col
 	url = https://github.com/nmoehrle/libcol.git
+[submodule "libs/fmt"]
+	path = libs/fmt
+	url = https://github.com/nmoehrle/libfmt

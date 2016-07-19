@@ -1,4 +1,7 @@
+#include <fstream>
 #include <iostream>
+
+#include "fmt/format.h"
 
 #include "util/system.h"
 #include "util/arguments.h"
@@ -19,7 +22,7 @@ struct Arguments {
     std::string proxy_mesh;
     std::string proxy_cloud;
     std::string proxy_sphere;
-    std::string aabb;
+    std::string trajectory;
     float min_distance;
     float max_velocity;
 };
@@ -27,10 +30,10 @@ struct Arguments {
 Arguments parse_args(int argc, char **argv) {
     util::Arguments args;
     args.set_exit_on_error(true);
-    args.set_nonopt_minnum(3);
-    args.set_nonopt_maxnum(3);
+    args.set_nonopt_minnum(4);
+    args.set_nonopt_maxnum(4);
     args.set_usage("Usage: " + std::string(argv[0])
-        + " [OPTS] PROXY_MESH PROXY_CLOUD PROXY_SPHERE");
+        + " [OPTS] PROXY_MESH PROXY_CLOUD PROXY_SPHERE TRAJECTORY");
     args.set_description("Plans a trajectory maximizing reconstructability");
     args.parse(argc, argv);
 
@@ -38,6 +41,7 @@ Arguments parse_args(int argc, char **argv) {
     conf.proxy_mesh = args.get_nth_nonopt(0);
     conf.proxy_cloud = args.get_nth_nonopt(1);
     conf.proxy_sphere = args.get_nth_nonopt(2);
+    conf.trajectory = args.get_nth_nonopt(3);
 
     for (util::ArgResult const* i = args.next_option();
          i != 0; i = args.next_option()) {
@@ -49,6 +53,42 @@ Arguments parse_args(int argc, char **argv) {
 
     return conf;
 }
+
+void load_trajectory(std::string const & path,
+        std::vector<mve::CameraInfo> * trajectory)
+{
+    std::ifstream in(path.c_str());
+    if (!in.good()) throw std::runtime_error("Could not open trajectory file");
+    std::size_t length;
+    in >> length;
+
+    trajectory->resize(length);
+
+    for (std::size_t i = 0; i < length; ++i) {
+        math::Vec3f pos;
+        for (int j = 0; j < 3; ++j) {
+            in >> pos[j];
+        }
+        math::Matrix3f rot;
+        for (int j = 0; j < 9; ++j) {
+            in >> rot[j];
+        }
+        math::Vec3f trans = -rot * pos;
+
+        mve::CameraInfo & cam = trajectory->at(i);
+        cam.flen = 0.86f; //TODO save and read from file
+        std::copy(trans.begin(), trans.end(), cam.trans);
+        std::copy(rot.begin(), rot.end(), cam.rot);
+    }
+
+    if (in.fail()) {
+        in.close();
+        throw std::runtime_error("Invalid trajectory file");
+    }
+
+    in.close();
+}
+
 
 acc::KDTree<3, uint>::Ptr
 load_mesh_as_kd_tree(std::string const & path)
@@ -123,9 +163,10 @@ int main(int argc, char **argv) {
         std::exit(EXIT_FAILURE);
     }
 
-    std::vector<math::Vec3f> & vertices = mesh->get_vertices();
-    std::vector<float> & values = mesh->get_vertex_values();
-    values.resize(vertices.size());
+    std::vector<math::Vec3f> & overtices = mesh->get_vertices();
+    std::vector<math::Vec3f> vertices = mesh->get_vertices();
+    std::vector<float> & ovalues = mesh->get_vertex_values();
+    ovalues.resize(vertices.size());
 
     acc::KDTree<3u, uint>::Ptr kd_tree;
     kd_tree = load_mesh_as_kd_tree(args.proxy_sphere);
@@ -150,80 +191,77 @@ int main(int argc, char **argv) {
     cacc::VectorArray<cacc::Vec2f, cacc::DEVICE>::Ptr ddir_hist;
     ddir_hist = cacc::VectorArray<cacc::Vec2f, cacc::DEVICE>::create(num_vertices, max_cameras);
     cacc::VectorArray<float, cacc::HOST>::Ptr con_hist;
-    con_hist = cacc::VectorArray<float, cacc::HOST>::create(values.size(), 2);
+    con_hist = cacc::VectorArray<float, cacc::HOST>::create(ovalues.size(), 2);
     cacc::VectorArray<float, cacc::HOST>::Data data = con_hist->cdata();
-    for (std::size_t i = 0; i < values.size(); ++i) {
-        data.data_ptr[i] = 0.0f;
-        data.data_ptr[i + data.pitch / sizeof(float)] = cacc::float_to_uint32(0.0f);
-    }
     cacc::VectorArray<float, cacc::DEVICE>::Ptr dcon_hist;
-    dcon_hist = cacc::VectorArray<float, cacc::DEVICE>::create<cacc::HOST>(con_hist);
-
-    {
-        dim3 grid(cacc::divup(num_vertices, KERNEL_BLOCK_SIZE));
-        dim3 block(KERNEL_BLOCK_SIZE);
-        populate_histogram<<<grid, block>>>(cacc::Vec3f(0.0f, 0.0f, 50.0f),
-            dbvh_tree->cdata(), dcloud->cdata(), dkd_tree->cdata(),
-            ddir_hist->cdata(), dcon_hist->cdata());
-        CHECK(cudaDeviceSynchronize());
-    }
-
-    mve::CameraInfo cam;
-    cam.flen = 0.86f;
-    int width = 1920;
-    int height = 1080;
-
-    math::Matrix3f calib;
-    cam.fill_calibration(calib.begin(), width, height);
+    dcon_hist = cacc::VectorArray<float, cacc::DEVICE>::create(ovalues.size(), 2);
 
     cacc::Image<float, cacc::DEVICE>::Ptr dhist;
     dhist = cacc::Image<float, cacc::DEVICE>::create(360, 180);
-    {
-        dim3 grid(cacc::divup(360, KERNEL_BLOCK_SIZE), 180);
-        dim3 block(KERNEL_BLOCK_SIZE);
-        evaluate_histogram<<<grid, block>>>(cacc::Mat3f(calib.begin()), width, height,
-            dkd_tree->cdata(), dcon_hist->cdata(), dhist->cdata());
-        CHECK(cudaDeviceSynchronize());
-    }
 
-#if DEBUG
-    {
-        cacc::Image<float, cacc::HOST>::Ptr hist;
-        hist = cacc::Image<float, cacc::HOST>::create<cacc::DEVICE>(dhist);
-        cacc::Image<float, cacc::HOST>::Data data = hist->cdata();
-        mve::FloatImage::Ptr image = mve::FloatImage::create(360, 180, 1);
-        for (int y = 0; y < 180; ++y) {
-            for (int x = 0; x < 360; ++x) {
-                image->at(x, y, 0) = data.data_ptr[y * data.pitch / sizeof(float) + x];
-            }
+    math::Vec3f pos;
+    math::Matrix3f calib;
+    int width = 1920;
+    int height = 1080;
+
+    int cnt = 0;
+
+    std::vector<mve::CameraInfo> trajectory;
+    load_trajectory(args.trajectory, &trajectory);
+
+    for (mve::CameraInfo const & cam : trajectory) {
+        cam.fill_calibration(calib.begin(), width, height);
+        cam.fill_camera_pos(pos.begin());
+
+        //TODO write clear kernel
+        for (std::size_t i = 0; i < ovalues.size(); ++i) {
+            data.data_ptr[i] = 0.0f;
+            data.data_ptr[i + data.pitch / sizeof(float)] = cacc::float_to_uint32(0.0f);
         }
-        mve::image::save_pfm_file(image, "/tmp/test.pfm");
-    }
-#endif
+        *dcon_hist = *con_hist;
 
-    {
-        dim3 grid(cacc::divup(360, KERNEL_BLOCK_SIZE), 180);
-        dim3 block(KERNEL_BLOCK_SIZE);
-        evaluate_histogram<<<grid, block>>>(dkd_tree->cdata(),
-           dhist->cdata(), dcon_hist->cdata());
-        CHECK(cudaDeviceSynchronize());
-    }
+        {
+            dim3 grid(cacc::divup(num_vertices, KERNEL_BLOCK_SIZE));
+            dim3 block(KERNEL_BLOCK_SIZE);
+            populate_histogram<<<grid, block>>>(cacc::Vec3f(pos.begin()),
+                dbvh_tree->cdata(), dcloud->cdata(), dkd_tree->cdata(),
+                ddir_hist->cdata(), dcon_hist->cdata());
+            CHECK(cudaDeviceSynchronize());
+        }
 
-    *con_hist = *dcon_hist;
-    for (std::size_t i = 0; i < vertices.size(); ++i) {
-        vertices[i] += math::Vec3f(0.0f, 0.0f, 50.0f);
+        {
+            dim3 grid(cacc::divup(360, KERNEL_BLOCK_SIZE), 180);
+            dim3 block(KERNEL_BLOCK_SIZE);
+            evaluate_histogram<<<grid, block>>>(cacc::Mat3f(calib.begin()), width, height,
+                dkd_tree->cdata(), dcon_hist->cdata(), dhist->cdata());
+            CHECK(cudaDeviceSynchronize());
+        }
+
+        {
+            dim3 grid(cacc::divup(360, KERNEL_BLOCK_SIZE), 180);
+            dim3 block(KERNEL_BLOCK_SIZE);
+            evaluate_histogram<<<grid, block>>>(dkd_tree->cdata(),
+               dhist->cdata(), dcon_hist->cdata());
+            CHECK(cudaDeviceSynchronize());
+        }
+
+        *con_hist = *dcon_hist;
+        for (std::size_t i = 0; i < vertices.size(); ++i) {
+            overtices[i] = vertices[i] + pos;
 #if 1
-        float * f = data.data_ptr + data.pitch / sizeof(float) + i;
-        uint32_t v = reinterpret_cast<uint32_t&>(*f);
-        values[i] = cacc::uint32_to_float(v);
+            float * f = data.data_ptr + data.pitch / sizeof(float) + i;
+            uint32_t v = reinterpret_cast<uint32_t&>(*f);
+            ovalues[i] = cacc::uint32_to_float(v);
 #else
-        values[i] = data.data_ptr[i];
+            ovalues[i] = data.data_ptr[i];
 #endif
-    }
+        }
 
-    mve::geom::SavePLYOptions opts;
-    opts.write_vertex_values = true;
-    mve::geom::save_ply_mesh(mesh, "/tmp/test.ply", opts);
+        mve::geom::SavePLYOptions opts;
+        opts.write_vertex_values = true;
+        std::string filename = fmt::format("/tmp/test-sphere-{:04d}.ply", cnt++);
+        mve::geom::save_ply_mesh(mesh, filename, opts);
+    }
 
     return EXIT_SUCCESS;
 }
