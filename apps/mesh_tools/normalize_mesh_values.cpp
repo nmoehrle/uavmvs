@@ -98,7 +98,7 @@ int main(int argc, char **argv) {
             std::exit(EXIT_FAILURE);
         }
 
-        if (mesh->has_vertex_values()) {
+        if (!mesh->has_vertex_values()) {
             std::cerr << "Mesh has no vertex values" << std::endl;
             std::exit(EXIT_FAILURE);
         }
@@ -126,7 +126,7 @@ int main(int argc, char **argv) {
         for (std::size_t j = 0; j < vertex_values.size(); ++j) {
             float value = vertex_values[j];
 
-            if (value != args.no_value) continue;
+            if (value == args.no_value) continue;
 
             values.push_back(value);
         }
