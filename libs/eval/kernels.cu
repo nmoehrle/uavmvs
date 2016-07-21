@@ -74,10 +74,10 @@ heuristic(cacc::Vec3f const * rel_dirs, uint stride, uint n)
     float quality = dot(cacc::Vec3f(0.0f, 0.0f, 1.0f), new_rel_dir);
     for (uint i = 0; i < (n - 1); ++i) {
         cacc::Vec3f rel_dir = rel_dirs[i * stride];
-        float ctheta = dot(new_rel_dir, rel_dir);
-        novelty = min(novelty, sigmoid(ctheta, pi / 8.0f, 16.0f));
+        float theta = acos(dot(new_rel_dir, rel_dir));
+        novelty = min(novelty, sigmoid(theta, pi / 8.0f, 16.0f));
         matchability = max(matchability,
-            1.0f - sigmoid(ctheta, pi / 4.0f, 16.0f));
+            1.0f - sigmoid(theta, pi / 4.0f, 16.0f));
     }
     return novelty * matchability * quality;
 }
