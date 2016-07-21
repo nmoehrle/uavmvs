@@ -42,12 +42,44 @@ visible(cacc::Vec3f const & v, cacc::Vec3f const & v2cn, float l,
 }
 
 __forceinline__ __device__
-cacc::Vec2f
-relative_angle(cacc::Vec3f const & v2cn, cacc::Vec3f const & n) {
-    cacc::Vec3f b0 = orthogonal(n).normalize();
-    cacc::Vec3f b1 = cross(n, b0).normalize();
-    cacc::Vec3f x = v2cn - dot(v2cn, n) * n;
-    return cacc::Vec2f(dot(x, b0), dot(x, b1));
+cacc::Vec3f
+relative_direction(cacc::Vec3f const & v2cn, cacc::Vec3f const & n) {
+    cacc::Vec3f rx = orthogonal(n).normalize();
+    cacc::Vec3f ry = cross(n, rx).normalize();
+    cacc::Vec3f rz = n;
+
+    cacc::Vec3f rel_dir;
+    rel_dir[0] = dot(rx, v2cn);
+    rel_dir[1] = dot(ry, v2cn);
+    rel_dir[2] = dot(rz, v2cn);
+
+    return rel_dir;
+}
+
+constexpr float pi = 3.14159265f;
+
+__forceinline__ __device__
+float
+sigmoid(float x, float x0, float k) {
+    return 1.0f / (1.0f + __expf(-k * (x - x0)));
+}
+
+__forceinline__ __device__
+float
+heuristic(cacc::Vec3f const * rel_dirs, uint stride, uint n)
+{
+    float novelty = 1.0f;
+    float matchability = 0.0f;
+    cacc::Vec3f new_rel_dir = rel_dirs[(n - 1) * stride];
+    float quality = dot(cacc::Vec3f(0.0f, 0.0f, 1.0f), new_rel_dir);
+    for (uint i = 0; i < (n - 1); ++i) {
+        cacc::Vec3f rel_dir = rel_dirs[i * stride];
+        float ctheta = dot(new_rel_dir, rel_dir);
+        novelty = min(novelty, sigmoid(ctheta, pi / 8.0f, 16.0f));
+        matchability = max(matchability,
+            1.0f - sigmoid(ctheta, pi / 4.0f, 16.0f));
+    }
+    return novelty * matchability * quality;
 }
 
 __global__
@@ -56,13 +88,13 @@ populate_histogram(cacc::Mat4f w2c, cacc::Mat3f calib, cacc::Vec3f view_pos,
     int width, int height,
     cacc::BVHTree<cacc::DEVICE>::Data bvh_tree,
     cacc::PointCloud<cacc::DEVICE>::Data cloud,
-    cacc::VectorArray<cacc::Vec2f, cacc::DEVICE>::Data dir_hist)
+    cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data dir_hist)
 {
     int const bx = blockIdx.x;
     int const tx = threadIdx.x;
 
     uint id = bx * blockDim.x + tx;
-    int const stride = dir_hist.pitch / sizeof(cacc::Vec2f);
+    int const stride = dir_hist.pitch / sizeof(cacc::Vec3f);
 
     if (id >= cloud.num_vertices) return;
     cacc::Vec3f v = cloud.vertices_ptr[id];
@@ -73,7 +105,7 @@ populate_histogram(cacc::Mat4f w2c, cacc::Mat3f calib, cacc::Vec3f view_pos,
 
     float ctheta = dot(v2cn, n);
     // 0.087f ~ cos(85.0f / 180.0f * pi)
-    if (abs(ctheta) < 0.087f) return;
+    if (ctheta < 0.087f) return;
 
     if (l > 80.0f) return; //TODO make configurable
     cacc::Vec2f p = project(mult(w2c, v, 1.0f), calib);
@@ -86,66 +118,26 @@ populate_histogram(cacc::Mat4f w2c, cacc::Mat3f calib, cacc::Vec3f view_pos,
 
     if (row >= dir_hist.max_rows) return;
 
-    cacc::Vec2f dir = relative_angle(v2cn, n);
+    cacc::Vec3f rel_dir = relative_direction(v2cn, n);
+
+    cacc::Vec3f * rel_dirs = dir_hist.data_ptr + id;
 
     dir_hist.num_rows_ptr[id] = row;
-    dir_hist.data_ptr[row * stride + id] = dir;
+    rel_dirs[row * stride] = rel_dir;
 
+    float recon = dot(cacc::Vec3f(0.0f, 0.0f, 1.0f), rel_dir);
+    if (row >= 1) {
+        float recon_before = rel_dirs[(row - 1) * stride][3];
+        recon = recon_before + heuristic(rel_dirs, stride, row + 1);
+    }
+
+    rel_dirs[row * stride][3] = recon;
     dir_hist.num_rows_ptr[id] += 1;
-}
-
-__forceinline__ __device__
-cacc::Vec2f
-mean(cacc::Vec2f const * values, uint stride, uint n)
-{
-    cacc::Vec2f mean(0.0f);
-    for (uint i = 0; i < n; ++i) {
-        cacc::Vec2f dir = values[i * stride];
-        mean += dir;
-    }
-    return mean / (float)n;
-}
-
-__forceinline__ __device__
-cacc::Mat2f
-covariance(cacc::Vec2f const * values, uint stride, uint n,
-    cacc::Vec2f const & mean)
-{
-    cacc::Mat2f cov(0.0f);
-    for (uint i = 0; i < n; ++i) {
-        cacc::Vec2f dir = values[i * stride] - mean;
-        cov[0][0] += dir[0] * dir[0];
-        cov[0][1] += dir[0] * dir[1];
-        cov[1][0] += dir[1] * dir[0];
-        cov[1][1] += dir[1] * dir[1];
-    }
-    return cov / (float)n;
-}
-
-__forceinline__ __device__
-cacc::Vec2f
-eigen_values(cacc::Mat2f const & mat)
-{
-    float trace = cacc::trace(mat);
-    float det = cacc::det(mat);
-
-    float tmp = sqrt((trace * trace) / 4.0f - det);
-
-    return cacc::Vec2f(trace / 2.0f + tmp, trace / 2.0f - tmp);
-}
-
-__forceinline__ __device__
-cacc::Vec2f
-eigen_values(cacc::Vec2f const * values, uint stride, uint n) {
-    if (n == 0) return cacc::Vec2f(0.0f, 0.0f);
-    cacc::Vec2f mu = mean(values, stride, n);
-    cacc::Mat2f cov = covariance(values, stride, n, mu);
-    return eigen_values(cov);
 }
 
 __global__
 void
-evaluate_histogram(cacc::VectorArray<cacc::Vec2f, cacc::DEVICE>::Data dir_hist)
+evaluate_histogram(cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data dir_hist)
 {
     int const bx = blockIdx.x;
     int const tx = threadIdx.x;
@@ -154,13 +146,19 @@ evaluate_histogram(cacc::VectorArray<cacc::Vec2f, cacc::DEVICE>::Data dir_hist)
 
     if (id >= dir_hist.num_cols) return;
 
-    int const stride = dir_hist.pitch / sizeof(cacc::Vec2f);
+    int const stride = dir_hist.pitch / sizeof(cacc::Vec3f);
     uint num_rows = dir_hist.num_rows_ptr[id];
 
-    cacc::Vec2f * values = dir_hist.data_ptr + id;
-    cacc::Vec2f eigen = eigen_values(values, stride, num_rows);
+    cacc::Vec3f * rel_dirs = dir_hist.data_ptr + id;
 
-    dir_hist.data_ptr[(dir_hist.max_rows - 1) * stride + id] = eigen;
+    float recon = 0.0f;
+    //rel_dirs[id][3] = 0.0f;
+    for (int i = 1; i <= num_rows; ++i) {
+        recon += heuristic(rel_dirs, stride, i);
+        //rel_dirs[i * stride + id][3] = sum;
+    }
+
+    dir_hist.data_ptr[(dir_hist.max_rows - 1) * stride + id][3] = recon;
 }
 
 __global__
@@ -168,7 +166,7 @@ void populate_histogram(cacc::Vec3f view_pos,
     cacc::BVHTree<cacc::DEVICE>::Data bvh_tree,
     cacc::PointCloud<cacc::DEVICE>::Data cloud,
     cacc::KDTree<3, cacc::DEVICE>::Data kd_tree,
-    cacc::VectorArray<cacc::Vec2f, cacc::DEVICE>::Data dir_hist,
+    cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data dir_hist,
     cacc::VectorArray<float, cacc::DEVICE>::Data con_hist)
 {
     int const bx = blockIdx.x;
@@ -185,37 +183,39 @@ void populate_histogram(cacc::Vec3f view_pos,
     cacc::Vec3f v2cn = v2c / l;
 
     float ctheta = dot(v2cn, n);
-    // 0.087f ~ cos(85.0f / 180.0f * pi)
-    if (abs(ctheta) < 0.087f) return;
-    if (l > 80.0f) return; //TODO make configurable
-    if (!visible(v, v2cn, l, bvh_tree)) return;
 
-    cacc::Vec2f dir = relative_angle(v2cn, n);
+    //TODO make configurable
+    if (l > 80.0f) return;
+    // 0.087f ~ cos(85.0f / 180.0f * pi)
+    if (ctheta < 0.087f) return;
+
+    if (!visible(v, v2cn, l, bvh_tree)) return;
 
     if (id >= dir_hist.num_cols) return;
 
-    int const stride = dir_hist.pitch / sizeof(cacc::Vec2f);
+    int const stride = dir_hist.pitch / sizeof(cacc::Vec3f);
     uint num_rows = dir_hist.num_rows_ptr[id];
 
-    float contrib = 0.1f; //TODO determine usefull value
+    cacc::Vec3f rel_dir = relative_direction(v2cn, n);
 
-    if (num_rows > 2) {
-        cacc::Vec2f * values = dir_hist.data_ptr + id;
-        cacc::Vec2f eigen_before = eigen_values(values, stride, num_rows);
-        values[num_rows * stride] = dir;
-        cacc::Vec2f eigen_after = eigen_values(values, stride, num_rows + 1);
-        float recon_before = max(abs(eigen_before[0]), abs(eigen_before[1]));
-        float recon_after = max(abs(eigen_after[0]), abs(eigen_after[1]));
-        contrib = recon_after - recon_before;
+    float contrib = 0.0f;
+
+    if (num_rows >= dir_hist.max_rows - 1) return;
+
+    if (num_rows >= 1) {
+        cacc::Vec3f * rel_dirs = dir_hist.data_ptr + id;
+        rel_dirs[num_rows * stride] = rel_dir;
+        contrib = heuristic(rel_dirs, stride, num_rows + 1);
+    } else {
+        contrib = dot(cacc::Vec3f(0.0f, 0.0f, 1.0f), rel_dir);
     }
 
     uint idx;
     float dist;
     cacc::nnsearch::find_nns<3u>(kd_tree, -v2cn, &idx, &dist, 1u);
-    atomicAdd(con_hist.data_ptr + idx, contrib);
+    //atomicAdd(con_hist.data_ptr + idx, contrib);
+    con_hist.data_ptr[idx] = contrib;
 }
-
-constexpr float pi = 3.14159265f;
 
 __global__
 void

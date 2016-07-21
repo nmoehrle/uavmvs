@@ -65,8 +65,9 @@ load_matrix_from_file(std::string const & filename) {
 }
 
 #define SAVE_MESH 1
-#define APPLY_TRANSFORM 1
+#define APPLY_TRANSFORM 0
 #define CONVERT_TO_BUNDLE 0
+#define FLIP_NORMALS 1
 int main(int argc, char **argv) {
     Arguments args = parse_args(argc, argv);
 
@@ -82,6 +83,7 @@ int main(int argc, char **argv) {
 
     uint const num_faces = mesh->get_faces().size() / 3;
     std::vector<math::Vec3f> & vertices = mesh->get_vertices();
+    std::vector<math::Vec3f> & normals = mesh->get_vertex_normals();
     std::vector<uint> & faces = mesh->get_faces();
     std::vector<math::Vec4f> & colors = mesh->get_vertex_colors();
 
@@ -92,6 +94,11 @@ int main(int argc, char **argv) {
             vertices[i] = m.mult(vertices[i], 1.0f);
         }
     }
+#if FLIP_NORMALS
+    for (std::size_t i = 0; i < normals.size(); ++i) {
+        normals[i] = -normals[i];
+    }
+#endif
 
 #if CONVERT_TO_BUNDLE
     mve::Bundle::Ptr bundle = mve::Bundle::create();
@@ -132,11 +139,11 @@ int main(int argc, char **argv) {
 #if SAVE_MESH
     mve::geom::SavePLYOptions opts;
     opts.write_face_colors = false;
-    opts.write_face_normals = true;
-    opts.write_vertex_colors = true;
+    opts.write_face_normals = false;
+    opts.write_vertex_colors = false;
     opts.write_vertex_confidences = false;
     opts.write_vertex_values = false;
-    opts.write_vertex_normals = false;
+    opts.write_vertex_normals = true;
     mve::geom::save_ply_mesh(mesh, args.out_mesh, opts);
 #endif
 }

@@ -14,18 +14,18 @@ void populate_histogram(cacc::Mat4f w2c, cacc::Mat3f calib,
     cacc::Vec3f view_pos, int width, int height,
     cacc::BVHTree<cacc::DEVICE>::Data bvh_tree,
     cacc::PointCloud<cacc::DEVICE>::Data cloud,
-    cacc::VectorArray<cacc::Vec2f, cacc::DEVICE>::Data hist);
+    cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data hist);
 
 __global__
 void evaluate_histogram(
-    cacc::VectorArray<cacc::Vec2f, cacc::DEVICE>::Data hist);
+    cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data hist);
 
 __global__
 void populate_histogram(cacc::Vec3f view_pos,
     cacc::BVHTree<cacc::DEVICE>::Data bvh_tree,
     cacc::PointCloud<cacc::DEVICE>::Data cloud,
     cacc::KDTree<3, cacc::DEVICE>::Data kd_tree,
-    cacc::VectorArray<cacc::Vec2f, cacc::DEVICE>::Data dir_hist,
+    cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data dir_hist,
     cacc::VectorArray<float, cacc::DEVICE>::Data con_hist);
 
 __global__

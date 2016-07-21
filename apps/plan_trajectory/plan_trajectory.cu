@@ -44,7 +44,7 @@ Arguments parse_args(int argc, char **argv) {
     conf.proxy_mesh = args.get_nth_nonopt(0);
     conf.proxy_cloud = args.get_nth_nonopt(1);
     conf.proxy_sphere = args.get_nth_nonopt(2);
-    conf.trajectory = args.get_nth_nonopt(3);
+    conf.out_trajectory = args.get_nth_nonopt(3);
 
     for (util::ArgResult const* i = args.next_option();
          i != 0; i = args.next_option()) {
@@ -99,7 +99,7 @@ void save_trajectory(std::vector<mve::CameraInfo> const & trajectory,
     std::string const & path)
 {
     std::ofstream out(path.c_str());
-    if (!out.good()) throw std::runtime_error("Could not open trajectory file");
+    if (!out.good()) throw std::runtime_error("Could not open trajectory file for writing");
     std::size_t length = trajectory.size();
     out << length << std::endl;
 
@@ -224,8 +224,8 @@ int main(int argc, char **argv) {
     uint num_vertices = dcloud->cdata().num_vertices;
     uint max_cameras = 20;
 
-    cacc::VectorArray<cacc::Vec2f, cacc::DEVICE>::Ptr ddir_hist;
-    ddir_hist = cacc::VectorArray<cacc::Vec2f, cacc::DEVICE>::create(num_vertices, max_cameras);
+    cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Ptr ddir_hist;
+    ddir_hist = cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::create(num_vertices, max_cameras);
     cacc::VectorArray<float, cacc::HOST>::Ptr con_hist;
     con_hist = cacc::VectorArray<float, cacc::HOST>::create(ovalues.size(), 2);
     cacc::VectorArray<float, cacc::HOST>::Data data = con_hist->cdata();
@@ -333,7 +333,6 @@ int main(int argc, char **argv) {
             CHECK(cudaDeviceSynchronize());
         }
 
-#if 0
         {
             dim3 grid(cacc::divup(360, KERNEL_BLOCK_SIZE), 180);
             dim3 block(KERNEL_BLOCK_SIZE);
@@ -358,7 +357,6 @@ int main(int argc, char **argv) {
         opts.write_vertex_values = true;
         std::string filename = fmt::format("/tmp/test-sphere-{:04d}.ply", cnt++);
         mve::geom::save_ply_mesh(mesh, filename, opts);
-#endif
     }
 
     save_trajectory(trajectory, args.out_trajectory);
