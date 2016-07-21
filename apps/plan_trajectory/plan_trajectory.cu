@@ -22,6 +22,7 @@ struct Arguments {
     std::string proxy_mesh;
     std::string proxy_cloud;
     std::string proxy_sphere;
+    std::string out_trajectory;
     std::string trajectory;
     float min_distance;
     float max_velocity;
@@ -33,8 +34,10 @@ Arguments parse_args(int argc, char **argv) {
     args.set_nonopt_minnum(4);
     args.set_nonopt_maxnum(4);
     args.set_usage("Usage: " + std::string(argv[0])
-        + " [OPTS] PROXY_MESH PROXY_CLOUD PROXY_SPHERE TRAJECTORY");
+        + " [OPTS] PROXY_MESH PROXY_CLOUD PROXY_SPHERE OUT_TRAJECTORY");
     args.set_description("Plans a trajectory maximizing reconstructability");
+    args.add_option('t', "trajectory", true,
+        "Use positions from given trajectory and only optimize viewing directions.");
     args.parse(argc, argv);
 
     Arguments conf;
@@ -46,6 +49,9 @@ Arguments parse_args(int argc, char **argv) {
     for (util::ArgResult const* i = args.next_option();
          i != 0; i = args.next_option()) {
         switch (i->opt->sopt) {
+        case 't':
+            conf.trajectory = i->arg;
+        break;
         default:
             throw std::invalid_argument("Invalid option");
         }
@@ -55,7 +61,7 @@ Arguments parse_args(int argc, char **argv) {
 }
 
 void load_trajectory(std::string const & path,
-        std::vector<mve::CameraInfo> * trajectory)
+    std::vector<mve::CameraInfo> * trajectory)
 {
     std::ifstream in(path.c_str());
     if (!in.good()) throw std::runtime_error("Could not open trajectory file");
@@ -87,6 +93,27 @@ void load_trajectory(std::string const & path,
     }
 
     in.close();
+}
+
+void save_trajectory(std::vector<mve::CameraInfo> const & trajectory,
+    std::string const & path)
+{
+    std::ofstream out(path.c_str());
+    if (!out.good()) throw std::runtime_error("Could not open trajectory file");
+    std::size_t length = trajectory.size();
+    out << length << std::endl;
+
+    for (std::size_t i = 0; i < length; ++i) {
+        mve::CameraInfo const & cam = trajectory[i];
+        math::Vec3f trans(cam.trans);
+        math::Matrix3f rot(cam.rot);
+        math::Vec3f pos = -rot.transposed() * trans;
+
+        out << pos << std::endl;
+        out << rot;
+    }
+
+    out.close();
 }
 
 
@@ -147,11 +174,20 @@ load_point_cloud(std::string const & path)
     return ret;
 }
 
+float const pi = std::acos(-1.0f);
+
 int main(int argc, char **argv) {
     util::system::register_segfault_handler();
     util::system::print_build_timestamp(argv[0]);
 
     Arguments args = parse_args(argc, argv);
+
+    if (args.trajectory.empty()) {
+        std::cerr << "\tAutomatic position planning is not yet implemented.\n"
+            << "\tPlease specify a trajectory with --trajectory=FILE for the positions."
+            << std::endl;
+        std::exit(EXIT_FAILURE);
+    }
 
     cacc::select_cuda_device(3, 5);
 
@@ -198,8 +234,11 @@ int main(int argc, char **argv) {
 
     cacc::Image<float, cacc::DEVICE>::Ptr dhist;
     dhist = cacc::Image<float, cacc::DEVICE>::create(360, 180);
+    cacc::Image<float, cacc::HOST>::Ptr hist;
+    hist = cacc::Image<float, cacc::HOST>::create(360, 180);
 
     math::Vec3f pos;
+    math::Matrix4f w2c;
     math::Matrix3f calib;
     int width = 1920;
     int height = 1080;
@@ -209,7 +248,7 @@ int main(int argc, char **argv) {
     std::vector<mve::CameraInfo> trajectory;
     load_trajectory(args.trajectory, &trajectory);
 
-    for (mve::CameraInfo const & cam : trajectory) {
+    for (mve::CameraInfo & cam : trajectory) {
         cam.fill_calibration(calib.begin(), width, height);
         cam.fill_camera_pos(pos.begin());
 
@@ -237,6 +276,64 @@ int main(int argc, char **argv) {
             CHECK(cudaDeviceSynchronize());
         }
 
+        *hist = *dhist;
+
+        cacc::Image<float, cacc::HOST>::Data hist_data = hist->cdata();
+
+        float max = 0.0f;
+        float theta = 0.0f;
+        float phi = 0.0f;
+        for (int y = 0; y < hist_data.height; ++y) {
+            for (int x = 0; x < hist_data.width; ++x) {
+                float v = hist_data.data_ptr[y * hist_data.pitch / sizeof(float) + x];
+                if (v > max) {
+                    max = v;
+                    phi = (x / (float) hist_data.width) * 2.0f * pi;
+                    theta = (y / (float) hist_data.height) * pi;
+                }
+            }
+        }
+
+        float ctheta = std::cos(theta);
+        float stheta = std::sin(theta);
+        float cphi = std::cos(phi);
+        float sphi = std::sin(phi);
+        math::Vec3f view_dir(stheta * cphi, stheta * sphi, ctheta);
+        view_dir.normalize();
+
+        math::Vec3f rz = view_dir;
+
+        math::Vec3f up = math::Vec3f(0.0f, 0.0f, 1.0f);
+        bool stable = abs(up.dot(rz)) < 0.99f;
+        up = stable ? up : math::Vec3f(cphi, sphi, 0.0f);
+
+        math::Vec3f rx = up.cross(rz).normalize();
+        math::Vec3f ry = rz.cross(rx).normalize();
+
+        math::Matrix3f rot;
+        for (int i = 0; i < 3; ++i) {
+            rot[i] = rx[i];
+            rot[3 + i] = ry[i];
+            rot[6 + i] = rz[i];
+        }
+
+        math::Vec3f trans = -rot * pos;
+        std::copy(trans.begin(), trans.end(), cam.trans);
+        std::copy(rot.begin(), rot.end(), cam.rot);
+
+        cam.fill_world_to_cam(w2c.begin());
+        {
+            dim3 grid(cacc::divup(num_vertices, KERNEL_BLOCK_SIZE));
+            dim3 block(KERNEL_BLOCK_SIZE);
+            populate_histogram<<<grid, block>>>(
+                cacc::Mat4f(w2c.begin()), cacc::Mat3f(calib.begin()),
+                cacc::Vec3f(pos.begin()), width, height,
+                dbvh_tree->cdata(), dcloud->cdata(), ddir_hist->cdata()
+            );
+            CHECK(cudaDeviceSynchronize());
+        }
+
+#if 0
         {
             dim3 grid(cacc::divup(360, KERNEL_BLOCK_SIZE), 180);
             dim3 block(KERNEL_BLOCK_SIZE);
@@ -261,7 +358,10 @@ int main(int argc, char **argv) {
         opts.write_vertex_values = true;
         std::string filename = fmt::format("/tmp/test-sphere-{:04d}.ply", cnt++);
         mve::geom::save_ply_mesh(mesh, filename, opts);
+#endif
     }
+
+    save_trajectory(trajectory, args.out_trajectory);
 
     return EXIT_SUCCESS;
 }

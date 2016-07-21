@@ -255,10 +255,11 @@ int main(int argc, char * argv[])
         int const stride = dir_hist.pitch / sizeof(cacc::Vec2f);
         #pragma omp parallel for
         for (std::size_t i = 0; i < num_vertices; ++i) {
-            cacc::Vec2f mean = dir_hist.data_ptr[(max_cameras - 2) * stride + i];
+            //cacc::Vec2f mean = dir_hist.data_ptr[(max_cameras - 2) * stride + i];
             cacc::Vec2f eigen = dir_hist.data_ptr[(max_cameras - 1) * stride + i];
             float lambda = std::max(std::abs(eigen[0]), std::abs(eigen[1]));
-            values[i] = mean[0] * (10.0f * std::max(0.0f, std::min(lambda, 1.0f / 10.0f)));
+            //values[i] = mean[0] * (10.0f * std::max(0.0f, std::min(lambda, 1.0f / 10.0f)));
+            values[i] = lambda;
         }
         mve::geom::SavePLYOptions opts;
         opts.write_vertex_values = true;

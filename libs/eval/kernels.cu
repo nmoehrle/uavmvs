@@ -38,17 +38,15 @@ visible(cacc::Vec3f const & v, cacc::Vec3f const & v2cn, float l,
     ray.set_tmin(l * 0.001f);
     ray.set_tmax(l);
 
-    uint hit_face_id;
-    cacc::tracing::trace(bvh_tree, ray, &hit_face_id);
-    return hit_face_id != cacc::tracing::NAI;
+    return !cacc::tracing::trace(bvh_tree, ray);
 }
 
 __forceinline__ __device__
 cacc::Vec2f
-relative_angle(cacc::Vec3f const & v2cn, cacc::Vec3f const & n, float ctheta) {
+relative_angle(cacc::Vec3f const & v2cn, cacc::Vec3f const & n) {
     cacc::Vec3f b0 = orthogonal(n).normalize();
     cacc::Vec3f b1 = cross(n, b0).normalize();
-    cacc::Vec3f x = v2cn - ctheta * n;
+    cacc::Vec3f x = v2cn - dot(v2cn, n) * n;
     return cacc::Vec2f(dot(x, b0), dot(x, b1));
 }
 
@@ -75,7 +73,7 @@ populate_histogram(cacc::Mat4f w2c, cacc::Mat3f calib, cacc::Vec3f view_pos,
 
     float ctheta = dot(v2cn, n);
     // 0.087f ~ cos(85.0f / 180.0f * pi)
-    //if (abs(ctheta) < 0.087f) return;
+    if (abs(ctheta) < 0.087f) return;
 
     if (l > 80.0f) return; //TODO make configurable
     cacc::Vec2f p = project(mult(w2c, v, 1.0f), calib);
@@ -88,7 +86,7 @@ populate_histogram(cacc::Mat4f w2c, cacc::Mat3f calib, cacc::Vec3f view_pos,
 
     if (row >= dir_hist.max_rows) return;
 
-    cacc::Vec2f dir = relative_angle(v2cn, n, ctheta);
+    cacc::Vec2f dir = relative_angle(v2cn, n);
 
     dir_hist.num_rows_ptr[id] = row;
     dir_hist.data_ptr[row * stride + id] = dir;
@@ -139,6 +137,7 @@ eigen_values(cacc::Mat2f const & mat)
 __forceinline__ __device__
 cacc::Vec2f
 eigen_values(cacc::Vec2f const * values, uint stride, uint n) {
+    if (n == 0) return cacc::Vec2f(0.0f, 0.0f);
     cacc::Vec2f mu = mean(values, stride, n);
     cacc::Mat2f cov = covariance(values, stride, n, mu);
     return eigen_values(cov);
@@ -185,11 +184,13 @@ void populate_histogram(cacc::Vec3f view_pos,
     float l = norm(v2c);
     cacc::Vec3f v2cn = v2c / l;
 
+    float ctheta = dot(v2cn, n);
+    // 0.087f ~ cos(85.0f / 180.0f * pi)
+    if (abs(ctheta) < 0.087f) return;
     if (l > 80.0f) return; //TODO make configurable
     if (!visible(v, v2cn, l, bvh_tree)) return;
 
-    float ctheta = dot(v2cn, n);
-    cacc::Vec2f dir = relative_angle(v2cn, n, ctheta);
+    cacc::Vec2f dir = relative_angle(v2cn, n);
 
     if (id >= dir_hist.num_cols) return;
 
@@ -235,14 +236,18 @@ evaluate_histogram(cacc::Mat3f calib, int width, int height,
 
     float phi = (x / (float) hist.width) * 2.0f * pi;
     float theta = (y / (float) hist.height) * pi;
-    cacc::Vec3f view_dir(sin(theta) * cos(phi), sin(theta) * sin(phi), cos(theta));
+    float ctheta = cos(theta);
+    float stheta = sin(theta);
+    float cphi = cos(phi);
+    float sphi = sin(phi);
+    cacc::Vec3f view_dir(stheta * cphi, stheta * sphi, ctheta);
     view_dir.normalize();
 
     cacc::Vec3f rz = -view_dir;
 
     cacc::Vec3f up = cacc::Vec3f(0.0f, 0.0f, 1.0f);
     bool stable = abs(dot(up, rz)) < 0.99f;
-    up = stable ? up : cacc::Vec3f(cos(phi), sin(phi), 0.0f);
+    up = stable ? up : cacc::Vec3f(cphi, sphi, 0.0f);
 
     cacc::Vec3f rx = cross(up, rz).normalize();
     cacc::Vec3f ry = cross(rz, rx).normalize();
