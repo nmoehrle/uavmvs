@@ -94,6 +94,7 @@ int main(int argc, char **argv) {
             vertices[i] = m.mult(vertices[i], 1.0f);
         }
     }
+
 #if FLIP_NORMALS
     for (std::size_t i = 0; i < normals.size(); ++i) {
         normals[i] = -normals[i];
@@ -114,26 +115,6 @@ int main(int argc, char **argv) {
     }
 
     mve::save_mve_bundle(bundle, args.out_mesh);
-#endif
-
-#if REMOVE_BOTTOM_FACES
-    std::vector<uint> new_faces;
-    new_faces.reserve(faces.size());
-
-    math::Vec3f v0 = vertices[faces[9000 * 3 + 0]];
-    math::Vec3f v1 = vertices[faces[9000 * 3 + 1]];
-    math::Vec3f v2 = vertices[faces[9000 * 3 + 2]];
-    math::Vec3f normal = ((v2 - v0).cross(v1 - v0)).normalize();
-
-    for (std::size_t i = 0; i < faces.size(); i += 3) {
-        if ((vertices[faces[i + 0]] - v0).dot(normal) < 0.01f &&
-            (vertices[faces[i + 1]] - v0).dot(normal) < 0.01f &&
-            (vertices[faces[i + 2]] - v0).dot(normal) < 0.01f) continue;
-        uint const * face_ptr = faces.data() + i;
-        new_faces.insert(new_faces.end(), face_ptr, face_ptr + 3);
-    }
-
-    faces.swap(new_faces);
 #endif
 
 #if SAVE_MESH
