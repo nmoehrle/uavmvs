@@ -268,6 +268,28 @@ int main(int argc, char **argv) {
             evaluate_histogram<<<grid, block, 0, stream>>>(cacc::Mat3f(calib.begin()), width, height,
                 dkd_tree->cdata(), dcon_hist->cdata(), dhist->cdata());
         }
+        #if 1
+        {
+            cacc::Image<float, cacc::DEVICE>::Ptr dtmp;
+            dtmp = cacc::Image<float, cacc::DEVICE>::create(360, 180);
+
+            dim3 grid(cacc::divup(360, KERNEL_BLOCK_SIZE));
+            dim3 block(KERNEL_BLOCK_SIZE);
+            suppress_nonmaxima<<<grid, block, 0, stream>>>(dhist->cdata(), dtmp->cdata());
+            CHECK(cudaDeviceSynchronize());
+
+            cacc::Image<float, cacc::HOST>::Ptr hist;
+            hist = cacc::Image<float, cacc::HOST>::create<cacc::DEVICE>(dtmp);
+            cacc::Image<float, cacc::HOST>::Data data = hist->cdata();
+            mve::FloatImage::Ptr image = mve::FloatImage::create(360, 180, 1);
+            for (int y = 0; y < 180; ++y) {
+                for (int x = 0; x < 360; ++x) {
+                    image->at(x, y, 0) = data.data_ptr[y * data.pitch / sizeof(float) + x];
+                }
+            }
+            mve::image::save_pfm_file(image, fmt::format("/tmp/test-hist-{:04d}.pfm", cnt));
+        }
+        #endif
 
         //TODO write a kernel to select best viewing direction
         *hist = *dhist;

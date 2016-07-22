@@ -29,8 +29,11 @@ void populate_histogram(cacc::Vec3f view_pos,
     cacc::VectorArray<float, cacc::DEVICE>::Data con_hist);
 
 __global__
-void evaluate_histogram(
-    cacc::Image<float, cacc::DEVICE>::Data hist);
+void evaluate_histogram(cacc::Image<float, cacc::DEVICE>::Data hist);
+
+__global__
+void suppress_nonmaxima(cacc::Image<float, cacc::DEVICE>::Data const hist,
+	cacc::Image<float, cacc::DEVICE>::Data out_hist);
 
 __global__
 void initialize_histogram(cacc::VectorArray<float, cacc::DEVICE>::Data con_hist);

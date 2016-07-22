@@ -292,6 +292,84 @@ evaluate_histogram(cacc::Mat3f calib, int width, int height,
     hist.data_ptr[y * stride + x] = sum;
 }
 
+__forceinline__ __device__
+float
+max5(float v0, float v1, float v2, float v3, float v4) {
+    return max(v0, max(max(v1, v2), max(v3, v4)));
+}
+
+__global__
+void
+suppress_nonmaxima(cacc::Image<float, cacc::DEVICE>::Data const hist,
+	cacc::Image<float, cacc::DEVICE>::Data out_hist)
+{
+    int const bx = blockIdx.x;
+    int const tx = threadIdx.x;
+
+    uint x = bx * blockDim.x + tx;
+
+    if (x >= hist.width) return;
+
+    int const stride = hist.pitch / sizeof(float);
+
+    __shared__ float sm[KERNEL_BLOCK_SIZE + 4];
+    /* Row wise maxima (y-2, y-1, y, y+1, y+2) mod 5. */
+    float m[5];
+    /* Value of pixel (y, y+1, y+2). */
+    float v[3];
+
+    /* Initialize */
+    m[1] = 0.0f;
+    m[2] = 0.0f;
+    #pragma unroll
+    for (int y = 0; y < 2; y++) {
+        __syncthreads();
+        sm[tx] = hist.data_ptr[y * stride + (hist.width + x - 2) % hist.width];
+        if (x >= blockDim.x - 4) {
+            sm[tx + 4] = hist.data_ptr[y * stride + (x + 2) % hist.width];
+        }
+        __syncthreads();
+        m[y + 3] = max5(sm[tx], sm[tx + 1], sm[tx + 2], sm[tx + 3], sm[tx + 4]);
+        v[y + 1] = sm[tx + 2];
+    }
+
+    for (int y = 0; y < hist.height; ++y) {
+        __syncthreads();
+        if (y < hist.height - 2) {
+            sm[tx] = hist.data_ptr[(y + 2) * stride + (hist.width + x - 2) % hist.width];
+            if (x >= blockDim.x - 4) {
+                sm[tx + 4] = hist.data_ptr[(y + 2) * stride + (x + 2) % hist.width];
+            }
+        } else {
+            sm[tx] = 0.0f;
+            if (x >= blockDim.x - 4) {
+                sm[tx + 4] = 0.0f;
+            }
+        }
+        __syncthreads();
+
+        float tmp = max5(sm[tx], sm[tx + 1], sm[tx + 2], sm[tx + 3], sm[tx + 4]);
+        /* Avoid local memory access. */
+        switch (y % 5) {
+            case 0: m[0] = tmp; break;
+            case 1: m[1] = tmp; break;
+            case 2: m[2] = tmp; break;
+            case 3: m[3] = tmp; break;
+            default: m[4] = tmp;
+        }
+
+        v[0] = v[1];
+        v[1] = v[2];
+        v[2] = sm[tx + 2];
+
+        if (v[0] < max5(m[0], m[1], m[2], m[3], m[4])) {
+            out_hist.data_ptr[y * stride + x] = 0.0f;
+        } else {
+            out_hist.data_ptr[y * stride + x] = v[0];
+        }
+    }
+}
+
 __global__
 void
 evaluate_histogram(cacc::KDTree<3, cacc::DEVICE>::Data const kd_tree,
