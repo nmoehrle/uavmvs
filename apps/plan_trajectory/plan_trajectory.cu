@@ -228,7 +228,6 @@ int main(int argc, char **argv) {
     ddir_hist = cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::create(num_vertices, max_cameras);
     cacc::VectorArray<float, cacc::HOST>::Ptr con_hist;
     con_hist = cacc::VectorArray<float, cacc::HOST>::create(ovalues.size(), 2);
-    cacc::VectorArray<float, cacc::HOST>::Data data = con_hist->cdata();
     cacc::VectorArray<float, cacc::DEVICE>::Ptr dcon_hist;
     dcon_hist = cacc::VectorArray<float, cacc::DEVICE>::create(ovalues.size(), 2);
 
@@ -252,30 +251,25 @@ int main(int argc, char **argv) {
         cam.fill_calibration(calib.begin(), width, height);
         cam.fill_camera_pos(pos.begin());
 
-        //TODO write clear kernel
-        for (std::size_t i = 0; i < ovalues.size(); ++i) {
-            data.data_ptr[i] = 0.0f;
-            data.data_ptr[i + data.pitch / sizeof(float)] = cacc::float_to_uint32(0.0f);
-        }
-        *dcon_hist = *con_hist;
-
+        cudaStream_t stream;
+        cudaStreamCreate(&stream);
         {
             dim3 grid(cacc::divup(num_vertices, KERNEL_BLOCK_SIZE));
             dim3 block(KERNEL_BLOCK_SIZE);
-            populate_histogram<<<grid, block>>>(cacc::Vec3f(pos.begin()),
+            initialize_histogram<<<grid, block, 0, stream>>>(dcon_hist->cdata());
+            populate_histogram<<<grid, block,0, stream>>>(cacc::Vec3f(pos.begin()),
                 dbvh_tree->cdata(), dcloud->cdata(), dkd_tree->cdata(),
                 ddir_hist->cdata(), dcon_hist->cdata());
-            CHECK(cudaDeviceSynchronize());
         }
 
         {
             dim3 grid(cacc::divup(360, KERNEL_BLOCK_SIZE), 180);
             dim3 block(KERNEL_BLOCK_SIZE);
-            evaluate_histogram<<<grid, block>>>(cacc::Mat3f(calib.begin()), width, height,
+            evaluate_histogram<<<grid, block, 0, stream>>>(cacc::Mat3f(calib.begin()), width, height,
                 dkd_tree->cdata(), dcon_hist->cdata(), dhist->cdata());
-            CHECK(cudaDeviceSynchronize());
         }
 
+        //TODO write a kernel to select best viewing direction
         *hist = *dhist;
 
         cacc::Image<float, cacc::HOST>::Data hist_data = hist->cdata();
@@ -303,7 +297,7 @@ int main(int argc, char **argv) {
 
         math::Vec3f rz = view_dir;
 
-        math::Vec3f up = math::Vec3f(0.0f, 0.0f, 1.0f);
+        math::Vec3f up = math::Vec3f(0.0f, 0.0f, -1.0f);
         bool stable = abs(up.dot(rz)) < 0.99f;
         up = stable ? up : math::Vec3f(cphi, sphi, 0.0f);
 
@@ -325,23 +319,23 @@ int main(int argc, char **argv) {
         {
             dim3 grid(cacc::divup(num_vertices, KERNEL_BLOCK_SIZE));
             dim3 block(KERNEL_BLOCK_SIZE);
-            populate_histogram<<<grid, block>>>(
+            populate_histogram<<<grid, block, 0, stream>>>(
                 cacc::Mat4f(w2c.begin()), cacc::Mat3f(calib.begin()),
                 cacc::Vec3f(pos.begin()), width, height,
                 dbvh_tree->cdata(), dcloud->cdata(), ddir_hist->cdata()
             );
-            CHECK(cudaDeviceSynchronize());
         }
 
+#if 1
         {
             dim3 grid(cacc::divup(360, KERNEL_BLOCK_SIZE), 180);
             dim3 block(KERNEL_BLOCK_SIZE);
-            evaluate_histogram<<<grid, block>>>(dkd_tree->cdata(),
+            evaluate_histogram<<<grid, block, 0, stream>>>(dkd_tree->cdata(),
                dhist->cdata(), dcon_hist->cdata());
-            CHECK(cudaDeviceSynchronize());
         }
 
         *con_hist = *dcon_hist;
+        cacc::VectorArray<float, cacc::HOST>::Data data = con_hist->cdata();
         for (std::size_t i = 0; i < vertices.size(); ++i) {
             overtices[i] = vertices[i] + pos;
 #if 1
@@ -357,6 +351,7 @@ int main(int argc, char **argv) {
         opts.write_vertex_values = true;
         std::string filename = fmt::format("/tmp/test-sphere-{:04d}.ply", cnt++);
         mve::geom::save_ply_mesh(mesh, filename, opts);
+#endif
     }
 
     save_trajectory(trajectory, args.out_trajectory);

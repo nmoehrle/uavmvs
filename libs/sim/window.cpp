@@ -32,8 +32,7 @@ Window::Window(const char * title, int width, int height) {
     }
 
     this->window = glfwCreateWindow(width, height, title, NULL, NULL);
-    if (!this->window)
-    {
+    if (!this->window) {
         throw std::runtime_error("Could not create GLFW window");
     }
 

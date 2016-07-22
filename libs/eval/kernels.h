@@ -33,6 +33,9 @@ void evaluate_histogram(
     cacc::Image<float, cacc::DEVICE>::Data hist);
 
 __global__
+void initialize_histogram(cacc::VectorArray<float, cacc::DEVICE>::Data con_hist);
+
+__global__
 void evaluate_histogram(cacc::Mat3f calib, int width, int height,
     cacc::KDTree<3, cacc::DEVICE>::Data const kd_tree,
     cacc::VectorArray<float, cacc::DEVICE>::Data const con_hist,

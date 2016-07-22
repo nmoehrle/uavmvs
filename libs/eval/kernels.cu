@@ -151,11 +151,15 @@ evaluate_histogram(cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data dir_hist)
 
     cacc::Vec3f * rel_dirs = dir_hist.data_ptr + id;
 
-    float recon = 0.0f;
-    //rel_dirs[id][3] = 0.0f;
-    for (int i = 1; i <= num_rows; ++i) {
-        recon += heuristic(rel_dirs, stride, i);
-        //rel_dirs[i * stride + id][3] = sum;
+    float recon = -1.0f;
+
+    if (num_rows >= 1.0f) {
+        recon = 0.0f;
+        //rel_dirs[id][3] = 0.0f;
+        for (int i = 1; i <= num_rows; ++i) {
+            recon += heuristic(rel_dirs, stride, i);
+            //rel_dirs[i * stride + id][3] = sum;
+        }
     }
 
     dir_hist.data_ptr[(dir_hist.max_rows - 1) * stride + id][3] = recon;
@@ -213,8 +217,23 @@ void populate_histogram(cacc::Vec3f view_pos,
     uint idx;
     float dist;
     cacc::nnsearch::find_nns<3u>(kd_tree, -v2cn, &idx, &dist, 1u);
-    //atomicAdd(con_hist.data_ptr + idx, contrib);
-    con_hist.data_ptr[idx] = contrib;
+    atomicAdd(con_hist.data_ptr + idx, contrib);
+}
+
+__global__
+void
+initialize_histogram(cacc::VectorArray<float, cacc::DEVICE>::Data con_hist)
+{
+    int const bx = blockIdx.x;
+    int const tx = threadIdx.x;
+
+    uint id = bx * blockDim.x + tx;
+
+    if (id >= con_hist.num_cols) return;
+
+    int const stride = con_hist.pitch / sizeof(float);
+    con_hist.data_ptr[id] = 0.0f;
+    con_hist.data_ptr[id + stride] = cacc::float_to_uint32(0.0f);
 }
 
 __global__
