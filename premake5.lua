@@ -36,5 +36,6 @@ workspace "uavmvs"
     include("apps/plan_trajectory")
     include("apps/evaluate_reconstruction")
     include("apps/mesh_tools")
+    include("apps/image_tools")
     include("apps/create_bundle")
     include("apps/determine_transform")
