@@ -12,6 +12,7 @@ struct Arguments {
     std::string in_mesh;
     std::string out_mesh;
     std::string transform;
+    mve::geom::SavePLYOptions opts;
 };
 
 Arguments parse_args(int argc, char **argv) {
@@ -22,17 +23,33 @@ Arguments parse_args(int argc, char **argv) {
     args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] IN_MESH OUT_MESH");
     args.set_description("Prepare mesh for ...");
     args.add_option('t', "transform", true, "transform vertices with matrix file");
+    args.add_option('\0', "ascii", false, "write out ascii file");
     args.parse(argc, argv);
 
     Arguments conf;
     conf.in_mesh = args.get_nth_nonopt(0);
     conf.out_mesh = args.get_nth_nonopt(1);
 
+    conf.opts.format_binary = true;
+    conf.opts.write_face_colors = false;
+    conf.opts.write_face_normals = false;
+    conf.opts.write_vertex_colors = false;
+    conf.opts.write_vertex_confidences = false;
+    conf.opts.write_vertex_values = true;
+    conf.opts.write_vertex_normals = true;
+
     for (util::ArgResult const* i = args.next_option();
          i != nullptr; i = args.next_option()) {
         switch (i->opt->sopt) {
         case 't':
             conf.transform = i->arg;
+        break;
+        case '\0':
+            if (i->opt->lopt == "ascii") {
+                conf.opts.format_binary = false;
+            } else {
+                throw std::invalid_argument("Invalid option");
+            }
         break;
         default:
             throw std::invalid_argument("Invalid option");
@@ -67,7 +84,7 @@ load_matrix_from_file(std::string const & filename) {
 #define SAVE_MESH 1
 #define APPLY_TRANSFORM 0
 #define CONVERT_TO_BUNDLE 0
-#define FLIP_NORMALS 1
+#define FLIP_NORMALS 0
 int main(int argc, char **argv) {
     Arguments args = parse_args(argc, argv);
 
@@ -118,13 +135,6 @@ int main(int argc, char **argv) {
 #endif
 
 #if SAVE_MESH
-    mve::geom::SavePLYOptions opts;
-    opts.write_face_colors = false;
-    opts.write_face_normals = false;
-    opts.write_vertex_colors = false;
-    opts.write_vertex_confidences = false;
-    opts.write_vertex_values = false;
-    opts.write_vertex_normals = true;
-    mve::geom::save_ply_mesh(mesh, args.out_mesh, opts);
+    mve::geom::save_ply_mesh(mesh, args.out_mesh, args.opts);
 #endif
 }

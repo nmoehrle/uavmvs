@@ -172,16 +172,17 @@ int main(int argc, char **argv) {
     in_mesh = load_mesh(args.in_mesh);
     gt_mesh = load_mesh(args.gt_mesh);
 
-    float acc = calculate_accuracy(in_mesh, gt_mesh, args.acc_thresh);
-    std::cout << "Accuracy: " << acc << std::endl;
-    float comp = calculate_completeness(in_mesh, gt_mesh, args.comp_thresh);
-    std::cout << "Completeness: " << comp << std::endl;
-
     mve::geom::SavePLYOptions opts;
     opts.write_vertex_values = true;
+
+    float acc = calculate_accuracy(in_mesh, gt_mesh, args.acc_thresh);
+    std::cout << "Accuracy: " << acc << std::endl;
     if (!args.accuracy_mesh.empty()) {
         mve::geom::save_ply_mesh(in_mesh, args.accuracy_mesh, opts);
     }
+
+    float comp = calculate_completeness(in_mesh, gt_mesh, args.comp_thresh);
+    std::cout << "Completeness: " << comp << std::endl;
     if (!args.completeness_mesh.empty()) {
         mve::geom::save_ply_mesh(gt_mesh, args.completeness_mesh, opts);
     }
