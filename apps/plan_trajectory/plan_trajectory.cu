@@ -257,9 +257,24 @@ int main(int argc, char **argv) {
             dim3 grid(cacc::divup(num_vertices, KERNEL_BLOCK_SIZE));
             dim3 block(KERNEL_BLOCK_SIZE);
             initialize_histogram<<<grid, block, 0, stream>>>(dcon_hist->cdata());
-            populate_histogram<<<grid, block,0, stream>>>(cacc::Vec3f(pos.begin()),
+            populate_histogram<<<grid, block, 0, stream>>>(cacc::Vec3f(pos.begin()),
                 dbvh_tree->cdata(), dcloud->cdata(), dkd_tree->cdata(),
                 ddir_hist->cdata(), dcon_hist->cdata());
+        }
+
+        {
+            CHECK(cudaDeviceSynchronize());
+            *con_hist = *dcon_hist;
+            cacc::VectorArray<float, cacc::HOST>::Data data = con_hist->cdata();
+            for (std::size_t i = 0; i < vertices.size(); ++i) {
+                overtices[i] = vertices[i] + pos;
+                ovalues[i] = data.data_ptr[i];
+            }
+
+            mve::geom::SavePLYOptions opts;
+            opts.write_vertex_values = true;
+            std::string filename = fmt::format("/tmp/test-sphere-hist-{:04d}.ply", cnt);
+            mve::geom::save_ply_mesh(mesh, filename, opts);
         }
 
         {
@@ -279,7 +294,7 @@ int main(int argc, char **argv) {
             CHECK(cudaDeviceSynchronize());
 
             cacc::Image<float, cacc::HOST>::Ptr hist;
-            hist = cacc::Image<float, cacc::HOST>::create<cacc::DEVICE>(dtmp);
+            hist = cacc::Image<float, cacc::HOST>::create<cacc::DEVICE>(dhist);
             cacc::Image<float, cacc::HOST>::Data data = hist->cdata();
             mve::FloatImage::Ptr image = mve::FloatImage::create(360, 180, 1);
             for (int y = 0; y < 180; ++y) {
@@ -360,18 +375,15 @@ int main(int argc, char **argv) {
         cacc::VectorArray<float, cacc::HOST>::Data data = con_hist->cdata();
         for (std::size_t i = 0; i < vertices.size(); ++i) {
             overtices[i] = vertices[i] + pos;
-#if 1
+
             float * f = data.data_ptr + data.pitch / sizeof(float) + i;
             uint32_t v = reinterpret_cast<uint32_t&>(*f);
             ovalues[i] = cacc::uint32_to_float(v);
-#else
-            ovalues[i] = data.data_ptr[i];
-#endif
         }
 
         mve::geom::SavePLYOptions opts;
         opts.write_vertex_values = true;
-        std::string filename = fmt::format("/tmp/test-sphere-{:04d}.ply", cnt++);
+        std::string filename = fmt::format("/tmp/test-2d-hist-{:04d}.ply", cnt++);
         mve::geom::save_ply_mesh(mesh, filename, opts);
 #endif
     }
