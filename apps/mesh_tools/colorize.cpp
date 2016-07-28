@@ -92,6 +92,12 @@ int main(int argc, char **argv) {
         std::exit(EXIT_FAILURE);
     }
 
+    float (*colormap)[3];
+    switch(args.colormap) {
+        case VIRIDIS: colormap = col::maps::viridis; break;
+        case COOLWARM: colormap = col::maps::coolwarm; break;
+    }
+
     #pragma omp parallel for
     for (std::size_t i = 0; i < vertices.size(); i++){
         float value = values[i];
@@ -102,11 +108,6 @@ int main(int argc, char **argv) {
             float t = value * 255.0f - lidx;
             std::uint8_t hidx = lidx == 255 ? 255 : lidx + 1;
 
-            float (*colormap)[3];
-            switch(args.colormap) {
-                case VIRIDIS: colormap = col::maps::viridis; break;
-                case COOLWARM: colormap = col::maps::coolwarm; break;
-            }
             math::Vec3f lc(colormap[lidx]);
             math::Vec3f hc(colormap[hidx]);
             #pragma unroll

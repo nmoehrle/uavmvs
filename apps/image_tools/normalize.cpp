@@ -28,7 +28,7 @@ Arguments parse_args(int argc, char **argv) {
     args.add_option('c', "clamp", false, "clamp (instead of remove) outliers");
     args.add_option('e', "epsilon", true, "remove outliers in percent [0.0]");
     args.add_option('i', "ignore", true, "set value to ignore [-1.0]");
-    args.add_option('m', "images", true, "calculate normalization based on these images (comma seperated list)."
+    args.add_option('\0', "images", true, "calculate normalization based on these images (comma seperated list)."
         "If no image is given the normalization is calculate from IN_IMAGE");
     args.parse(argc, argv);
 
@@ -51,12 +51,14 @@ Arguments parse_args(int argc, char **argv) {
         case 'i':
             conf.no_value = i->get_arg<float>();
         break;
-        case 'm':
-        {
-            util::Tokenizer t;
-            t.split(i->arg, ',');
-            conf.images = t;
-        }
+        case '\0':
+            if (i->opt->lopt == "images") {
+                util::Tokenizer t;
+                t.split(i->arg, ',');
+                conf.images = t;
+            } else {
+                throw std::invalid_argument("Invalid option");
+            }
         break;
         default:
             throw std::invalid_argument("Invalid option");

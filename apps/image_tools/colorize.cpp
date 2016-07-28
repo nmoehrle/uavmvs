@@ -80,6 +80,11 @@ int main(int argc, char **argv) {
         std::exit(EXIT_FAILURE);
     }
 
+    if (in_image->channels() != 1) {
+        std::cerr << "Image has more than one channel."<< std::endl;
+        std::exit(EXIT_FAILURE);
+    }
+
     float (*colormap)[3];
     switch(args.colormap) {
         case VIRIDIS: colormap = col::maps::viridis; break;
