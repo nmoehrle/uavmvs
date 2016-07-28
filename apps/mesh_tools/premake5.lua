@@ -7,18 +7,18 @@ project "prepare_mesh"
 
     mve.use({ "util" })
 
-project "normalize_mesh_values"
+project "normalize-mesh"
     kind "ConsoleApp"
     language "C++"
 
-    files { "normalize_mesh_values.cpp" }
+    files { "normalize.cpp" }
 
     mve.use({ "util" })
 
-project "colorize_mesh"
+project "colorize-mesh"
     kind "ConsoleApp"
     language "C++"
 
-    files { "colorize_mesh.cpp" }
+    files { "colorize.cpp" }
 
     mve.use({ "util" })

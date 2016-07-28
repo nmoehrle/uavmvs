@@ -1,9 +1,8 @@
 #include <iostream>
 #include <vector>
-#include <map>
+#include <unordered_map>
 #include <algorithm>
 
-#include "mve/scene.h"
 #include "mve/mesh_io_ply.h"
 
 #include "util/arguments.h"
@@ -25,7 +24,7 @@ Arguments parse_args(int argc, char **argv) {
     args.set_nonopt_maxnum(2);
     args.set_nonopt_minnum(2);
     args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] IN_MESH OUT_MESH");
-    args.set_description("Normalizes the values of all vertices.");
+    args.set_description("Normalizes the vertex values.");
     args.add_option('c', "clamp", false, "clamp (instead of remove) outliers");
     args.add_option('e', "epsilon", true, "remove outliers in percent [0.0]");
     args.add_option('i', "ignore", true, "set value to ignore [-1.0]");
@@ -80,7 +79,7 @@ int main(int argc, char **argv) {
 
     mve::TriangleMesh::Ptr mesh_to_normalize;
 
-    std::map<std::string, mve::TriangleMesh::Ptr> meshes_to_load;
+    std::unordered_map<std::string, mve::TriangleMesh::Ptr> meshes_to_load;
     for (std::size_t i = 0; i < args.meshes.size(); i++){
         mve::TriangleMesh::Ptr mesh;
         std::string name = args.meshes[i];
@@ -88,7 +87,8 @@ int main(int argc, char **argv) {
     }
     meshes_to_load[args.in_mesh] = mesh_to_normalize;
 
-    std::map<std::string, mve::TriangleMesh::Ptr>::iterator it;
+    std::size_t num_values = 0;
+    std::unordered_map<std::string, mve::TriangleMesh::Ptr>::iterator it;
     for (it = meshes_to_load.begin(); it != meshes_to_load.end(); it++){
         mve::TriangleMesh::Ptr mesh;
         try {
@@ -103,26 +103,19 @@ int main(int argc, char **argv) {
             std::exit(EXIT_FAILURE);
         }
 
-        it->second = mesh;
-    }
-
-    std::vector<mve::TriangleMesh::Ptr> meshes;
-    std::size_t num_values = 0;
-    for (std::size_t i = 0; i < args.meshes.size(); i++){
-        std::string name = args.meshes[i];
-        mve::TriangleMesh::Ptr mesh = meshes_to_load[name];
-        meshes.push_back(mesh);
         mve::TriangleMesh::ValueList & vertex_values = mesh->get_vertex_values();
         num_values += vertex_values.size();
-    }
 
+        it->second = mesh;
+    }
     mesh_to_normalize = meshes_to_load[args.in_mesh];
 
     std::vector<float> values;
     values.reserve(num_values);
 
-    for (std::size_t i = 0; i < meshes.size(); ++i) {
-        mve::TriangleMesh::ValueList & vertex_values = meshes[i]->get_vertex_values();
+    for (std::size_t i = 0; i < args.meshes.size(); ++i) {
+        mve::TriangleMesh::Ptr mesh = meshes_to_load[args.meshes[i]];
+        mve::TriangleMesh::ValueList & vertex_values = mesh->get_vertex_values();
         for (std::size_t j = 0; j < vertex_values.size(); ++j) {
             float value = vertex_values[j];
 

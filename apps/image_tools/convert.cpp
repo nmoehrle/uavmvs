@@ -18,9 +18,9 @@ struct Arguments {
 Arguments parse_args(int argc, char **argv) {
     util::Arguments args;
     args.set_exit_on_error(true);
-    args.set_nonopt_minnum(1);
+    args.set_nonopt_minnum(2);
     args.set_nonopt_maxnum(2);
-    args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] IN_IMAGE [OUT_IMAGE]");
+    args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] IN_IMAGE OUT_IMAGE");
     args.set_description("Convert for mvei images...");
     args.add_option('\0', "max-value", true,
         "maximum value - values out of range will be set to clear-value");
@@ -31,9 +31,6 @@ Arguments parse_args(int argc, char **argv) {
     Arguments conf;
     conf.in_image = args.get_nth_nonopt(0);
     conf.out_image = args.get_nth_nonopt(1);
-    if (conf.out_image.empty()) {
-        conf.out_image = conf.in_image;
-    }
 
     for (util::ArgResult const* i = args.next_option();
          i != 0; i = args.next_option()) {
