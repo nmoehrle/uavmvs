@@ -407,16 +407,19 @@ int main(int argc, char **argv) {
         std::exit(EXIT_FAILURE);
     }
 
+#if 0
     std::vector<math::Vec3f> const & verts = mesh->get_vertices();
     std::cout << "Building acceleration structure... " << std::flush;
     acc::KDTree<3, uint> tree(verts);
     std::cout << "done." << std::endl;
+#endif
 
     if (glfwJoystickPresent(GLFW_JOYSTICK_1)) {
         std::cout << glfwGetJoystickName(GLFW_JOYSTICK_1) << std::endl;
     }
 
     double past = glfwGetTime();
+    double last = 0.0f;
     while (window.good())
     {
         double now = glfwGetTime();
@@ -424,16 +427,23 @@ int main(int argc, char **argv) {
         past = now;
 
         simulator->update(delta_time);
-        display(simulator, pose);
+        if (last >= 0.01f) {
+            last = 0.0f;
+            display(simulator, pose);
+            window.update();
+        } else {
+            last += delta_time;
+        }
 
+#if 0
         std::pair<uint, float> nn;
         if (tree.find_nn(pose->x, &nn, 5.0f)) {
             std::cout << "Proximity alert " << nn.second << "m" << std::endl;
         }
+#endif
 
-        window.update();
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        int rest = 4 - (int)(1000 * delta_time);
+        std::this_thread::sleep_for(std::chrono::milliseconds(rest));
     }
 
     if (!args.trajectory.empty()) {
