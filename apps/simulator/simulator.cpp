@@ -166,7 +166,8 @@ public:
     typedef std::shared_ptr<Simulator> Ptr;
 
     Simulator(std::string const & basepath = util::fs::dirname(__ABSFILE__))
-        : basepath(basepath), Engine() {}
+        : basepath(basepath), Engine() {
+    }
 
     Entity::Ptr create_copter(Pose::ConstPtr * pose_ptr, Trajectory::ConstPtr * trajectory_ptr)
     {
@@ -425,10 +426,10 @@ int main(int argc, char **argv) {
         simulator->update(delta_time);
         display(simulator, pose);
 
-        uint nn;
-        float dist;
-        std::tie(nn, dist) = tree.find_nn(pose->x, 5.0f);
-        if (nn != -1) std::cout << "Proximity alert " << dist << "m" << std::endl;
+        std::pair<uint, float> nn;
+        if (tree.find_nn(pose->x, &nn, 5.0f)) {
+            std::cout << "Proximity alert " << nn.second << "m" << std::endl;
+        }
 
         window.update();
 

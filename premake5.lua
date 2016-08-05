@@ -28,14 +28,20 @@ workspace "uavmvs"
     include("libs/fmt")
 
     include("apps/template")
-    include("apps/generate_texture")
-    include("apps/generate_point_cloud")
-    include("apps/simulator")
-    include("apps/capture_trajectory")
-    include("apps/evaluate_trajectory")
-    include("apps/plan_trajectory")
-    include("apps/evaluate_reconstruction")
+
     include("apps/mesh_tools")
     include("apps/image_tools")
+
     include("apps/create_bundle")
     include("apps/determine_transform")
+
+    include("apps/generate_texture")
+    include("apps/generate_proxy_mesh")
+    include("apps/generate_proxy_cloud")
+
+    include("apps/simulator")
+
+    include("apps/plan_trajectory")
+    include("apps/capture_trajectory")
+    include("apps/evaluate_trajectory")
+    include("apps/evaluate_reconstruction")

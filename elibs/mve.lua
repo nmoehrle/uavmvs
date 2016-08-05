@@ -47,6 +47,10 @@ function m.use(libs)
         end
     end
 
+    if table.contains(libs, "fssr") then
+        links { "gomp" }
+    end
+
     links { "jpeg", "png", "tiff" }
 end
 

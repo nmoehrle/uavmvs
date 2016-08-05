@@ -49,7 +49,6 @@ Arguments parse_args(int argc, char **argv) {
 int main(int argc, char **argv) {
     Arguments args = parse_args(argc, argv);
 
-    std::cout << "Load mesh: " << std::endl;
     mve::TriangleMesh::Ptr mesh;
     try {
         mesh = mve::geom::load_ply_mesh(args.in_mesh);
