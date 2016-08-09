@@ -34,7 +34,7 @@ workspace "uavmvs"
 
     include("apps/create_bundle")
     include("apps/determine_transform")
-    include("apps/determine_req_matching")
+    include("apps/determine_matching_mask")
 
     include("apps/generate_texture")
     include("apps/generate_proxy_mesh")

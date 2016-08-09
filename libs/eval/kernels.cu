@@ -301,7 +301,7 @@ max5(float v0, float v1, float v2, float v3, float v4) {
 __global__
 void
 suppress_nonmaxima(cacc::Image<float, cacc::DEVICE>::Data const hist,
-	cacc::Image<float, cacc::DEVICE>::Data out_hist)
+    cacc::Image<float, cacc::DEVICE>::Data out_hist)
 {
     int const bx = blockIdx.x;
     int const tx = threadIdx.x;

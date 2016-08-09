@@ -1,11 +1,11 @@
 local mve = require "mve"
-project "determine_req_matching"
+project "determine_matching_mask"
     kind "ConsoleApp"
     language "C++"
 
     buildoptions { "-fopenmp" }
     links { "gomp" }
 
-    files { "determine_req_matching.cpp" }
+    files { "determine_matching_mask.cpp" }
 
     mve.use({ "util" })

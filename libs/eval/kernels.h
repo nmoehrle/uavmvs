@@ -33,7 +33,7 @@ void evaluate_histogram(cacc::Image<float, cacc::DEVICE>::Data hist);
 
 __global__
 void suppress_nonmaxima(cacc::Image<float, cacc::DEVICE>::Data const hist,
-	cacc::Image<float, cacc::DEVICE>::Data out_hist);
+    cacc::Image<float, cacc::DEVICE>::Data out_hist);
 
 __global__
 void initialize_histogram(cacc::VectorArray<float, cacc::DEVICE>::Data con_hist);
