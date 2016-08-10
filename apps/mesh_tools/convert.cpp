@@ -8,11 +8,15 @@
 
 typedef unsigned int uint;
 
+constexpr float inf = std::numeric_limits<float>::infinity();
+
 struct Arguments {
     std::string in_mesh;
     std::string out_mesh;
     std::string transform;
     mve::geom::SavePLYOptions opts;
+    bool show_info;
+    bool flip_normals;
 };
 
 Arguments parse_args(int argc, char **argv) {
@@ -23,18 +27,22 @@ Arguments parse_args(int argc, char **argv) {
     args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] IN_MESH OUT_MESH");
     args.set_description("Prepare mesh for ...");
     args.add_option('t', "transform", true, "transform vertices with matrix file");
+    args.add_option('s', "show-info", false, "show info");
+    args.add_option('f', "flip-normals", false, "flip vertex normals");
     args.add_option('\0', "ascii", false, "write out ascii file");
     args.parse(argc, argv);
 
     Arguments conf;
     conf.in_mesh = args.get_nth_nonopt(0);
     conf.out_mesh = args.get_nth_nonopt(1);
+    conf.show_info = false;
+    conf.flip_normals = false;
 
     conf.opts.format_binary = true;
     conf.opts.write_face_colors = false;
     conf.opts.write_face_normals = false;
-    conf.opts.write_vertex_colors = false;
-    conf.opts.write_vertex_confidences = false;
+    conf.opts.write_vertex_colors = true;
+    conf.opts.write_vertex_confidences = true;
     conf.opts.write_vertex_values = true;
     conf.opts.write_vertex_normals = true;
 
@@ -43,6 +51,12 @@ Arguments parse_args(int argc, char **argv) {
         switch (i->opt->sopt) {
         case 't':
             conf.transform = i->arg;
+        break;
+        case 's':
+            conf.show_info = true;
+        break;
+        case 'f':
+            conf.flip_normals = true;
         break;
         case '\0':
             if (i->opt->lopt == "ascii") {
@@ -81,10 +95,7 @@ load_matrix_from_file(std::string const & filename) {
     return ret;
 }
 
-#define SAVE_MESH 1
-#define APPLY_TRANSFORM 0
 #define CONVERT_TO_BUNDLE 0
-#define FLIP_NORMALS 0
 int main(int argc, char **argv) {
     Arguments args = parse_args(argc, argv);
 
@@ -103,19 +114,37 @@ int main(int argc, char **argv) {
     std::vector<uint> & faces = mesh->get_faces();
     std::vector<math::Vec4f> & colors = mesh->get_vertex_colors();
 
+    if (args.show_info) {
+        math::Vec3f min(+inf);
+        math::Vec3f max(-inf);
+
+        for (std::size_t i = 0; i < vertices.size(); ++i) {
+            for (std::size_t j = 0; j < 3; ++j){
+                min[j] = std::min(min[j], vertices[i][j]);
+                max[j] = std::max(max[j], vertices[i][j]);
+            }
+        }
+
+        std::cout << min << " " << max << std::endl;
+    }
+
     if (!args.transform.empty()) {
         math::Matrix4f m = load_matrix_from_file(args.transform);
 
         for (std::size_t i = 0; i < vertices.size(); ++i) {
             vertices[i] = m.mult(vertices[i], 1.0f);
         }
+
+        for (std::size_t i = 0; i < normals.size(); ++i) {
+            normals[i] = m.mult(normals[i], 0.0f);
+        }
     }
 
-#if FLIP_NORMALS
-    for (std::size_t i = 0; i < normals.size(); ++i) {
-        normals[i] = -normals[i];
+    if (args.flip_normals) {
+        for (std::size_t i = 0; i < normals.size(); ++i) {
+            normals[i] = -normals[i];
+        }
     }
-#endif
 
 #if CONVERT_TO_BUNDLE
     mve::Bundle::Ptr bundle = mve::Bundle::create();
@@ -133,7 +162,5 @@ int main(int argc, char **argv) {
     mve::save_mve_bundle(bundle, args.out_mesh);
 #endif
 
-#if SAVE_MESH
     mve::geom::save_ply_mesh(mesh, args.out_mesh, args.opts);
-#endif
 }

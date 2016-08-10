@@ -1,9 +1,9 @@
 local mve = require "mve"
-project "prepare_mesh"
+project "convert-mesh"
     kind "ConsoleApp"
     language "C++"
 
-    files { "prepare_mesh.cpp" }
+    files { "convert.cpp" }
 
     mve.use({ "util" })
 
