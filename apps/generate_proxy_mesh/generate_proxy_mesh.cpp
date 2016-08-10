@@ -146,12 +146,16 @@ int main(int argc, char **argv) {
         mve::FloatImage::Ptr tmp = mve::FloatImage::create(width, height, 1);
 
         #pragma omp parallel for
-        for (int y = 1; y < height - 1; ++y) {
-            for (int x = 1; x < width - 1; ++x) {
-                float heights[9];
-                patch(hmap, x, y, (float (*)[3][3])&heights);
-                std::sort(heights, heights + 9);
-                tmp->at(x, y, 0) = heights[4];
+        for (int y = 0; y < height; ++y) {
+            for (int x = 0; x < width; ++x) {
+                if (y == 0 || y == height - 1 || x == 0 || x == width - 1) {
+                    tmp->at(x, y, 0) = lowest;
+                } else {
+                    float heights[9];
+                    patch(hmap, x, y, (float (*)[3][3])&heights);
+                    std::sort(heights, heights + 9);
+                    tmp->at(x, y, 0) = heights[4];
+                }
             }
         }
 
@@ -163,25 +167,35 @@ int main(int argc, char **argv) {
     while (holes) {
         holes = false;
 
-        for (int y = 1; y < height - 1; ++y) {
-            for (int x = 1; x < width - 1; ++x) {
-                if (hmap->at(x, y, 0) != lowest) continue;
+        mve::FloatImage::Ptr tmp = mve::FloatImage::create(width, height, 1);
 
-                float heights[9];
-                patch(hmap, x, y, (float (*)[3][3])&heights);
-
-                float * end = std::remove(heights, heights + 9, lowest);
-
-                int n = std::distance(heights, end);
-
-                if (n == 0) {
-                    holes = true;
+        #pragma omp parallel for schedule(dynamic)
+        for (int y = 0; y < height; ++y) {
+            for (int x = 0; x < width; ++x) {
+                if (y == 0 || y == height - 1 || x == 0 || x == width - 1) {
+                    tmp->at(x, y, 0) = lowest;
+                } else if (hmap->at(x, y, 0) != lowest) {
+                    tmp->at(x, y, 0) = hmap->at(x, y, 0);
                 } else {
-                    std::sort(heights, end);
-                    hmap->at(x, y, 0) = heights[n / 2];
+                    float heights[9];
+                    patch(hmap, x, y, (float (*)[3][3])&heights);
+
+                    float * end = std::remove(heights, heights + 9, lowest);
+
+                    int n = std::distance(heights, end);
+
+                    if (n >= 3) {
+                        std::sort(heights, end);
+                        tmp->at(x, y, 0) = heights[n / 2];
+                    } else {
+                        tmp->at(x, y, 0) = lowest;
+                        holes = true;
+                    }
                 }
             }
         }
+
+        hmap.swap(tmp);
     }
 
     /* Estimate ground level and normalize height map */
@@ -189,14 +203,19 @@ int main(int argc, char **argv) {
     #pragma omp parallel for reduction(min:ground_level)
     for (std::size_t i = 0; i < hmap->get_value_amount(); ++i) {
         float height = hmap->at(i);
-        if (height < ground_level) {
+        if (height != lowest && height < ground_level) {
             ground_level = height;
         }
     }
 
     #pragma omp parallel for
     for (std::size_t i = 0; i < hmap->get_value_amount(); ++i) {
-        hmap->at(i) -= ground_level;
+        float height = hmap->at(i);
+        if (height != lowest) {
+            hmap->at(i) -= ground_level;
+        } else {
+            hmap->at(i) = 0.0f;
+        }
     }
 
     if (!args.hmap.empty()) {
