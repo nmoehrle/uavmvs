@@ -36,6 +36,8 @@ workspace "uavmvs"
     include("apps/determine_transform")
     include("apps/determine_matching_mask")
 
+    include("apps/estimate_ground_plane")
+
     include("apps/generate_texture")
     include("apps/generate_proxy_mesh")
     include("apps/generate_proxy_cloud")
