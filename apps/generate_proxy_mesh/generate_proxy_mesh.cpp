@@ -15,6 +15,8 @@
 
 #include "acc/kd_tree.h"
 
+constexpr float lowest = std::numeric_limits<float>::lowest();
+
 struct AABB {
     math::Vec3f min;
     math::Vec3f max;
@@ -24,8 +26,8 @@ struct Arguments {
     std::string cloud;
     std::string mesh;
     std::string hmap;
+    bool fuse;
     float resolution;
-    AABB aabb;
 };
 
 Arguments parse_args(int argc, char **argv) {
@@ -37,14 +39,14 @@ Arguments parse_args(int argc, char **argv) {
     args.set_description("TODO");
     args.add_option('r', "resolution", true, "height map resolution [1.0]");
     args.add_option('h', "height-map", true, "save height map as pfm file");
+    args.add_option('f', "fuse-samples", false, "save height map as pfm file");
     args.parse(argc, argv);
 
     Arguments conf;
     conf.cloud = args.get_nth_nonopt(0);
     conf.mesh = args.get_nth_nonopt(1);
     conf.resolution = 1.0f;
-    conf.aabb.min = math::Vec3f(0.0f);
-    conf.aabb.max = math::Vec3f(0.0f);
+    conf.fuse = false;
 
     for (util::ArgResult const* i = args.next_option();
          i != 0; i = args.next_option()) {
@@ -54,6 +56,9 @@ Arguments parse_args(int argc, char **argv) {
         break;
         case 'h':
             conf.hmap = i->arg;
+        break;
+        case 'f':
+            conf.fuse = true;
         break;
         default:
             throw std::invalid_argument("Invalid option");
@@ -70,6 +75,16 @@ float volume(AABB const & aabb) {
         if (diff[i] <= 0.0f) return 0.0f;
     }
     return diff[0] * diff[1] * diff[2];
+}
+
+inline
+void
+patch(mve::FloatImage::Ptr img, int x, int y, float (*ptr)[3][3]) {
+    for (int i = -1; i <= 1; ++i) {
+        for (int j = -1; j <= 1; ++j) {
+            (*ptr)[1 + j][1 + i] = img->at(x + j, y + i, 0);
+        }
+    }
 }
 
 int main(int argc, char **argv) {
@@ -94,15 +109,13 @@ int main(int argc, char **argv) {
     std::vector<float> const & values = cloud->get_vertex_values();
     std::vector<float> const & confidences = cloud->get_vertex_confidences();
 
-    AABB & aabb = args.aabb;
-    if (volume(aabb) <= 0.0f) {
-        aabb.min = math::Vec3f(std::numeric_limits<float>::max());
-        aabb.max = math::Vec3f(-std::numeric_limits<float>::max());
-        for (std::size_t i = 0; i < verts.size(); ++i) {
-            for (int j = 0; j < 3; ++j) {
-                aabb.min[j] = std::min(aabb.min[j], verts[i][j]);
-                aabb.max[j] = std::max(aabb.max[j], verts[i][j]);
-            }
+    AABB aabb;
+    aabb.min = math::Vec3f(std::numeric_limits<float>::max());
+    aabb.max = math::Vec3f(-std::numeric_limits<float>::max());
+    for (std::size_t i = 0; i < verts.size(); ++i) {
+        for (int j = 0; j < 3; ++j) {
+            aabb.min[j] = std::min(aabb.min[j], verts[i][j]);
+            aabb.max[j] = std::max(aabb.max[j], verts[i][j]);
         }
     }
 
@@ -113,13 +126,14 @@ int main(int argc, char **argv) {
 
     std::cout << fmt::format("Creating height map ({}x{})", width, height) << std::endl;
 
+    /* Create height map. */
     mve::FloatImage::Ptr hmap = mve::FloatImage::create(width, height, 1);
-    hmap->fill(std::numeric_limits<float>::lowest());
-
+    hmap->fill(lowest);
     for (std::size_t i = 0; i < verts.size(); ++i) {
         math::Vec3f vertex = verts[i];
-        int x = (vertex[0] - aabb.min[0]) / args.resolution + args.resolution / 2.0f;
-        int y = (vertex[1] - aabb.min[1]) / args.resolution + args.resolution / 2.0f;
+        /* ... + center offset + rounding */
+        int x = (vertex[0] - aabb.min[0]) / args.resolution + args.resolution / 2.0f + 0.5f;
+        int y = (vertex[1] - aabb.min[1]) / args.resolution + args.resolution / 2.0f + 0.5f;
         float height = vertex[2];
         float z = hmap->at(x, y, 0);
         if (z > height) continue;
@@ -128,22 +142,45 @@ int main(int argc, char **argv) {
     }
 
     /* Use median filter to eliminate outliers. */
-    #pragma omp parallel for
-    for (int y = 1; y < height - 1; ++y) {
-        for (int x = 1; x < width - 1; ++x) {
-            float zs[] = {
-                hmap->at(x - 1, y - 1, 0),
-                hmap->at(x + 0, y - 1, 0),
-                hmap->at(x + 1, y - 1, 0),
-                hmap->at(x - 1, y + 0, 0),
-                hmap->at(x + 0, y + 0, 0),
-                hmap->at(x + 1, y + 0, 0),
-                hmap->at(x - 1, y + 1, 0),
-                hmap->at(x + 0, y + 1, 0),
-                hmap->at(x + 1, y + 1, 0)
-            };
-            std::sort(zs, zs + 9);
-            hmap->at(x, y, 0) = zs[4];
+    {
+        mve::FloatImage::Ptr tmp = mve::FloatImage::create(width, height, 1);
+
+        #pragma omp parallel for
+        for (int y = 1; y < height - 1; ++y) {
+            for (int x = 1; x < width - 1; ++x) {
+                float heights[9];
+                patch(hmap, x, y, (float (*)[3][3])&heights);
+                std::sort(heights, heights + 9);
+                tmp->at(x, y, 0) = heights[4];
+            }
+        }
+
+        hmap.swap(tmp);
+    }
+
+    /* Fill holes within the height map. */
+    bool holes = true;
+    while (holes) {
+        holes = false;
+
+        for (int y = 1; y < height - 1; ++y) {
+            for (int x = 1; x < width - 1; ++x) {
+                if (hmap->at(x, y, 0) != lowest) continue;
+
+                float heights[9];
+                patch(hmap, x, y, (float (*)[3][3])&heights);
+
+                float * end = std::remove(heights, heights + 9, lowest);
+
+                int n = std::distance(heights, end);
+
+                if (n == 0) {
+                    holes = true;
+                } else {
+                    std::sort(heights, end);
+                    hmap->at(x, y, 0) = heights[n / 2];
+                }
+            }
         }
     }
 
@@ -152,8 +189,6 @@ int main(int argc, char **argv) {
     #pragma omp parallel for reduction(min:ground_level)
     for (std::size_t i = 0; i < hmap->get_value_amount(); ++i) {
         float height = hmap->at(i);
-        if (height == std::numeric_limits<float>::lowest()) continue;
-
         if (height < ground_level) {
             ground_level = height;
         }
@@ -161,12 +196,7 @@ int main(int argc, char **argv) {
 
     #pragma omp parallel for
     for (std::size_t i = 0; i < hmap->get_value_amount(); ++i) {
-        float height = hmap->at(i);
-        if (height == std::numeric_limits<float>::lowest()) {
-            hmap->at(i) = 0.0f;
-        } else {
-            hmap->at(i) = height - ground_level;
-        }
+        hmap->at(i) -= ground_level;
     }
 
     if (!args.hmap.empty()) {
@@ -176,61 +206,70 @@ int main(int argc, char **argv) {
     acc::KDTree<3, unsigned> kd_tree(verts);
     fssr::IsoOctree octree;
 
+    mve::TriangleMesh::Ptr scloud = mve::TriangleMesh::create();
+    std::vector<math::Vec3f> & sverts = scloud->get_vertices();
+    std::vector<math::Vec3f> & snormals = scloud->get_vertex_normals();
+
     /* Introduce artificial samples at height discontinuities. */
     #pragma omp parallel for schedule(dynamic)
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
-            if (y == 0 || y == height - 1 || x == 0 || x == width - 1) continue;
+            if (y <= 1 || y >= height - 2 || x <= 1 || x >= width - 2) continue;
 
-            float height = hmap->at(x, y, 0);
+            float heights[3][3];
+            patch(hmap, x, y, &heights);
 
-            float dx = -height + hmap->at(x + 1, y, 0);
-            float dy = -height + hmap->at(x, y + 1, 0);
+            float rdx = -heights[0][1] + heights[1][1];
+            float rdy = -heights[1][0] + heights[1][1];
+            float fdx = -heights[1][1] + heights[2][1];
+            float fdy = -heights[1][1] + heights[1][2];
 
-            float m = std::max(std::abs(dx), std::abs(dy));
+            /* Calculate relevant magnitude. */
+            float m = std::max(std::max(rdx, -fdx), std::max(rdy, -fdy));
 
-            math::Vec3f normal(-dx, -dy, 0.0f); normal.normalize();
-            float px = x * args.resolution + aabb.min[0] + args.resolution / 2.0f;
-            float py = y * args.resolution + aabb.min[1] + args.resolution / 2.0f;
+            float gx =
+                -heights[0][0] + heights[2][0]
+                +2 * (-heights[0][1] + heights[2][1])
+                -heights[0][2] + heights[2][2];
+            float gy =
+                -heights[0][0] + heights[0][2]
+                +2 * (-heights[1][0] + heights[1][2])
+                -heights[2][0] + heights[2][2];
 
-#if 1
-            if (m <= args.resolution) continue;
-#else
+            math::Vec3f normal(-gx, -gy, 0.0f); normal.normalize();
+            float px = (x - args.resolution / 2.0f) * args.resolution + aabb.min[0];
+            float py = (y - args.resolution / 2.0f) * args.resolution + aabb.min[1];
+
             if (m <= args.resolution) {
-                fssr::Sample sample;
-                sample.pos = math::Vec3f(px, py, height + ground_level);
-                sample.normal = math::Vec3f(0.0f, 0.0f, 1.0f);
-                sample.scale = args.resolution;
-                sample.confidence = 0.5f;
-                sample.color = math::Vec3f(0.0f, 0.0f, 1.0f);
-                #pragma omp critical
-                octree.insert_sample(sample);
-
+                if (!args.fuse) {
+                    #pragma omp critical
+                    {
+                        sverts.emplace_back(px, py, heights[1][1] + ground_level);
+                        snormals.emplace_back(0.0f, 0.0f, 1.0f);
+                    }
+                }
                 continue;
             }
-#endif
 
-            float sign = 1.0f;
-            if (std::abs(dx) > std::abs(dy)) {
-                sign = (dx > 0.0f) ? 1.0f : -1.0f;
-            } else {
-                sign = (dy > 0.0f) ? 1.0f : -1.0f;
+            #pragma omp critical
+            {
+                sverts.emplace_back(px, py, heights[1][1] + ground_level);
+                snormals.push_back((math::Vec3f(0.0f, 0.0f, 1.0f) + normal).normalize());
             }
 
             for (int i = 1; i <= m / args.resolution; ++i) {
-                float pz = ground_level + height + sign * i * args.resolution;
+                float pz = ground_level + heights[1][1] - i * args.resolution;
                 math::Vec3f vertex(px, py, pz);
 
-                if (kd_tree.find_nn(vertex, nullptr, args.resolution)) continue;
+                if (args.fuse && kd_tree.find_nn(vertex, nullptr, args.resolution)) continue;
 
-                fssr::Sample sample;
-                sample.pos = math::Vec3f(px, py, pz);
-                sample.normal = normal;
-                sample.scale = args.resolution;
-                sample.confidence = 0.5f;
-                sample.color = math::Vec3f(0.0f, 0.0f, 1.0f);
+                if (fdx > 0.0f && rdx < 0.0f && fdy > 0.0f && rdy < 0.0f) continue;
+
                 #pragma omp critical
-                octree.insert_sample(sample);
+                {
+                    sverts.push_back(vertex);
+                    snormals.push_back(normal);
+                }
             }
         }
     }
@@ -238,14 +277,34 @@ int main(int argc, char **argv) {
     /* Let's make some space. */
     hmap.reset();
 
-    for (std::size_t i = 0; i < verts.size(); ++i) {
+    #if 1
+    {
+        mve::geom::SavePLYOptions opts;
+        opts.write_vertex_normals = true;
+        mve::geom::save_ply_mesh(scloud, "/tmp/test.ply", opts);
+    }
+    #endif
+
+    for (std::size_t i = 0; i < sverts.size(); ++i) {
         fssr::Sample sample;
-        sample.pos = verts[i];
-        sample.normal = normals[i];
-        sample.scale = values[i];
-        sample.confidence = confidences[i];
-        sample.color = math::Vec3f(0.1f);
+        sample.pos = sverts[i];
+        sample.normal = snormals[i];
+        sample.scale = args.resolution;
+        sample.confidence = 0.5f;
+        sample.color = math::Vec3f(0.0f, 0.0f, 1.0f);
         octree.insert_sample(sample);
+    }
+
+    if (args.fuse) {
+        for (std::size_t i = 0; i < verts.size(); ++i) {
+            fssr::Sample sample;
+            sample.pos = verts[i];
+            sample.normal = normals[i];
+            sample.scale = values[i];
+            sample.confidence = confidences[i];
+            sample.color = math::Vec3f(0.7f);
+            octree.insert_sample(sample);
+        }
     }
 
     /* Perform fssrecon c.f. mve/apps/fssrecon/fssrecon.cc */
