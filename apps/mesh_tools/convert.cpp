@@ -15,6 +15,7 @@ struct Arguments {
     std::string out_mesh;
     std::string transform;
     mve::geom::SavePLYOptions opts;
+    bool invert;
     bool show_info;
     bool flip_normals;
 };
@@ -27,6 +28,7 @@ Arguments parse_args(int argc, char **argv) {
     args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] IN_MESH OUT_MESH");
     args.set_description("Prepare mesh for ...");
     args.add_option('t', "transform", true, "transform vertices with matrix file");
+    args.add_option('i', "invert", false, "invert transform");
     args.add_option('s', "show-info", false, "show info");
     args.add_option('f', "flip-normals", false, "flip vertex normals");
     args.add_option('\0', "ascii", false, "write out ascii file");
@@ -35,6 +37,7 @@ Arguments parse_args(int argc, char **argv) {
     Arguments conf;
     conf.in_mesh = args.get_nth_nonopt(0);
     conf.out_mesh = args.get_nth_nonopt(1);
+    conf.invert = false;
     conf.show_info = false;
     conf.flip_normals = false;
 
@@ -51,6 +54,9 @@ Arguments parse_args(int argc, char **argv) {
         switch (i->opt->sopt) {
         case 't':
             conf.transform = i->arg;
+        break;
+        case 'i':
+            conf.invert = true;
         break;
         case 's':
             conf.show_info = true;
@@ -129,14 +135,24 @@ int main(int argc, char **argv) {
     }
 
     if (!args.transform.empty()) {
-        math::Matrix4f m = load_matrix_from_file(args.transform);
+        math::Matrix4f T = load_matrix_from_file(args.transform);
+
+        if (args.invert) {
+            math::Matrix3f R;
+            R(0, 0) = T(0, 0); R(0, 1) = T(1, 0); R(0, 2) = T(2, 0);
+            R(1, 0) = T(0, 1); R(1, 1) = T(1, 1); R(1, 2) = T(2, 1);
+            R(2, 0) = T(0, 2); R(2, 1) = T(1, 2); R(2, 2) = T(2, 2);
+            math::Vec3f t = -R * math::Vec3f(T(0, 3), T(1, 3), T(2, 3));
+            T = R.hstack(t).vstack(math::Vec4f(0.0f, 0.0f, 0.0f, 1.0f));
+        }
+
 
         for (std::size_t i = 0; i < vertices.size(); ++i) {
-            vertices[i] = m.mult(vertices[i], 1.0f);
+            vertices[i] = T.mult(vertices[i], 1.0f);
         }
 
         for (std::size_t i = 0; i < normals.size(); ++i) {
-            normals[i] = m.mult(normals[i], 0.0f);
+            normals[i] = T.mult(normals[i], 0.0f);
         }
     }
 

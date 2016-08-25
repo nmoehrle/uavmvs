@@ -32,7 +32,7 @@ Arguments parse_args(int argc, char **argv) {
     args.set_nonopt_maxnum(2);
     args.set_nonopt_minnum(2);
     args.set_helptext_indent(28);
-    args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] SCENE_DIR MODEL");
+    args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] SCENE MODEL");
     args.set_description("Renders the model from all trajectory views given as scene");
     args.add_option('r', "resolution", true, "resolution [1920x1080]");
     args.parse(argc, argv);

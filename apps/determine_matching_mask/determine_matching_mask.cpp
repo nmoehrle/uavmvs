@@ -104,7 +104,9 @@ int main(int argc, char **argv) {
     int height = 1080;
 
     acc::BVHTree<uint, math::Vec3f>::Ptr bvh_tree;
-    bvh_tree = load_mesh_as_bvh_tree(args.mesh);
+    if (!args.mesh.empty()) {
+        bvh_tree = load_mesh_as_bvh_tree(args.mesh);
+    }
 
     std::vector<std::vector<uint> > vis(num_cams);
 
