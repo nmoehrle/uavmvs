@@ -248,6 +248,7 @@ int main(int argc, char **argv) {
 
         math::Vec3f normal = face_normals[segment[0]];
         math::Vec3f n0 = orthogonal(normal).normalize();
+        //TODO fix coordinate system (right-handed)
         math::Vec3f n1 = n0.cross(normal).normalize();
         math::Vec3f v0 = vertices[faces[segment[0] * 3]];
 

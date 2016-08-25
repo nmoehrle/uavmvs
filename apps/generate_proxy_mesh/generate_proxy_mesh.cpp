@@ -26,6 +26,7 @@ struct Arguments {
     std::string cloud;
     std::string mesh;
     std::string hmap;
+    std::string scloud;
     bool fuse;
     float resolution;
 };
@@ -39,7 +40,8 @@ Arguments parse_args(int argc, char **argv) {
     args.set_description("TODO");
     args.add_option('r', "resolution", true, "height map resolution [1.0]");
     args.add_option('h', "height-map", true, "save height map as pfm file");
-    args.add_option('f', "fuse-samples", false, "save height map as pfm file");
+    args.add_option('s', "sample-cloud", true, "save sample mesh as ply file");
+    args.add_option('f', "fuse-samples", false, "use original and artificial samples");
     args.parse(argc, argv);
 
     Arguments conf;
@@ -56,6 +58,9 @@ Arguments parse_args(int argc, char **argv) {
         break;
         case 'h':
             conf.hmap = i->arg;
+        break;
+        case 's':
+            conf.scloud = i->arg;
         break;
         case 'f':
             conf.fuse = true;
@@ -103,9 +108,9 @@ int main(int argc, char **argv) {
 
     assert(cloud->get_faces().empty());
 
-    cloud->get_vertex_colors().clear();
     std::vector<math::Vec3f> const & verts = cloud->get_vertices();
     std::vector<math::Vec3f> const & normals = cloud->get_vertex_normals();
+    std::vector<math::Vec4f> const & colors = cloud->get_vertex_colors();
     std::vector<float> const & values = cloud->get_vertex_values();
     std::vector<float> const & confidences = cloud->get_vertex_confidences();
 
@@ -155,6 +160,27 @@ int main(int argc, char **argv) {
                     patch(hmap, x, y, (float (*)[3][3])&heights);
                     std::sort(heights, heights + 9);
                     tmp->at(x, y, 0) = heights[4];
+                }
+            }
+        }
+
+        hmap.swap(tmp);
+    }
+
+    /* Use biased median to revert overestimation. */
+    {
+        mve::FloatImage::Ptr tmp = mve::FloatImage::create(width, height, 1);
+
+        #pragma omp parallel for
+        for (int y = 0; y < height; ++y) {
+            for (int x = 0; x < width; ++x) {
+                if (y == 0 || y == height - 1 || x == 0 || x == width - 1) {
+                    tmp->at(x, y, 0) = lowest;
+                } else {
+                    float heights[9];
+                    patch(hmap, x, y, (float (*)[3][3])&heights);
+                    std::sort(heights, heights + 9);
+                    tmp->at(x, y, 0) = heights[2];
                 }
             }
         }
@@ -296,13 +322,11 @@ int main(int argc, char **argv) {
     /* Let's make some space. */
     hmap.reset();
 
-    #if 1
-    {
+    if (!args.scloud.empty()) {
         mve::geom::SavePLYOptions opts;
         opts.write_vertex_normals = true;
-        mve::geom::save_ply_mesh(scloud, "/tmp/test.ply", opts);
+        mve::geom::save_ply_mesh(scloud, "args.scloud", opts);
     }
-    #endif
 
     for (std::size_t i = 0; i < sverts.size(); ++i) {
         fssr::Sample sample;
@@ -310,7 +334,20 @@ int main(int argc, char **argv) {
         sample.normal = snormals[i];
         sample.scale = args.resolution;
         sample.confidence = 0.5f;
-        sample.color = math::Vec3f(0.0f, 0.0f, 1.0f);
+        std::vector<std::pair<uint, float> > nns;
+        kd_tree.find_nns(sverts[i], 3, &nns, args.resolution);
+        if (!nns.empty()) {
+            math::Vec3f color(0.0f);
+            float norm = 0.0f;
+            for (int n = 0; n < nns.size(); ++n) {
+                float weight = 1.0f - nns[n].second / args.resolution;
+                color += weight * math::Vec3f(colors[nns[n].first].begin());
+                norm += weight;
+            }
+            sample.color = color / norm;
+        } else {
+            sample.color = math::Vec3f(0.0f, 0.0f, 0.7f);
+        }
         octree.insert_sample(sample);
     }
 
@@ -321,7 +358,7 @@ int main(int argc, char **argv) {
             sample.normal = normals[i];
             sample.scale = values[i];
             sample.confidence = confidences[i];
-            sample.color = math::Vec3f(0.7f);
+            sample.color = math::Vec3f(colors[i].begin());
             octree.insert_sample(sample);
         }
     }
