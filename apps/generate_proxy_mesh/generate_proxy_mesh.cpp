@@ -9,9 +9,11 @@
 
 #include "mve/mesh_io_ply.h"
 #include "mve/image_io.h"
+#include "mve/mesh_tools.h"
 
 #include "fssr/iso_octree.h"
 #include "fssr/iso_surface.h"
+#include "fssr/mesh_clean.h"
 
 #include "acc/kd_tree.h"
 
@@ -381,6 +383,9 @@ int main(int argc, char **argv) {
         }
         mesh->delete_vertices_fix_faces(delete_verts);
     }
+
+    mve::geom::mesh_components(mesh, width * height);
+    fssr::clean_mc_mesh(mesh);
 
     mve::geom::SavePLYOptions opts;
     opts.write_vertex_normals = true;
