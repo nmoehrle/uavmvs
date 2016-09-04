@@ -148,6 +148,8 @@ int main(int argc, char **argv) {
         hmap->at(x, y, 0) = height;
     }
 
+#if AIRSPACE
+#else
     /* Use median filter to eliminate outliers. */
     {
         mve::FloatImage::Ptr tmp = mve::FloatImage::create(width, height, 1);
@@ -189,6 +191,7 @@ int main(int argc, char **argv) {
 
         hmap.swap(tmp);
     }
+#endif
 
     /* Fill holes within the height map. */
     bool holes = true;
@@ -245,6 +248,51 @@ int main(int argc, char **argv) {
             hmap->at(i) = 0.0f;
         }
     }
+
+#if AIRSPACE
+    /* Determine kernel for airspace estimation. */
+    float radius = 0.3f; //TODO args.min_distance;
+    int kernel_size = std::ceil(2.0f * (radius / args.resolution) + 1);
+
+    mve::FloatImage::Ptr kernel = mve::FloatImage::create(kernel_size, kernel_size, 1);
+    for (int y = 0; y < kernel_size; ++y) {
+        for (int x = 0; x < kernel_size; ++x) {
+            float cx = (x - kernel_size / 2) * args.resolution;
+            float cy = (y - kernel_size / 2) * args.resolution;
+            float cz2 = radius * radius - (cx * cx + cy * cy) ;
+            if (cz2 > 0.0f) {
+                kernel->at(x, y, 0) = std::sqrt(cz2);
+            } else {
+                kernel->at(x, y, 0) = std::numeric_limits<float>::lowest();
+            }
+        }
+    }
+
+    /* Filter height map for airspace estimation. */
+    {
+        mve::FloatImage::Ptr tmp = mve::FloatImage::create(width, height, 1);
+
+        #pragma omp parallel
+        for (int y = 0; y < height; ++y) {
+            for (int x = 0; x < width; ++x) {
+                float max = 0.0f;
+                for (int ky = 0; ky < kernel_size; ++ky) {
+                    for (int kx = 0; kx < kernel_size; ++kx) {
+                        int cx = x + kx - kernel_size / 2;
+                        int cy = y + ky - kernel_size / 2;
+                        if (cx < 0 || width <= cx || cy < 0 || height <= cx) continue;
+
+                        float v = kernel->at(kx, ky, 0) + hmap->at(cx, cy, 0);
+                        max = std::max(max, v);
+                    }
+                }
+                tmp->at(x, y, 0) = max;
+            }
+        }
+
+        hmap.swap(tmp);
+    }
+#endif
 
     if (!args.hmap.empty()) {
         mve::image::save_pfm_file(hmap, args.hmap);
