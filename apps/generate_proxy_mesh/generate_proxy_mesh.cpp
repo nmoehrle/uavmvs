@@ -115,7 +115,7 @@ void filter_3x3_nth_lowest(mve::FloatImage::Ptr hmap, int idx, float boundary) {
         }
     }
 
-    hmap.swap(tmp);
+    std::swap(*hmap, *tmp);
 }
 
 int main(int argc, char **argv) {
