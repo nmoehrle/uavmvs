@@ -4,6 +4,7 @@
 
 #include "util/system.h"
 #include "util/arguments.h"
+#include "util/file_system.h"
 #include "util/choices.h"
 
 #include "mve/camera.h"
@@ -22,7 +23,6 @@
 struct Arguments {
     std::string proxy_mesh;
     std::string proxy_cloud;
-    std::string proxy_sphere;
     std::string out_trajectory;
     std::string trajectory;
     float min_distance;
@@ -32,10 +32,10 @@ struct Arguments {
 Arguments parse_args(int argc, char **argv) {
     util::Arguments args;
     args.set_exit_on_error(true);
-    args.set_nonopt_minnum(4);
-    args.set_nonopt_maxnum(4);
+    args.set_nonopt_minnum(3);
+    args.set_nonopt_maxnum(3);
     args.set_usage("Usage: " + std::string(argv[0])
-        + " [OPTS] PROXY_MESH PROXY_CLOUD PROXY_SPHERE OUT_TRAJECTORY");
+        + " [OPTS] PROXY_MESH PROXY_CLOUD OUT_TRAJECTORY");
     args.set_description("Plans a trajectory maximizing reconstructability");
     args.add_option('t', "trajectory", true,
         "Use positions from given trajectory and only optimize viewing directions.");
@@ -44,8 +44,7 @@ Arguments parse_args(int argc, char **argv) {
     Arguments conf;
     conf.proxy_mesh = args.get_nth_nonopt(0);
     conf.proxy_cloud = args.get_nth_nonopt(1);
-    conf.proxy_sphere = args.get_nth_nonopt(2);
-    conf.out_trajectory = args.get_nth_nonopt(3);
+    conf.out_trajectory = args.get_nth_nonopt(2);
 
     for (util::ArgResult const* i = args.next_option();
          i != 0; i = args.next_option()) {
@@ -80,7 +79,7 @@ int main(int argc, char **argv) {
 
     mve::TriangleMesh::Ptr mesh;
     try {
-        mesh = mve::geom::load_ply_mesh(args.proxy_sphere);
+        mesh = mve::geom::load_ply_mesh(util::fs::join_path(__ROOT__, "res/meshes/sphere.ply"));
     } catch (std::exception& e) {
         std::cerr << "\tCould not load mesh: "<< e.what() << std::endl;
         std::exit(EXIT_FAILURE);
@@ -92,7 +91,7 @@ int main(int argc, char **argv) {
     ovalues.resize(vertices.size());
 
     acc::KDTree<3u, uint>::Ptr kd_tree;
-    kd_tree = load_mesh_as_kd_tree(args.proxy_sphere);
+    kd_tree = load_mesh_as_kd_tree(util::fs::join_path(__ROOT__, "res/meshes/sphere.ply"));
     cacc::KDTree<3u, cacc::DEVICE>::Ptr dkd_tree;
     dkd_tree = cacc::KDTree<3u, cacc::DEVICE>::create<uint>(kd_tree);
     cacc::nnsearch::bind_textures(dkd_tree->cdata());
