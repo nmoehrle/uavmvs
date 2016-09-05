@@ -94,6 +94,30 @@ patch(mve::FloatImage::Ptr img, int x, int y, float (*ptr)[3][3]) {
     }
 }
 
+void filter_3x3_nth_lowest(mve::FloatImage::Ptr hmap, int idx, float boundary) {
+    assert(idx < 9);
+
+    int width = hmap->width();
+    int height = hmap->height();
+    mve::FloatImage::Ptr tmp = mve::FloatImage::create(width, height, 1);
+
+    #pragma omp parallel for
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            if (y == 0 || y == height - 1 || x == 0 || x == width - 1) {
+                tmp->at(x, y, 0) = boundary;
+            } else {
+                float heights[9];
+                patch(hmap, x, y, (float (*)[3][3])&heights);
+                std::sort(heights, heights + 9);
+                tmp->at(x, y, 0) = heights[idx];
+            }
+        }
+    }
+
+    hmap.swap(tmp);
+}
+
 int main(int argc, char **argv) {
     util::system::register_segfault_handler();
     util::system::print_build_timestamp(argv[0]);
@@ -116,6 +140,7 @@ int main(int argc, char **argv) {
     std::vector<float> const & values = cloud->get_vertex_values();
     std::vector<float> const & confidences = cloud->get_vertex_confidences();
 
+    /* Calculate AABB. */
     AABB aabb;
     aabb.min = math::Vec3f(std::numeric_limits<float>::max());
     aabb.max = math::Vec3f(-std::numeric_limits<float>::max());
@@ -151,46 +176,9 @@ int main(int argc, char **argv) {
 #if AIRSPACE
 #else
     /* Use median filter to eliminate outliers. */
-    {
-        mve::FloatImage::Ptr tmp = mve::FloatImage::create(width, height, 1);
-
-        #pragma omp parallel for
-        for (int y = 0; y < height; ++y) {
-            for (int x = 0; x < width; ++x) {
-                if (y == 0 || y == height - 1 || x == 0 || x == width - 1) {
-                    tmp->at(x, y, 0) = lowest;
-                } else {
-                    float heights[9];
-                    patch(hmap, x, y, (float (*)[3][3])&heights);
-                    std::sort(heights, heights + 9);
-                    tmp->at(x, y, 0) = heights[4];
-                }
-            }
-        }
-
-        hmap.swap(tmp);
-    }
-
+    filter_3x3_nth_lowest(hmap, 4, lowest);
     /* Use biased median to revert overestimation. */
-    {
-        mve::FloatImage::Ptr tmp = mve::FloatImage::create(width, height, 1);
-
-        #pragma omp parallel for
-        for (int y = 0; y < height; ++y) {
-            for (int x = 0; x < width; ++x) {
-                if (y == 0 || y == height - 1 || x == 0 || x == width - 1) {
-                    tmp->at(x, y, 0) = lowest;
-                } else {
-                    float heights[9];
-                    patch(hmap, x, y, (float (*)[3][3])&heights);
-                    std::sort(heights, heights + 9);
-                    tmp->at(x, y, 0) = heights[2];
-                }
-            }
-        }
-
-        hmap.swap(tmp);
-    }
+    filter_3x3_nth_lowest(hmap, 2, lowest);
 #endif
 
     /* Fill holes within the height map. */
@@ -251,7 +239,7 @@ int main(int argc, char **argv) {
 
 #if AIRSPACE
     /* Determine kernel for airspace estimation. */
-    float radius = 0.3f; //TODO args.min_distance;
+    float radius = 0.15f; //TODO args.min_distance;
     int kernel_size = std::ceil(2.0f * (radius / args.resolution) + 1);
 
     mve::FloatImage::Ptr kernel = mve::FloatImage::create(kernel_size, kernel_size, 1);
