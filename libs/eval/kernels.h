@@ -49,6 +49,13 @@ void evaluate_histogram(cacc::KDTree<3, cacc::DEVICE>::Data const kd_tree,
     cacc::Image<float, cacc::DEVICE>::Data const hist,
     cacc::VectorArray<float, cacc::DEVICE>::Data con_hist);
 
+__global__
+void estimate_capture_difficulty(
+    cacc::PointCloud<cacc::DEVICE>::Data const cloud,
+    cacc::BVHTree<cacc::DEVICE>::Data const bvh_tree, uint mesh_size,
+    cacc::KDTree<3, cacc::DEVICE>::Data const kd_tree,
+    cacc::VectorArray<float, cacc::DEVICE>::Data capture_diff);
+
 //TODO Homogenize naming scheme (vertices vs. verts)
 //TODO Introduce eval namespace
 

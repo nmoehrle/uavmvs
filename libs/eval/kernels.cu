@@ -401,3 +401,46 @@ evaluate_histogram(cacc::KDTree<3, cacc::DEVICE>::Data const kd_tree,
     uint32_t * bin = (uint32_t *) con_hist.data_ptr + con_hist.pitch / sizeof(float) + idx;
     atomicMax(bin, cacc::float_to_uint32(sum));
 }
+
+__global__
+void
+estimate_capture_difficulty(
+    cacc::PointCloud<cacc::DEVICE>::Data const cloud,
+    cacc::BVHTree<cacc::DEVICE>::Data const bvh_tree, uint mesh_size,
+    cacc::KDTree<3, cacc::DEVICE>::Data const kd_tree,
+    cacc::VectorArray<float, cacc::DEVICE>::Data capture_diff)
+{
+    int const bx = blockIdx.x;
+    int const tx = threadIdx.x;
+
+    uint id = bx * blockDim.x + tx;
+
+    if (id >= cloud.num_vertices) return;
+    cacc::Vec3f v = cloud.vertices_ptr[id];
+    cacc::Vec3f n = cloud.normals_ptr[id];
+    float l = 80.0f;
+
+    float angles = 0.0f;
+
+    for (uint i = 0; i < kd_tree.num_verts; ++i) {
+        cacc::Vec3f dir = kd_tree.verts_ptr[i].normalize();
+        if (dot(dir, n) < 0.0f) continue;
+
+        cacc::Ray ray;
+        ray.origin = v;
+        ray.dir = dir;
+        ray.set_tmin(l * 0.001f);
+        ray.set_tmax(l);
+
+        uint face_id = mesh_size;
+
+        cacc::tracing::trace(bvh_tree, ray, &face_id);
+
+        if (face_id >= mesh_size) {
+            angles += 1.0f;
+        }
+    }
+
+    /* Fraction of observable angles. */
+    capture_diff.data_ptr[0] = 1.0f - min(1.0f, (float)angles / kd_tree.num_verts / 2);
+}

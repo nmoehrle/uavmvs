@@ -47,3 +47,4 @@ workspace "uavmvs"
     include("apps/capture_trajectory")
     include("apps/evaluate_trajectory")
     include("apps/evaluate_reconstruction")
+    include("apps/estimate_capture_difficulty")
