@@ -8,8 +8,6 @@
 #include "shader_type.h"
 #include "model_renderer.h"
 
-#define __ABSFILE__ util::fs::join_path(__ROOT__, __FILE__)
-
 class Engine {
 public:
     typedef std::shared_ptr<Engine> Ptr;
@@ -25,16 +23,13 @@ protected:
         if (it != shaders.end()) return it->second;
 
         Shader::Ptr ret(new Shader());
-        std::string path = basepath + "/shaders/" + shader_names[shader_type];
-        ret->load_shader_program(path);
+        std::string path = util::fs::join_path(__ROOT__, "res/shaders");
+        ret->load_shader_program(path + "/" + shader_names[shader_type]);
         shaders[shader_type] = ret;
         return ret;
     }
 
 public:
-    Engine(std::string const & basepath = util::fs::dirname(__ABSFILE__))
-        : basepath(basepath) {}
-
     void update(double delta_time) {
         for (Entity::Ptr const & entity : entities) {
             entity->update(delta_time);

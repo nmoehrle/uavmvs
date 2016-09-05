@@ -28,8 +28,6 @@
 #include "sim/entity.h"
 #include "sim/engine.h"
 
-#define __ABSFILE__ util::fs::join_path(__ROOT__, __FILE__)
-
 struct Arguments {
     std::string model;
     std::string proxy;
@@ -165,15 +163,14 @@ private:
 public:
     typedef std::shared_ptr<Simulator> Ptr;
 
-    Simulator(std::string const & basepath = util::fs::dirname(__ABSFILE__))
-        : basepath(basepath), Engine() {
-    }
+    Simulator() : Engine() {}
 
     Entity::Ptr create_copter(Pose::ConstPtr * pose_ptr, Trajectory::ConstPtr * trajectory_ptr)
     {
         mve::TriangleMesh::Ptr mesh;
         try {
-            mesh = mve::geom::load_ply_mesh(basepath + "/models/proxy.ply");
+            std::string path = util::fs::join_path(__ROOT__, "res/meshes/copter.ply");
+            mesh = mve::geom::load_ply_mesh(path);
         } catch (std::exception & e) {
             throw std::runtime_error(std::string("Could not load mesh: ") + e.what());
         } //TODO extract
