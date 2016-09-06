@@ -37,6 +37,7 @@ workspace "uavmvs"
 
     include("apps/estimate_ground_plane")
 
+    include("apps/generate_sphere")
     include("apps/generate_texture")
     include("apps/generate_proxy_mesh")
     include("apps/generate_proxy_cloud")
