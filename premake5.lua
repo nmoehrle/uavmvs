@@ -10,6 +10,10 @@ workspace "uavmvs"
     filter { "system:linux", "not toolset:nvcc" }
         linkoptions "-pthread"
 
+    filter { "toolset:nvcc" }
+        buildoptions {"--gpu-architecture compute_35"}
+        linkoptions "--gpu-architecture compute_35"
+
     configuration "release"
         targetdir "build/release"
         optimize "On"

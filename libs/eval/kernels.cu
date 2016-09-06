@@ -414,17 +414,18 @@ estimate_capture_difficulty(
     int const tx = threadIdx.x;
 
     uint id = bx * blockDim.x + tx;
-
     if (id >= cloud.num_vertices) return;
+
     cacc::Vec3f v = cloud.vertices_ptr[id];
     cacc::Vec3f n = cloud.normals_ptr[id];
     float l = 80.0f;
 
-    float angles = 0.0f;
+    float sum = 0.0f;
 
     for (uint i = 0; i < kd_tree.num_verts; ++i) {
         cacc::Vec3f dir = kd_tree.verts_ptr[i].normalize();
-        if (dot(dir, n) < 0.0f) continue;
+        float ctheta = dot(dir, n);
+        if (ctheta < 0.087f) continue;
 
         cacc::Ray ray;
         ray.origin = v;
@@ -432,15 +433,11 @@ estimate_capture_difficulty(
         ray.set_tmin(l * 0.001f);
         ray.set_tmax(l);
 
-        uint face_id = mesh_size;
+        uint face_id;
+        if (!cacc::tracing::trace(bvh_tree, ray, &face_id) || face_id >= mesh_size) continue;
 
-        cacc::tracing::trace(bvh_tree, ray, &face_id);
-
-        if (face_id >= mesh_size) {
-            angles += 1.0f;
-        }
+        sum += 1.0f;
     }
 
-    /* Fraction of observable angles. */
-    capture_diff.data_ptr[0] = 1.0f - min(1.0f, (float)angles / kd_tree.num_verts / 2);
+    capture_diff.data_ptr[id] = sum / (kd_tree.num_verts / 2.0f);
 }

@@ -31,7 +31,8 @@ Arguments parse_args(int argc, char **argv) {
     args.set_nonopt_maxnum(4);
     args.set_usage("Usage: " + std::string(argv[0])
         + " [OPTS] IN_CLOUD PROXY_MESH AIRSPACE_MESH OUT_CLOUD");
-    args.set_description("TODO");
+    args.set_description("Estimates the difficulty to capture each vertex by "
+        "sampling how much of its hemisphere is visible from the airspace");
     args.parse(argc, argv);
 
     Arguments conf;
@@ -58,7 +59,7 @@ int main(int argc, char **argv) {
     Arguments args = parse_args(argc, argv);
 
     mve::TriangleMesh::Ptr cloud;
-	try {
+    try {
         cloud = mve::geom::load_ply_mesh(args.cloud);
     } catch (std::exception& e) {
         std::cerr << "\tCould not load cloud: " << e.what() << std::endl;
@@ -69,67 +70,71 @@ int main(int argc, char **argv) {
 
     cacc::PointCloud<cacc::DEVICE>::Ptr dcloud;
     dcloud = cacc::PointCloud<cacc::DEVICE>::create(vertices.size());
-	{
-    	cacc::PointCloud<cacc::HOST>::Ptr tmp;
-		tmp = cacc::PointCloud<cacc::HOST>::create(vertices.size());
-		cacc::PointCloud<cacc::HOST>::Data data = tmp->cdata();
-		for (std::size_t i = 0; i < vertices.size(); ++i) {
-			data.vertices_ptr[i] = cacc::Vec3f(vertices[i].begin());
-			data.normals_ptr[i] = cacc::Vec3f(normals[i].begin());
-		}
-		*dcloud = *tmp;
-	}
+    {
+        cacc::PointCloud<cacc::HOST>::Ptr tmp;
+        tmp = cacc::PointCloud<cacc::HOST>::create(vertices.size());
+        cacc::PointCloud<cacc::HOST>::Data data = tmp->cdata();
+        for (std::size_t i = 0; i < vertices.size(); ++i) {
+            data.vertices_ptr[i] = cacc::Vec3f(vertices[i].begin());
+            data.normals_ptr[i] = cacc::Vec3f(normals[i].begin());
+        }
+        *dcloud = *tmp;
+    }
 
     cacc::VectorArray<float, cacc::DEVICE>::Ptr dcapture_diff;
     dcapture_diff = cacc::VectorArray<float, cacc::DEVICE>::create(vertices.size(), 1);
 
-	uint num_faces = 0;
+    uint num_faces = 0;
 
     cacc::BVHTree<cacc::DEVICE>::Ptr dbvh_tree;
-	{
-		mve::TriangleMesh::Ptr mesh;
-		try {
-			mesh = mve::geom::load_ply_mesh(args.proxy_mesh);
-		} catch (std::exception& e) {
-			std::cerr << "\tCould not load mesh: " << e.what() << std::endl;
-			std::exit(EXIT_FAILURE);
-		}
+    {
+        mve::TriangleMesh::Ptr mesh;
+        try {
+            mesh = mve::geom::load_ply_mesh(args.proxy_mesh);
+        } catch (std::exception& e) {
+            std::cerr << "\tCould not load mesh: " << e.what() << std::endl;
+            std::exit(EXIT_FAILURE);
+        }
 
-		std::vector<math::Vec3f> vertices = mesh->get_vertices();
-		std::vector<uint> faces = mesh->get_faces();
+        std::vector<math::Vec3f> vertices = mesh->get_vertices();
+        std::vector<uint> faces = mesh->get_faces();
 
-		num_faces = faces.size();
+        uint num_verts = vertices.size();
+        num_faces = faces.size() / 3;
 
-		try {
-			mesh = mve::geom::load_ply_mesh(args.airspace_mesh);
-		} catch (std::exception& e) {
-			std::cerr << "\tCould not load mesh: " << e.what() << std::endl;
-			std::exit(EXIT_FAILURE);
-		}
+        try {
+            mesh = mve::geom::load_ply_mesh(args.airspace_mesh);
+        } catch (std::exception& e) {
+            std::cerr << "\tCould not load mesh: " << e.what() << std::endl;
+            std::exit(EXIT_FAILURE);
+        }
 
-		std::vector<math::Vec3f> const & avertices = mesh->get_vertices();
-		std::vector<uint> const & afaces = mesh->get_faces();
+        std::vector<math::Vec3f> const & avertices = mesh->get_vertices();
+        std::vector<uint> afaces = mesh->get_faces();
+        std::for_each(afaces.begin(), afaces.end(), [num_verts] (uint & vid) { vid += num_verts; });
 
-		vertices.insert(vertices.end(), avertices.begin(), avertices.end());
-		faces.insert(faces.end(), afaces.begin(), afaces.end());
+        vertices.insert(vertices.end(), avertices.begin(), avertices.end());
 
-		acc::BVHTree<uint, math::Vec3f>::Ptr bvh_tree;
-		bvh_tree = acc::BVHTree<uint, math::Vec3f>::create(faces, vertices);
-		dbvh_tree = cacc::BVHTree<cacc::DEVICE>::create<uint, math::Vec3f>(bvh_tree);
-		cacc::tracing::bind_textures(dbvh_tree->cdata());
+        faces.insert(faces.end(), afaces.begin(), afaces.end());
+
+        acc::BVHTree<uint, math::Vec3f>::Ptr bvh_tree;
+        bvh_tree = acc::BVHTree<uint, math::Vec3f>::create(faces, vertices);
+        dbvh_tree = cacc::BVHTree<cacc::DEVICE>::create<uint, math::Vec3f>(bvh_tree);
+        cacc::tracing::bind_textures(dbvh_tree->cdata());
     }
 
     acc::KDTree<3u, uint>::Ptr kd_tree;
-    kd_tree = load_mesh_as_kd_tree(util::fs::join_path(__ROOT__, "res/meshes/sphere.ply"));
+    //kd_tree = load_mesh_as_kd_tree(util::fs::join_path(__ROOT__, "res/meshes/sphere.ply"));
+    kd_tree = load_mesh_as_kd_tree("/tmp/sphere.ply");
     cacc::KDTree<3u, cacc::DEVICE>::Ptr dkd_tree;
     dkd_tree = cacc::KDTree<3u, cacc::DEVICE>::create<uint>(kd_tree);
 
     {
-        dim3 grid(cacc::divup(vertices.size(), KERNEL_BLOCK_SIZE));
+        dim3 grid(vertices.size());
         dim3 block(KERNEL_BLOCK_SIZE);
         estimate_capture_difficulty<<<grid, block>>>(
-			dcloud->cdata(), dbvh_tree->cdata(), num_faces,
-			dkd_tree->cdata(), dcapture_diff->cdata());
+            dcloud->cdata(), dbvh_tree->cdata(), num_faces,
+            dkd_tree->cdata(), dcapture_diff->cdata());
         CHECK(cudaDeviceSynchronize());
     }
 
@@ -146,9 +151,9 @@ int main(int argc, char **argv) {
         }
     }
 
-	mve::geom::SavePLYOptions opts;
-	opts.write_vertex_values = true;
-	mve::geom::save_ply_mesh(cloud, args.ocloud, opts);
+    mve::geom::SavePLYOptions opts;
+    opts.write_vertex_values = true;
+    mve::geom::save_ply_mesh(cloud, args.ocloud, opts);
 
     return EXIT_SUCCESS;
 }
