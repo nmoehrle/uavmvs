@@ -114,6 +114,24 @@ int main(int argc, char **argv) {
         }
     }
 
+    std::vector<std::size_t> indices(overts.size());
+    std::iota(indices.begin(), indices.end(), 0);
+    std::sort(indices.begin(), indices.end(),
+        [&overts] (uint l, uint r) -> bool {
+            return std::lexicographical_compare(&overts[l][0], &overts[l][3], &overts[r][0], &overts[r][3]);
+        }
+    );
+
+    std::vector<math::Vec3f> tmp(overts.size());
+    for (std::size_t i = 0; i < indices.size(); ++i) {
+        tmp[i] = overts[indices[i]];
+    }
+    std::swap(tmp, overts);
+    for (std::size_t i = 0; i < indices.size(); ++i) {
+        tmp[i] = onormals[indices[i]];
+    }
+    std::swap(tmp, onormals);
+
     mve::geom::SavePLYOptions opts;
     opts.write_vertex_normals = true;
     mve::geom::save_ply_mesh(omesh, args.out_cloud, opts);
