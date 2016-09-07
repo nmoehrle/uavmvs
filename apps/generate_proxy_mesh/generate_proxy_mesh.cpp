@@ -74,8 +74,8 @@ Arguments parse_args(int argc, char **argv) {
         }
     }
 
-    if (conf.min_distance <= 0.0f) {
-        throw std::invalid_argument("Minimum distance has to be positive.");
+    if (conf.min_distance < 0.0f) {
+        throw std::invalid_argument("Minimum distance may not be negative.");
     }
 
     if (conf.min_distance > 0.0f && conf.fuse) {
