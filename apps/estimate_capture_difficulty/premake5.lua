@@ -7,7 +7,6 @@ project "estimate_capture_difficulty"
     flags { "RelocatableDeviceCode" }
     defines { "_MWAITXINTRIN_H_INCLUDED", "_FORCE_INLINES" }
 
-
     files {
         "estimate_capture_difficulty.cu",
         "../../libs/cacc/kd_tree.cu",

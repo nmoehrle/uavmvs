@@ -22,6 +22,7 @@ struct Arguments {
     std::string proxy_mesh;
     std::string airspace_mesh;
     std::string ocloud;
+    float max_distance;
 };
 
 Arguments parse_args(int argc, char **argv) {
@@ -40,6 +41,7 @@ Arguments parse_args(int argc, char **argv) {
     conf.proxy_mesh = args.get_nth_nonopt(1);
     conf.airspace_mesh = args.get_nth_nonopt(2);
     conf.ocloud = args.get_nth_nonopt(3);
+    conf.max_distance = 2.0f;
 
     for (util::ArgResult const* i = args.next_option();
          i != 0; i = args.next_option()) {
@@ -68,21 +70,17 @@ int main(int argc, char **argv) {
     std::vector<math::Vec3f> const & vertices = cloud->get_vertices();
     std::vector<math::Vec3f> const & normals = cloud->get_vertex_normals();
 
+    cacc::PointCloud<cacc::HOST>::Ptr hcloud;
     cacc::PointCloud<cacc::DEVICE>::Ptr dcloud;
-    dcloud = cacc::PointCloud<cacc::DEVICE>::create(vertices.size());
     {
-        cacc::PointCloud<cacc::HOST>::Ptr tmp;
-        tmp = cacc::PointCloud<cacc::HOST>::create(vertices.size());
-        cacc::PointCloud<cacc::HOST>::Data data = tmp->cdata();
+        hcloud = cacc::PointCloud<cacc::HOST>::create(vertices.size());
+        cacc::PointCloud<cacc::HOST>::Data data = hcloud->cdata();
         for (std::size_t i = 0; i < vertices.size(); ++i) {
             data.vertices_ptr[i] = cacc::Vec3f(vertices[i].begin());
             data.normals_ptr[i] = cacc::Vec3f(normals[i].begin());
         }
-        *dcloud = *tmp;
+        dcloud = cacc::PointCloud<cacc::DEVICE>::create<cacc::HOST>(hcloud);
     }
-
-    cacc::VectorArray<float, cacc::DEVICE>::Ptr dcapture_diff;
-    dcapture_diff = cacc::VectorArray<float, cacc::DEVICE>::create(vertices.size(), 1);
 
     uint num_faces = 0;
 
@@ -132,27 +130,26 @@ int main(int argc, char **argv) {
     {
         dim3 grid(vertices.size());
         dim3 block(KERNEL_BLOCK_SIZE);
-        estimate_capture_difficulty<<<grid, block>>>(
-            dcloud->cdata(), dbvh_tree->cdata(), num_faces,
-            dkd_tree->cdata(), dcapture_diff->cdata());
+        estimate_capture_difficulty<<<grid, block>>>(args.max_distance,
+            dbvh_tree->cdata(), num_faces, dkd_tree->cdata(), dcloud->cdata());
         CHECK(cudaDeviceSynchronize());
     }
 
     std::vector<float> & values = cloud->get_vertex_values();
     values.resize(vertices.size());
 
+    *hcloud = *dcloud;
     {
-        cacc::VectorArray<float, cacc::HOST> capture_diff;
-        capture_diff = *dcapture_diff;
-        cacc::VectorArray<float, cacc::HOST>::Data data = capture_diff.cdata();
+        cacc::PointCloud<cacc::HOST>::Data data = hcloud->cdata();
 
         for (std::size_t i = 0; i < vertices.size(); ++i) {
-            values[i] = data.data_ptr[i];
+            values[i] = data.values_ptr[i];
         }
     }
 
     mve::geom::SavePLYOptions opts;
     opts.write_vertex_values = true;
+    opts.write_vertex_normals = true;
     mve::geom::save_ply_mesh(cloud, args.ocloud, opts);
 
     return EXIT_SUCCESS;

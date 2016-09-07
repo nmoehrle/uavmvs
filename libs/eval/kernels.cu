@@ -84,8 +84,8 @@ heuristic(cacc::Vec3f const * rel_dirs, uint stride, uint n)
 
 __global__
 void
-populate_histogram(cacc::Mat4f w2c, cacc::Mat3f calib, cacc::Vec3f view_pos,
-    int width, int height,
+populate_histogram(cacc::Vec3f view_pos, float max_distance,
+    cacc::Mat4f w2c, cacc::Mat3f calib, int width, int height,
     cacc::BVHTree<cacc::DEVICE>::Data bvh_tree,
     cacc::PointCloud<cacc::DEVICE>::Data cloud,
     cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data dir_hist)
@@ -107,7 +107,7 @@ populate_histogram(cacc::Mat4f w2c, cacc::Mat3f calib, cacc::Vec3f view_pos,
     // 0.087f ~ cos(85.0f / 180.0f * pi)
     if (ctheta < 0.087f) return;
 
-    if (l > 80.0f) return; //TODO make configurable
+    if (l > max_distance) return;
     cacc::Vec2f p = project(mult(w2c, v, 1.0f), calib);
 
     if (p[0] < 0.0f || width <= p[0] || p[1] < 0.0f || height <= p[1]) return;
@@ -166,7 +166,7 @@ evaluate_histogram(cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data dir_hist)
 }
 
 __global__
-void populate_histogram(cacc::Vec3f view_pos,
+void populate_histogram(cacc::Vec3f view_pos, float max_distance,
     cacc::BVHTree<cacc::DEVICE>::Data bvh_tree,
     cacc::PointCloud<cacc::DEVICE>::Data cloud,
     cacc::KDTree<3, cacc::DEVICE>::Data kd_tree,
@@ -188,8 +188,7 @@ void populate_histogram(cacc::Vec3f view_pos,
 
     float ctheta = dot(v2cn, n);
 
-    //TODO make configurable
-    if (l > 80.0f) return;
+    if (l > max_distance) return;
     // 0.087f ~ cos(85.0f / 180.0f * pi)
     if (ctheta < 0.087f) return;
 
@@ -404,11 +403,10 @@ evaluate_histogram(cacc::KDTree<3, cacc::DEVICE>::Data const kd_tree,
 
 __global__
 void
-estimate_capture_difficulty(
-    cacc::PointCloud<cacc::DEVICE>::Data const cloud,
+estimate_capture_difficulty(float max_distance,
     cacc::BVHTree<cacc::DEVICE>::Data const bvh_tree, uint mesh_size,
     cacc::KDTree<3, cacc::DEVICE>::Data const kd_tree,
-    cacc::VectorArray<float, cacc::DEVICE>::Data capture_diff)
+    cacc::PointCloud<cacc::DEVICE>::Data const cloud)
 {
     int const bx = blockIdx.x;
     int const tx = threadIdx.x;
@@ -418,7 +416,7 @@ estimate_capture_difficulty(
 
     cacc::Vec3f v = cloud.vertices_ptr[id];
     cacc::Vec3f n = cloud.normals_ptr[id];
-    float l = 80.0f;
+    float l = max_distance;
 
     float sum = 0.0f;
 
@@ -439,5 +437,5 @@ estimate_capture_difficulty(
         sum += 1.0f;
     }
 
-    capture_diff.data_ptr[id] = sum / (kd_tree.num_verts / 2.0f);
+    cloud.values_ptr[id] = sum / (kd_tree.num_verts / 2.0f);
 }

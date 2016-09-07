@@ -25,8 +25,7 @@ struct Arguments {
     std::string proxy_cloud;
     std::string out_trajectory;
     std::string trajectory;
-    float min_distance;
-    float max_velocity;
+    float max_distance;
 };
 
 Arguments parse_args(int argc, char **argv) {
@@ -45,6 +44,7 @@ Arguments parse_args(int argc, char **argv) {
     conf.proxy_mesh = args.get_nth_nonopt(0);
     conf.proxy_cloud = args.get_nth_nonopt(1);
     conf.out_trajectory = args.get_nth_nonopt(2);
+    conf.max_distance = 2.0f;
 
     for (util::ArgResult const* i = args.next_option();
          i != 0; i = args.next_option()) {
@@ -143,7 +143,8 @@ int main(int argc, char **argv) {
             dim3 grid(cacc::divup(num_vertices, KERNEL_BLOCK_SIZE));
             dim3 block(KERNEL_BLOCK_SIZE);
             initialize_histogram<<<grid, block, 0, stream>>>(dcon_hist->cdata());
-            populate_histogram<<<grid, block, 0, stream>>>(cacc::Vec3f(pos.begin()),
+            populate_histogram<<<grid, block, 0, stream>>>(
+                cacc::Vec3f(pos.begin()), args.max_distance,
                 dbvh_tree->cdata(), dcloud->cdata(), dkd_tree->cdata(),
                 ddir_hist->cdata(), dcon_hist->cdata());
         }
@@ -243,8 +244,8 @@ int main(int argc, char **argv) {
             dim3 grid(cacc::divup(num_vertices, KERNEL_BLOCK_SIZE));
             dim3 block(KERNEL_BLOCK_SIZE);
             populate_histogram<<<grid, block, 0, stream>>>(
-                cacc::Mat4f(w2c.begin()), cacc::Mat3f(calib.begin()),
-                cacc::Vec3f(pos.begin()), width, height,
+                cacc::Vec3f(pos.begin()), args.max_distance,
+                cacc::Mat4f(w2c.begin()), cacc::Mat3f(calib.begin()), width, height,
                 dbvh_tree->cdata(), dcloud->cdata(), ddir_hist->cdata()
             );
         }

@@ -1,5 +1,6 @@
 #include <fstream>
 
+#include "mve/scene.h"
 #include "mve/camera.h"
 #include "mve/mesh_io_ply.h"
 
@@ -7,6 +8,21 @@
 #include "acc/bvh_tree.h"
 
 #include "cacc/point_cloud.h"
+
+void load_scene_as_trajectory(std::string const & path, std::vector<mve::CameraInfo> * trajectory) {
+    mve::Scene::Ptr scene;
+    try {
+        scene = mve::Scene::create(path);
+    } catch (std::exception& e) {
+        std::cerr << "Could not open scene: " << e.what() << std::endl;
+        std::exit(EXIT_FAILURE);
+    }
+
+    for (mve::View::Ptr const & view : scene->get_views()) {
+        if (view == nullptr) continue;
+        trajectory->push_back(view->get_camera());
+    }
+}
 
 void load_trajectory(std::string const & path,
     std::vector<mve::CameraInfo> * trajectory)
@@ -116,6 +132,13 @@ load_point_cloud(std::string const & path)
     for (std::size_t i = 0; i < vertices.size(); ++i) {
         data.vertices_ptr[i] = cacc::Vec3f(vertices[i].begin());
         data.normals_ptr[i] = cacc::Vec3f(normals[i].begin());
+    }
+
+    if (mesh->has_vertex_values()) {
+        std::vector<float> const & values = mesh->get_vertex_values();
+        for (std::size_t i = 0; i < values.size(); ++i) {
+            data.values_ptr[i] = values[i];
+        }
     }
 
     return ret;

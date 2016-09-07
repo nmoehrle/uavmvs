@@ -6,6 +6,8 @@
 
 #include "util/arguments.h"
 
+#include "util/io.h"
+
 #include "mve/mesh_io_ply.h"
 #include "mve/scene.h"
 
@@ -23,68 +25,12 @@
 
 typedef unsigned char uchar;
 
-cacc::PointCloud<cacc::HOST>::Ptr
-load_point_cloud(std::string const & path)
-{
-    mve::TriangleMesh::Ptr mesh;
-    try {
-        mesh = mve::geom::load_ply_mesh(path);
-    } catch (std::exception& e) {
-        std::cerr << "\tCould not load mesh: " << e.what() << std::endl;
-        std::exit(EXIT_FAILURE);
-    }
-    mesh->ensure_normals(true, true);
-
-    std::vector<math::Vec3f> const & vertices = mesh->get_vertices();
-    std::vector<math::Vec3f> const & normals = mesh->get_vertex_normals();
-
-    cacc::PointCloud<cacc::HOST>::Ptr ret;
-    ret = cacc::PointCloud<cacc::HOST>::create(vertices.size());
-    cacc::PointCloud<cacc::HOST>::Data data = ret->cdata();
-    for (std::size_t i = 0; i < vertices.size(); ++i) {
-        data.vertices_ptr[i] = cacc::Vec3f(vertices[i].begin());
-        data.normals_ptr[i] = cacc::Vec3f(normals[i].begin());
-    }
-
-    return ret;
-}
-
-acc::BVHTree<uint, math::Vec3f>::Ptr
-load_mesh_as_bvh_tree(std::string const & path)
-{
-    mve::TriangleMesh::Ptr mesh;
-    try {
-        mesh = mve::geom::load_ply_mesh(path);
-    } catch (std::exception& e) {
-        std::cerr << "\tCould not load mesh: "<< e.what() << std::endl;
-        std::exit(EXIT_FAILURE);
-    }
-
-    std::vector<math::Vec3f> const & vertices = mesh->get_vertices();
-    std::vector<uint> const & faces = mesh->get_faces();
-    return acc::BVHTree<uint, math::Vec3f>::create(faces, vertices);
-}
-
-void load_scene_as_trajectory(std::string const & path, std::vector<mve::CameraInfo> * trajectory) {
-    mve::Scene::Ptr scene;
-    try {
-        scene = mve::Scene::create(path);
-    } catch (std::exception& e) {
-        std::cerr << "Could not open scene: " << e.what() << std::endl;
-        std::exit(EXIT_FAILURE);
-    }
-
-    for (mve::View::Ptr const & view : scene->get_views()) {
-        if (view == nullptr) continue;
-        trajectory->push_back(view->get_camera());
-    }
-}
-
 struct Arguments {
     std::string scene;
     std::string proxy_mesh;
     std::string proxy_cloud;
     std::string export_cloud;
+    float max_distance;
 };
 
 Arguments parse_args(int argc, char **argv) {
@@ -101,6 +47,7 @@ Arguments parse_args(int argc, char **argv) {
     conf.scene = args.get_nth_nonopt(0);
     conf.proxy_mesh = args.get_nth_nonopt(1);
     conf.proxy_cloud = args.get_nth_nonopt(2);
+    conf.max_distance = 2.0f;
 
     for (util::ArgResult const* i = args.next_option();
          i != nullptr; i = args.next_option()) {
@@ -122,10 +69,12 @@ int main(int argc, char * argv[])
 
     cacc::select_cuda_device(3, 5);
 
-    acc::BVHTree<uint, math::Vec3f>::Ptr bvh_tree;
-    bvh_tree = load_mesh_as_bvh_tree(args.proxy_mesh);
     cacc::BVHTree<cacc::DEVICE>::Ptr dbvh_tree;
-    dbvh_tree = cacc::BVHTree<cacc::DEVICE>::create<uint, math::Vec3f>(bvh_tree);
+    {
+        acc::BVHTree<uint, math::Vec3f>::Ptr bvh_tree;
+        bvh_tree = load_mesh_as_bvh_tree(args.proxy_mesh);
+        dbvh_tree = cacc::BVHTree<cacc::DEVICE>::create<uint, math::Vec3f>(bvh_tree);
+    }
     cacc::tracing::bind_textures(dbvh_tree->cdata());
 
     cacc::PointCloud<cacc::HOST>::Ptr cloud;
@@ -165,8 +114,8 @@ int main(int argc, char * argv[])
             cam.fill_camera_pos(view_pos.begin());
 
             populate_histogram<<<grid, block, 0, stream>>>(
-                cacc::Mat4f(w2c.begin()), cacc::Mat3f(calib.begin()),
-                cacc::Vec3f(view_pos.begin()), width, height,
+                cacc::Vec3f(view_pos.begin()), args.max_distance,
+                cacc::Mat4f(w2c.begin()), cacc::Mat3f(calib.begin()), width, height,
                 dbvh_tree->cdata(), dcloud->cdata(), ddir_hist->cdata()
             );
         }

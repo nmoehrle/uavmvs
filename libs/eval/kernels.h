@@ -10,8 +10,8 @@
 
 #define KERNEL_BLOCK_SIZE 128
 __global__
-void populate_histogram(cacc::Mat4f w2c, cacc::Mat3f calib,
-    cacc::Vec3f view_pos, int width, int height,
+void populate_histogram(cacc::Vec3f view_pos, float max_distance,
+    cacc::Mat4f w2c, cacc::Mat3f calib, int width, int height,
     cacc::BVHTree<cacc::DEVICE>::Data bvh_tree,
     cacc::PointCloud<cacc::DEVICE>::Data cloud,
     cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data hist);
@@ -21,7 +21,7 @@ void evaluate_histogram(
     cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data hist);
 
 __global__
-void populate_histogram(cacc::Vec3f view_pos,
+void populate_histogram(cacc::Vec3f view_pos, float max_distance,
     cacc::BVHTree<cacc::DEVICE>::Data bvh_tree,
     cacc::PointCloud<cacc::DEVICE>::Data cloud,
     cacc::KDTree<3, cacc::DEVICE>::Data kd_tree,
@@ -50,13 +50,13 @@ void evaluate_histogram(cacc::KDTree<3, cacc::DEVICE>::Data const kd_tree,
     cacc::VectorArray<float, cacc::DEVICE>::Data con_hist);
 
 __global__
-void estimate_capture_difficulty(
-    cacc::PointCloud<cacc::DEVICE>::Data const cloud,
+void estimate_capture_difficulty(float max_distance,
     cacc::BVHTree<cacc::DEVICE>::Data const bvh_tree, uint mesh_size,
     cacc::KDTree<3, cacc::DEVICE>::Data const kd_tree,
-    cacc::VectorArray<float, cacc::DEVICE>::Data capture_diff);
+    cacc::PointCloud<cacc::DEVICE>::Data const cloud);
 
 //TODO Homogenize naming scheme (vertices vs. verts)
 //TODO Introduce eval namespace
+//TODO Actually create a lib
 
 #endif /* KERNELS_HEADER */
