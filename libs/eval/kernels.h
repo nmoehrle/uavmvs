@@ -55,6 +55,12 @@ void estimate_capture_difficulty(float max_distance,
     cacc::KDTree<3, cacc::DEVICE>::Data const kd_tree,
     cacc::PointCloud<cacc::DEVICE>::Data const cloud);
 
+__global__
+void evaluate_position(uint pid, float max_distance,
+    cacc::BVHTree<cacc::DEVICE>::Data bvh_tree,
+    cacc::PointCloud<cacc::DEVICE>::Data cloud,
+    cacc::PointCloud<cacc::DEVICE>::Data volume);
+
 //TODO Homogenize naming scheme (vertices vs. verts)
 //TODO Introduce eval namespace
 //TODO Actually create a lib

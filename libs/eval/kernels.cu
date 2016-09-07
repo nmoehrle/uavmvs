@@ -439,3 +439,42 @@ estimate_capture_difficulty(float max_distance,
 
     cloud.values_ptr[id] = sum / (kd_tree.num_verts / 2.0f);
 }
+
+__global__
+void evaluate_position(uint pid, float max_distance,
+    cacc::BVHTree<cacc::DEVICE>::Data bvh_tree,
+    cacc::PointCloud<cacc::DEVICE>::Data cloud,
+    cacc::PointCloud<cacc::DEVICE>::Data volume)
+{
+    int const bx = blockIdx.x;
+    int const tx = threadIdx.x;
+
+    uint id = bx * blockDim.x + tx;
+
+    if (id >= cloud.num_vertices) return;
+
+    cacc::Vec3f view_pos = volume.vertices_ptr[pid];
+
+    cacc::Vec3f v = cloud.vertices_ptr[id];
+    cacc::Vec3f n = cloud.normals_ptr[id];
+    cacc::Vec3f v2c = view_pos - v;
+    float l = norm(v2c);
+    cacc::Vec3f v2cn = v2c / l;
+
+    float ctheta = dot(v2cn, n);
+
+    if (l > max_distance) return;
+    // 0.087f ~ cos(85.0f / 180.0f * pi)
+    if (ctheta < 0.087f) return;
+
+    if (!visible(v, v2cn, l, bvh_tree)) return;
+
+    float capture_difficulty = cloud.values_ptr[id];
+
+    cacc::Vec3f rel_dir = relative_direction(v2cn, n);
+    float observation_angle = dot(cacc::Vec3f(0.0f, 0.0f, 1.0f), rel_dir);
+
+    float score = capture_difficulty * observation_angle;
+
+    atomicAdd(volume.values_ptr + pid, score); //TODO reduction
+}
