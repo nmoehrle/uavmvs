@@ -16,13 +16,9 @@
 #include "fssr/mesh_clean.h"
 
 #include "acc/kd_tree.h"
+#include "acc/primitives.h"
 
 constexpr float lowest = std::numeric_limits<float>::lowest();
-
-struct AABB {
-    math::Vec3f min;
-    math::Vec3f max;
-};
 
 struct Arguments {
     std::string cloud;
@@ -90,15 +86,6 @@ Arguments parse_args(int argc, char **argv) {
 }
 
 inline
-float volume(AABB const & aabb) {
-    math::Vec3f diff = aabb.max - aabb.min;
-    for (int i = 0; i < 3; ++i) {
-        if (diff[i] <= 0.0f) return 0.0f;
-    }
-    return diff[0] * diff[1] * diff[2];
-}
-
-inline
 void
 patch(mve::FloatImage::Ptr img, int x, int y, float (*ptr)[3][3]) {
     for (int i = -1; i <= 1; ++i) {
@@ -155,17 +142,9 @@ int main(int argc, char **argv) {
     std::vector<float> const & confidences = cloud->get_vertex_confidences();
 
     /* Calculate AABB. */
-    AABB aabb;
-    aabb.min = math::Vec3f(std::numeric_limits<float>::max());
-    aabb.max = math::Vec3f(-std::numeric_limits<float>::max());
-    for (std::size_t i = 0; i < verts.size(); ++i) {
-        for (int j = 0; j < 3; ++j) {
-            aabb.min[j] = std::min(aabb.min[j], verts[i][j]);
-            aabb.max[j] = std::max(aabb.max[j], verts[i][j]);
-        }
-    }
+    acc::AABB<math::Vec3f> aabb = acc::calculate_aabb(verts);
 
-    assert(volume(aabb) > 0.0f);
+    assert(acc::valid(aabb) && acc::volume(aabb) > 0.0f);
 
     int width = (aabb.max[0] - aabb.min[0]) / args.resolution + 1.0f;
     int height = (aabb.max[1] - aabb.min[1]) / args.resolution + 1.0f;
@@ -177,9 +156,10 @@ int main(int argc, char **argv) {
     hmap->fill(lowest);
     for (std::size_t i = 0; i < verts.size(); ++i) {
         math::Vec3f vertex = verts[i];
-        /* ... + center offset + rounding */
-        int x = (vertex[0] - aabb.min[0]) / args.resolution + args.resolution / 2.0f + 0.5f;
-        int y = (vertex[1] - aabb.min[1]) / args.resolution + args.resolution / 2.0f + 0.5f;
+        int x = (vertex[0] - aabb.min[0]) / args.resolution + args.resolution / 2.0f;
+        assert(0 <= x && x < width);
+        int y = (vertex[1] - aabb.min[1]) / args.resolution + args.resolution / 2.0f;
+        assert(0 <= y && y < height);
         float height = vertex[2];
         float z = hmap->at(x, y, 0);
         if (z > height) continue;
@@ -243,11 +223,7 @@ int main(int argc, char **argv) {
     #pragma omp parallel for
     for (std::size_t i = 0; i < hmap->get_value_amount(); ++i) {
         float height = hmap->at(i);
-        if (height != lowest) {
-            hmap->at(i) -= ground_level;
-        } else {
-            hmap->at(i) = 0.0f;
-        }
+        hmap->at(i) = (height != lowest) ? height - ground_level : 0.0f;
     }
 
     if (args.min_distance > 0.0f) {
@@ -370,7 +346,7 @@ int main(int argc, char **argv) {
     if (!args.scloud.empty()) {
         mve::geom::SavePLYOptions opts;
         opts.write_vertex_normals = true;
-        mve::geom::save_ply_mesh(scloud, "args.scloud", opts);
+        mve::geom::save_ply_mesh(scloud, args.scloud, opts);
     }
 
     for (std::size_t i = 0; i < sverts.size(); ++i) {
