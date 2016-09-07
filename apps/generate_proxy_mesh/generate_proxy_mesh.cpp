@@ -31,6 +31,7 @@ struct Arguments {
     std::string scloud;
     bool fuse;
     float resolution;
+    float min_distance;
 };
 
 Arguments parse_args(int argc, char **argv) {
@@ -44,19 +45,27 @@ Arguments parse_args(int argc, char **argv) {
     args.add_option('h', "height-map", true, "save height map as pfm file");
     args.add_option('s', "sample-cloud", true, "save sample mesh as ply file");
     args.add_option('f', "fuse-samples", false, "use original and artificial samples");
+    args.add_option('m', "min-distance", false, "minimum distance from original samples [0.0]");
     args.parse(argc, argv);
 
     Arguments conf;
     conf.cloud = args.get_nth_nonopt(0);
     conf.mesh = args.get_nth_nonopt(1);
-    conf.resolution = 1.0f;
     conf.fuse = false;
+    conf.resolution = 1.0f;
+    conf.min_distance = 0.0f;
 
     for (util::ArgResult const* i = args.next_option();
          i != 0; i = args.next_option()) {
         switch (i->opt->sopt) {
+        case 'f':
+            conf.fuse = true;
+        break;
         case 'r':
             conf.resolution = i->get_arg<float>();
+        break;
+        case 'm':
+            conf.min_distance = i->get_arg<float>();
         break;
         case 'h':
             conf.hmap = i->arg;
@@ -64,12 +73,17 @@ Arguments parse_args(int argc, char **argv) {
         case 's':
             conf.scloud = i->arg;
         break;
-        case 'f':
-            conf.fuse = true;
-        break;
         default:
             throw std::invalid_argument("Invalid option");
         }
+    }
+
+    if (conf.min_distance <= 0.0f) {
+        throw std::invalid_argument("Minimum distance has to be positive.");
+    }
+
+    if (conf.min_distance > 0.0f && conf.fuse) {
+        throw std::invalid_argument("Cannot fuse samples if minimum distance is larger than zero.");
     }
 
     return conf;
@@ -173,13 +187,12 @@ int main(int argc, char **argv) {
         hmap->at(x, y, 0) = height;
     }
 
-#if AIRSPACE
-#else
-    /* Use median filter to eliminate outliers. */
-    filter_3x3_nth_lowest(hmap, 4, lowest);
-    /* Use biased median to revert overestimation. */
-    filter_3x3_nth_lowest(hmap, 2, lowest);
-#endif
+    if (args.min_distance == 0.0f) {
+        /* Use median filter to eliminate outliers. */
+        filter_3x3_nth_lowest(hmap, 4, lowest);
+        /* Use biased median to revert overestimation. */
+        filter_3x3_nth_lowest(hmap, 2, lowest);
+    }
 
     /* Fill holes within the height map. */
     bool holes = true;
@@ -237,30 +250,28 @@ int main(int argc, char **argv) {
         }
     }
 
-#if AIRSPACE
-    /* Determine kernel for airspace estimation. */
-    float radius = 0.15f; //TODO args.min_distance;
-    int kernel_size = std::ceil(2.0f * (radius / args.resolution) + 1);
+    if (args.min_distance > 0.0f) {
+        /* Filter height map to ensure minimal distance. */
+        float radius = args.min_distance;
+        int kernel_size = std::ceil(2.0f * (radius / args.resolution) + 1);
 
-    mve::FloatImage::Ptr kernel = mve::FloatImage::create(kernel_size, kernel_size, 1);
-    for (int y = 0; y < kernel_size; ++y) {
-        for (int x = 0; x < kernel_size; ++x) {
-            float cx = (x - kernel_size / 2) * args.resolution;
-            float cy = (y - kernel_size / 2) * args.resolution;
-            float cz2 = radius * radius - (cx * cx + cy * cy) ;
-            if (cz2 > 0.0f) {
-                kernel->at(x, y, 0) = std::sqrt(cz2);
-            } else {
-                kernel->at(x, y, 0) = std::numeric_limits<float>::lowest();
+        mve::FloatImage::Ptr kernel = mve::FloatImage::create(kernel_size, kernel_size, 1);
+        for (int y = 0; y < kernel_size; ++y) {
+            for (int x = 0; x < kernel_size; ++x) {
+                float cx = (x - kernel_size / 2) * args.resolution;
+                float cy = (y - kernel_size / 2) * args.resolution;
+                float cz2 = radius * radius - (cx * cx + cy * cy) ;
+                if (cz2 > 0.0f) {
+                    kernel->at(x, y, 0) = std::sqrt(cz2);
+                } else {
+                    kernel->at(x, y, 0) = std::numeric_limits<float>::lowest();
+                }
             }
         }
-    }
 
-    /* Filter height map for airspace estimation. */
-    {
         mve::FloatImage::Ptr tmp = mve::FloatImage::create(width, height, 1);
 
-        #pragma omp parallel
+        #pragma omp parallel for
         for (int y = 0; y < height; ++y) {
             for (int x = 0; x < width; ++x) {
                 float max = 0.0f;
@@ -280,7 +291,6 @@ int main(int argc, char **argv) {
 
         hmap.swap(tmp);
     }
-#endif
 
     if (!args.hmap.empty()) {
         mve::image::save_pfm_file(hmap, args.hmap);
@@ -356,9 +366,6 @@ int main(int argc, char **argv) {
             }
         }
     }
-
-    /* Let's make some space. */
-    hmap.reset();
 
     if (!args.scloud.empty()) {
         mve::geom::SavePLYOptions opts;
