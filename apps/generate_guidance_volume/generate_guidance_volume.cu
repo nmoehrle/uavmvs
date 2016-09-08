@@ -7,6 +7,8 @@
 #include "util/io.h"
 
 #include "mve/mesh_io_ply.h"
+#include "mve/image_io.h"
+#include "mve/image_tools.h"
 
 #include "acc/primitives.h"
 
@@ -24,7 +26,8 @@ struct Arguments {
     std::string proxy_mesh;
     std::string proxy_cloud;
     std::string airspace_mesh;
-    std::string guidance_volume;
+    std::string ovolume;
+    std::string ocloud;
     float resolution;
     float max_altitude;
 };
@@ -34,7 +37,7 @@ Arguments parse_args(int argc, char **argv) {
     args.set_exit_on_error(true);
     args.set_nonopt_minnum(4);
     args.set_nonopt_maxnum(4);
-    args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] PROXY_MESH PROXY_CLOUD AIRSPACE_MESH OUT_CLOUD");
+    args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] PROXY_MESH PROXY_CLOUD AIRSPACE_MESH OUT_VOLUME");
     args.set_description("TODO");
     args.add_option('r', "resolution", true, "guidance volume resolution [1.0]");
     args.add_option('m', "max-altitude", true, "maximum altitude [80.0]");
@@ -44,7 +47,7 @@ Arguments parse_args(int argc, char **argv) {
     conf.proxy_mesh = args.get_nth_nonopt(0);
     conf.proxy_cloud = args.get_nth_nonopt(1);
     conf.airspace_mesh = args.get_nth_nonopt(2);
-    conf.guidance_volume = args.get_nth_nonopt(3);
+    conf.ovolume = args.get_nth_nonopt(3);
     conf.resolution = 1.0f;
     conf.max_altitude = 80.0f;
 
@@ -98,6 +101,9 @@ int main(int argc, char **argv) {
 
     int width = (aabb.max[0] - aabb.min[0]) / args.resolution + 1.0f;
     int height = (aabb.max[1] - aabb.min[1]) / args.resolution + 1.0f;
+    int depth = args.max_altitude / args.resolution + 1.0f;
+
+    std::cout << width << "x" << height << "x" << depth << std::endl;
 
     /* Create height map. */
     mve::FloatImage::Ptr hmap = mve::FloatImage::create(width, height, 1);
@@ -134,7 +140,9 @@ int main(int argc, char **argv) {
 
     mve::TriangleMesh::Ptr ocloud = mve::TriangleMesh::create();
     std::vector<math::Vec3f> & overts = ocloud->get_vertices();
-    std::vector<float> & ovalues = ocloud->get_vertex_values();
+
+    std::vector<uint> indices;
+    indices.reserve(width * height * depth);
 
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
@@ -149,6 +157,10 @@ int main(int argc, char **argv) {
                 math::Vec3f vertex(px, py, pz);
 
                 overts.push_back(vertex);
+
+                int z = depth - 1 - i;
+                uint index = ((z * height + y) * width) + x; //TODO check indices
+                indices.push_back(index);
             }
         }
     }
@@ -160,17 +172,17 @@ int main(int argc, char **argv) {
         dcloud = cacc::PointCloud<cacc::DEVICE>::create<cacc::HOST>(cloud);
     }
 
-    cacc::PointCloud<cacc::HOST>::Ptr volume;
+    cacc::PointCloud<cacc::HOST>::Ptr hvolume;
     cacc::PointCloud<cacc::DEVICE>::Ptr dvolume;
     {
-        volume = cacc::PointCloud<cacc::HOST>::create(overts.size());
-        cacc::PointCloud<cacc::HOST>::Data data = volume->cdata();
+        hvolume = cacc::PointCloud<cacc::HOST>::create(overts.size());
+        cacc::PointCloud<cacc::HOST>::Data data = hvolume->cdata();
         for (std::size_t i = 0; i < overts.size(); ++i) {
             data.vertices_ptr[i] = cacc::Vec3f(overts[i].begin());
             data.normals_ptr[i] = cacc::Vec3f(0.0f, 0.0f, 1.0f);
             data.values_ptr[i] = 0.0f;
         }
-        dvolume = cacc::PointCloud<cacc::DEVICE>::create<cacc::HOST>(volume);
+        dvolume = cacc::PointCloud<cacc::DEVICE>::create<cacc::HOST>(hvolume);
     }
 
     {
@@ -189,18 +201,29 @@ int main(int argc, char **argv) {
         CHECK(cudaDeviceSynchronize());
     }
 
-    *volume = *dvolume;
+    *hvolume = *dvolume;
+
+    mve::FloatImage::Ptr volume = mve::FloatImage::create(width, height, depth);
+    std::vector<float> & ovalues = ocloud->get_vertex_values();
     ovalues.resize(overts.size());
     {
-        cacc::PointCloud<cacc::HOST>::Data data = volume->cdata();
+        std::vector<float> & voxels = volume->get_data();
+        std::fill(voxels.begin(), voxels.end(), 0.0f);
+        cacc::PointCloud<cacc::HOST>::Data data = hvolume->cdata();
         for (std::size_t i = 0; i < overts.size(); ++i) {
             ovalues[i] = data.values_ptr[i];
+            voxels[indices[i]] = data.values_ptr[i];
         }
     }
 
-    mve::geom::SavePLYOptions opts;
-    opts.write_vertex_values = true;
-    mve::geom::save_ply_mesh(ocloud, args.guidance_volume, opts);
+    mve::image::float_image_normalize(volume);
+    mve::image::save_mvei_file(volume, args.ovolume);
+
+    if (!args.ocloud.empty()) {
+        mve::geom::SavePLYOptions opts;
+        opts.write_vertex_values = true;
+        mve::geom::save_ply_mesh(ocloud, args.ocloud, opts);
+    }
 
     return EXIT_SUCCESS;
 }
