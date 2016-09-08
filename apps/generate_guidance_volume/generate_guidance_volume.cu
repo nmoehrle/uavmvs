@@ -147,20 +147,19 @@ int main(int argc, char **argv) {
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
 
-            float height = hmap->at(x, y, 0);
+            float z = hmap->at(x, y, 0);
 
             float px = (x - args.resolution / 2.0f) * args.resolution + aabb.min[0];
             float py = (y - args.resolution / 2.0f) * args.resolution + aabb.min[1];
 
-            for (int i = 0; i <= (args.max_altitude - height) / args.resolution; ++i) {
+            for (int i = 0; i <= (args.max_altitude - z) / args.resolution; ++i) {
                 float pz = ground_level + args.max_altitude - i * args.resolution;
                 math::Vec3f vertex(px, py, pz);
 
                 overts.push_back(vertex);
 
-                int z = depth - 1 - i;
-                uint index = ((z * height + y) * width) + x; //TODO check indices
-                indices.push_back(index);
+                int zi = depth - 1 - i;
+                indices.push_back((zi * height + y) * width + x);
             }
         }
     }

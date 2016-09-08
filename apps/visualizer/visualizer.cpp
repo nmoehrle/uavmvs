@@ -80,6 +80,8 @@ int main(int argc, char **argv) {
         std::swap(data, image->get_data());
     }
 
+    std::cout << volume->width() << "x" << volume->height() << "x" << volume->depth() << std::endl;
+
     Window window("Visualizer", 1920, 1080);
     init_opengl();
 
