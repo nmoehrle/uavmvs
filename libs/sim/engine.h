@@ -13,7 +13,6 @@ public:
     typedef std::shared_ptr<Engine> Ptr;
 
 private:
-    std::string basepath;
     std::vector<Entity::Ptr> entities;
     std::unordered_map<ShaderType, Shader::Ptr, std::hash<char> > shaders;
 

@@ -3,7 +3,8 @@
 
 #include "window.h"
 
-void key_callback_wrapper(GLFWwindow* glfw_window,
+void
+Window::key_callback_wrapper(GLFWwindow* glfw_window,
     int key, int /*scancode*/, int action, int /*mods*/)
 {
     if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
@@ -11,8 +12,42 @@ void key_callback_wrapper(GLFWwindow* glfw_window,
     }
 
     Window * window = (Window*) glfwGetWindowUserPointer(glfw_window);
-    if (window->key_callback != nullptr) {
-        window->key_callback(key);
+    std::unordered_map<int, std::function<void (int)> >::iterator it;
+    it = window->key_callbacks.find(key);
+    if (it != window->key_callbacks.end()) {
+        it->second(action);
+    }
+}
+
+void
+Window::mouse_button_callback_wrapper(GLFWwindow* glfw_window,
+    int button, int action, int /*mods*/)
+{
+    Window * window = (Window*) glfwGetWindowUserPointer(glfw_window);
+    std::unordered_map<int, std::function<void (int)> >::iterator it;
+    it = window->mouse_button_callbacks.find(button);
+    if (it != window->mouse_button_callbacks.end()) {
+        it->second(action);
+    }
+}
+
+void
+Window::cursor_position_callback_wrapper(GLFWwindow* glfw_window,
+    double xpos, double ypos)
+{
+    Window * window = (Window*) glfwGetWindowUserPointer(glfw_window);
+    if (window->cursor_position_callback != nullptr) {
+        (*window->cursor_position_callback)(xpos, ypos);
+    }
+}
+
+void
+Window::scroll_callback_wrapper(GLFWwindow* glfw_window,
+    double xoffset, double yoffset)
+{
+    Window * window = (Window*) glfwGetWindowUserPointer(glfw_window);
+    if (window->scroll_callback != nullptr) {
+        (*window->scroll_callback)(xoffset, yoffset);
     }
 }
 
@@ -39,6 +74,10 @@ Window::Window(const char * title, int width, int height) {
     glfwSetWindowUserPointer(this->window, this);
     glfwSetKeyCallback(this->window, key_callback_wrapper);
 
+    glfwSetMouseButtonCallback(window, mouse_button_callback_wrapper);
+    glfwSetCursorPosCallback(window, cursor_position_callback_wrapper);
+    glfwSetScrollCallback(window, scroll_callback_wrapper);
+
     glfwMakeContextCurrent(this->window);
     glfwSwapInterval(1);
 }
@@ -48,10 +87,28 @@ Window::~Window(void) {
     glfwTerminate();
 }
 
+void
+Window::register_key_callback(int key, std::function<void(int)> const & func) {
+    key_callbacks.insert(std::make_pair(key, func));
+}
 
 void
-Window::set_key_callback(KeyCallback key_callback) {
-    this->key_callback = key_callback;
+Window::register_mouse_button_callback(int button, std::function<void(int)> const & func) {
+    mouse_button_callbacks.insert(std::make_pair(button, func));
+}
+
+void
+Window::register_cursor_position_callback(std::function<void(double, double)> const & func) {
+    cursor_position_callback = std::unique_ptr<std::function<void(double, double)> >(
+        new std::function<void(double, double)>(func)
+    );
+}
+
+void
+Window::register_scroll_callback(std::function<void(double, double)> const & func) {
+    scroll_callback = std::unique_ptr<std::function<void(double, double)> >(
+        new std::function<void(double, double)>(func)
+    );
 }
 
 bool
@@ -66,5 +123,3 @@ Window::update(void) {
 }
 
 //glfwSetWindowSizeCallback(window, window_size_callback);
-//glfwSetWindowUserPointer(window)
-
