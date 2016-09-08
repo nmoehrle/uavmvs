@@ -41,7 +41,7 @@ Arguments parse_args(int argc, char **argv) {
     args.add_option('h', "height-map", true, "save height map as pfm file");
     args.add_option('s', "sample-cloud", true, "save sample mesh as ply file");
     args.add_option('f', "fuse-samples", false, "use original and artificial samples");
-    args.add_option('m', "min-distance", false, "minimum distance from original samples [0.0]");
+    args.add_option('m', "min-distance", true, "minimum distance from original samples [0.0]");
     args.parse(argc, argv);
 
     Arguments conf;

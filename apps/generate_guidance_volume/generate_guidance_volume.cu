@@ -41,6 +41,7 @@ Arguments parse_args(int argc, char **argv) {
     args.set_description("TODO");
     args.add_option('r', "resolution", true, "guidance volume resolution [1.0]");
     args.add_option('m', "max-altitude", true, "maximum altitude [80.0]");
+    args.add_option('c', "cloud", true, "save cloud as ply file");
     args.parse(argc, argv);
 
     Arguments conf;
@@ -59,6 +60,9 @@ Arguments parse_args(int argc, char **argv) {
         break;
         case 'm':
             conf.max_altitude = i->get_arg<float>();
+        break;
+        case 'c':
+            conf.ocloud = i->arg;
         break;
         default:
             throw std::invalid_argument("Invalid option");
