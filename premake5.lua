@@ -48,6 +48,7 @@ workspace "uavmvs"
     include("apps/generate_guidance_volume")
 
     include("apps/simulator")
+    include("apps/visualizer")
 
     include("apps/plan_trajectory")
     include("apps/capture_trajectory")
