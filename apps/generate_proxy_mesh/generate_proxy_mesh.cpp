@@ -213,7 +213,7 @@ int main(int argc, char **argv) {
     /* Estimate ground level and normalize height map */
     float ground_level = std::numeric_limits<float>::max();
     #pragma omp parallel for reduction(min:ground_level)
-    for (std::size_t i = 0; i < hmap->get_value_amount(); ++i) {
+    for (int i = 0; i < hmap->get_value_amount(); ++i) {
         float height = hmap->at(i);
         if (height != lowest && height < ground_level) {
             ground_level = height;
@@ -221,7 +221,7 @@ int main(int argc, char **argv) {
     }
 
     #pragma omp parallel for
-    for (std::size_t i = 0; i < hmap->get_value_amount(); ++i) {
+    for (int i = 0; i < hmap->get_value_amount(); ++i) {
         float height = hmap->at(i);
         hmap->at(i) = (height != lowest) ? height - ground_level : 0.0f;
     }
@@ -360,7 +360,7 @@ int main(int argc, char **argv) {
         if (!nns.empty()) {
             math::Vec3f color(0.0f);
             float norm = 0.0f;
-            for (int n = 0; n < nns.size(); ++n) {
+            for (std::size_t n = 0; n < nns.size(); ++n) {
                 float weight = 1.0f - nns[n].second / args.resolution;
                 color += weight * math::Vec3f(colors[nns[n].first].begin());
                 norm += weight;

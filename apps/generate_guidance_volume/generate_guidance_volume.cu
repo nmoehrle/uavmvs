@@ -124,7 +124,7 @@ int main(int argc, char **argv) {
     /* Estimate ground level and normalize height map */
     float ground_level = std::numeric_limits<float>::max();
     #pragma omp parallel for reduction(min:ground_level)
-    for (std::size_t i = 0; i < hmap->get_value_amount(); ++i) {
+    for (int i = 0; i < hmap->get_value_amount(); ++i) {
         float height = hmap->at(i);
         if (height != lowest && height < ground_level) {
             ground_level = height;
@@ -132,7 +132,7 @@ int main(int argc, char **argv) {
     }
 
     #pragma omp parallel for
-    for (std::size_t i = 0; i < hmap->get_value_amount(); ++i) {
+    for (int i = 0; i < hmap->get_value_amount(); ++i) {
         float height = hmap->at(i);
         hmap->at(i) = (height != lowest) ? height - ground_level : 0.0f;
     }

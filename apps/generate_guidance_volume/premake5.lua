@@ -4,6 +4,7 @@ project "generate_guidance_volume"
     language "C++"
 
     toolset "nvcc"
+    buildoptions { "-Xcompiler -fopenmp" }
 
     flags { "RelocatableDeviceCode" }
     defines { "_MWAITXINTRIN_H_INCLUDED", "_FORCE_INLINES" }
@@ -18,3 +19,5 @@ project "generate_guidance_volume"
     }
 
     mve.use({ "util" })
+
+    links { "gomp" }

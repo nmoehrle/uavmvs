@@ -108,11 +108,13 @@ int main(int argc, char **argv) {
 
     ogl::MouseEvent event;
     window.register_key_callback(333, [volume, renderer, &iso] (int action) {
+        if (!action) return;
         iso -= 0.01f;
         std::cout << iso << std::endl;
         renderer->set_mesh(extract(volume, -0.01f));
     });
     window.register_key_callback(334, [volume, renderer, &iso] (int action) {
+        if (!action) return;
         iso += 0.01f;
         std::cout << iso << std::endl;
         renderer->set_mesh(extract(volume, +0.01f));
@@ -146,7 +148,7 @@ int main(int argc, char **argv) {
         event.y = ypos;
         trackball.consume_event(event);
     });
-    window.register_scroll_callback([&trackball] (double xoffset, double yoffset) {
+    window.register_scroll_callback([&trackball] (double, double yoffset) {
         ogl::MouseEvent event;
         event.type = (yoffset > 0.0f) ? ogl::MOUSE_EVENT_WHEEL_UP : ogl::MOUSE_EVENT_WHEEL_DOWN;
         trackball.consume_event(event);

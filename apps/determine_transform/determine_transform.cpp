@@ -78,7 +78,7 @@ determine_rotation(std::vector<Correspondence> const & ccorrespondences,
     math::Matrix3d cov(0.0f);
 
     /* Calculate covariance matrix. */
-    for (int j = 0; j < samples.size(); ++j) {
+    for (std::size_t j = 0; j < samples.size(); ++j) {
         math::Vec3f f, c;
         std::tie(f, c) = ccorrespondences[samples[j]];
         cov += math::Matrix<float, 3, 1>(f.begin()) *
@@ -130,7 +130,7 @@ determine_robust_rotation(std::vector<Correspondence> const & ccorrespondences,
 math::Matrix4f
 determine_transform(std::vector<Correspondence> const & correspondences)
 {
-    int max_scale_samples = 10000;
+    uint max_scale_samples = 10000;
     std::vector<uint> samples;
     if (correspondences.size() < max_scale_samples) {
         samples.resize(correspondences.size());
@@ -183,7 +183,7 @@ determine_transform(std::vector<Correspondence> const & correspondences)
     uint ransac_iterations = 1000;
 
     std::vector<std::future<std::pair<math::Matrix3f, uint> > > futures;
-    for (int i = 0; i < ransac_iterations; ++i) {
+    for (uint i = 0; i < ransac_iterations; ++i) {
         std::vector<uint> samples = choose_random(3, 0, ccorrespondences.size() - 1);
         futures.push_back(std::async(std::launch::async,
                 determine_robust_rotation, ccorrespondences, samples
@@ -191,10 +191,10 @@ determine_transform(std::vector<Correspondence> const & correspondences)
         );
     }
 
-    int max_inliers = 0;
+    uint max_inliers = 0;
     math::Matrix4f T;
     math::matrix_set_identity(&T);
-    for (int i = 0; i < futures.size(); ++i) {
+    for (std::size_t i = 0; i < futures.size(); ++i) {
         math::Matrix3f R;
         uint num_inliers;
         std::tie(R, num_inliers) = futures[i].get();

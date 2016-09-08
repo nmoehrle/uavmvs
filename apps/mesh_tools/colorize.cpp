@@ -96,9 +96,9 @@ int main(int argc, char **argv) {
     switch(args.colormap) {
         case VIRIDIS: colormap = col::maps::viridis; break;
         case COOLWARM: colormap = col::maps::coolwarm; break;
+        default: colormap = col::maps::viridis;
     }
 
-    #pragma omp parallel for
     for (std::size_t i = 0; i < vertices.size(); i++){
         float value = values[i];
 
@@ -110,7 +110,6 @@ int main(int argc, char **argv) {
 
             math::Vec3f lc(colormap[lidx]);
             math::Vec3f hc(colormap[hidx]);
-            #pragma unroll
             for (int j = 0; j < 3; ++j) {
                 color[j] = (1.0f - t) * lc[j] + t * hc[j];
             }

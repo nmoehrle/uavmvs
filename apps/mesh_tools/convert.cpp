@@ -101,7 +101,6 @@ load_matrix_from_file(std::string const & filename) {
     return ret;
 }
 
-#define CONVERT_TO_BUNDLE 0
 int main(int argc, char **argv) {
     Arguments args = parse_args(argc, argv);
 
@@ -114,11 +113,8 @@ int main(int argc, char **argv) {
     }
     mesh->ensure_normals(true, false);
 
-    uint const num_faces = mesh->get_faces().size() / 3;
     std::vector<math::Vec3f> & vertices = mesh->get_vertices();
     std::vector<math::Vec3f> & normals = mesh->get_vertex_normals();
-    std::vector<uint> & faces = mesh->get_faces();
-    std::vector<math::Vec4f> & colors = mesh->get_vertex_colors();
 
     if (args.show_info) {
         math::Vec3f min(+inf);
@@ -161,22 +157,6 @@ int main(int argc, char **argv) {
             normals[i] = -normals[i];
         }
     }
-
-#if CONVERT_TO_BUNDLE
-    mve::Bundle::Ptr bundle = mve::Bundle::create();
-    std::vector<mve::Bundle::Feature3D> & features = bundle->get_features();
-    features.resize(vertices.size());
-
-    for (std::size_t i = 0; i < vertices.size(); ++i) {
-        mve::Bundle::Feature3D & feature = features[i];
-        math::Vec3f const & vertex = vertices[i];
-        math::Vec4f const & color = colors[i];
-        std::copy(vertex.begin(), vertex.end(), feature.pos);
-        std::copy(color.begin(), color.end() - 1, feature.color);
-    }
-
-    mve::save_mve_bundle(bundle, args.out_mesh);
-#endif
 
     mve::geom::save_ply_mesh(mesh, args.out_mesh, args.opts);
 }

@@ -277,7 +277,7 @@ int main(int argc, char **argv) {
         /* Calculate 3d coordinates of the rectangle */
         math::Vec3f a = v0 + rect[0][0] * n0 + rect[0][1] * n1;
         math::Vec3f b = v0 + rect[1][0] * n0 + rect[1][1] * n1;
-        math::Vec3f c = v0 + rect[2][0] * n0 + rect[2][1] * n1;
+        //math::Vec3f c = v0 + rect[2][0] * n0 + rect[2][1] * n1;
         math::Vec3f d = v0 + rect[3][0] * n0 + rect[3][1] * n1;
 
         /* Determine uv coordinates for the projections */

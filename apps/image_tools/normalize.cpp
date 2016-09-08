@@ -111,7 +111,7 @@ int main(int argc, char **argv) {
 
     for (std::size_t i = 0; i < args.images.size(); ++i) {
         mve::FloatImage::Ptr image = images_to_load[args.images[i]];
-        for (std::size_t j = 0; j < image->get_value_amount(); ++j) {
+        for (int j = 0; j < image->get_value_amount(); ++j) {
             float value = image->at(j);
 
             if (value == args.no_value) continue;
@@ -135,7 +135,7 @@ int main(int argc, char **argv) {
 
     int num_outliers = 0;
     mve::FloatImage::Ptr image = image_to_normalize;
-    for (std::size_t i = 0; i < image->get_value_amount(); i++) {
+    for (int i = 0; i < image->get_value_amount(); i++) {
         float value = image->at(i);
 
         if (value == args.no_value) continue;

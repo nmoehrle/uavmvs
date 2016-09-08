@@ -1,6 +1,8 @@
 workspace "uavmvs"
     configurations { "debug", "release", "profile" }
     flags { "C++11" }
+    warnings "Extra"
+
     location "build"
 
     defines { "__ROOT__=\"" .. _MAIN_SCRIPT_DIR .. "\"" }
@@ -11,7 +13,7 @@ workspace "uavmvs"
         linkoptions "-pthread"
 
     filter { "toolset:nvcc" }
-        buildoptions {"--gpu-architecture compute_35"}
+        buildoptions { "--gpu-architecture compute_35", "-Xcompiler -Wno-unknown-pragmas" }
         linkoptions "--gpu-architecture compute_35"
 
     configuration "release"

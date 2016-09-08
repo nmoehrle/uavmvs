@@ -89,13 +89,13 @@ int main(int argc, char **argv) {
     switch(args.colormap) {
         case VIRIDIS: colormap = col::maps::viridis; break;
         case COOLWARM: colormap = col::maps::coolwarm; break;
+        default: colormap = col::maps::viridis;
     }
 
     mve::FloatImage::Ptr out_image;
     out_image = mve::FloatImage::create(in_image->width(), in_image->height(), 3);
 
-    #pragma omp parallel for
-    for (std::size_t i = 0; i < in_image->get_value_amount(); i++){
+    for (int i = 0; i < in_image->get_value_amount(); i++){
         float value = in_image->at(i);
 
         math::Vec3f color(args.ccolor);
@@ -106,7 +106,6 @@ int main(int argc, char **argv) {
 
             math::Vec3f lc(colormap[lidx]);
             math::Vec3f hc(colormap[hidx]);
-            #pragma unroll
             for (int j = 0; j < 3; ++j) {
                 out_image->at(i, j) = (1.0f - t) * lc[j] + t * hc[j];
             }

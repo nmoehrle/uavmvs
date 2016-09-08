@@ -92,7 +92,7 @@ int main(int argc, char **argv) {
     };
 
     /* Icosahedron subdivision. */
-    for (int i = 0; i < args.subdivisions; ++i) {
+    for (uint i = 0; i < args.subdivisions; ++i) {
         /* Walk over faces and generate vertices. */
         typedef std::pair<uint, uint> Edge;
         typedef std::pair<Edge, uint> MapValueType;

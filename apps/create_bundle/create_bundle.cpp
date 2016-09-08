@@ -91,7 +91,6 @@ int main(int argc, char **argv) {
     std::vector<mve::View::Ptr> const & views = scene->get_views();
 
     std::vector<math::Vec3f> const & vertices = cloud->get_vertices();
-    std::vector<math::Vec3f> const & normals = cloud->get_vertex_normals();
 
     mve::Bundle::Ptr bundle = mve::Bundle::create();
     mve::Bundle::Cameras & cameras = bundle->get_cameras();
@@ -133,7 +132,6 @@ int main(int argc, char **argv) {
 
         for (std::size_t j = 0; j < vertices.size(); ++j) {
             math::Vec3f v = vertices[j];
-            math::Vec3f n = normals[j];
             math::Vec3f v2c = view_pos - v;
             float l = v2c.norm();
             math::Vec3f v2cn = v2c / l;
