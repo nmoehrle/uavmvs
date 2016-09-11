@@ -434,7 +434,10 @@ estimate_capture_difficulty(float max_distance,
         uint face_id;
         if (!cacc::tracing::trace(bvh_tree, ray, &face_id) || face_id >= mesh_size) continue;
 
-        sum += 1.0f;
+        cacc::Vec3f rel_dir = relative_direction(dir, n);
+        float observation_angle = dot(cacc::Vec3f(0.0f, 0.0f, 1.0f), rel_dir);
+
+        sum += observation_angle;
     }
 
     cloud.values_ptr[id] = sum / (kd_tree.num_verts / 2.0f);
