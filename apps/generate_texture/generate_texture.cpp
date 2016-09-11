@@ -303,7 +303,7 @@ int main(int argc, char **argv) {
         }
 
         /* Sample the volume */
-        mve::ByteImage::Ptr image = mve::ByteImage::create(w, h, 3);
+        mve::FloatImage::Ptr image = mve::FloatImage::create(w, h, 3);
         math::Vec3f diag0(1.0f, 1.0f, 1.0f), diag1(-1.0f, -1.0f, 1.0f), diag2(-1.0f, 1.0f, 1.0f);
         #pragma omp parallel for
         for (int y = 0; y < h; ++y) {
@@ -326,9 +326,9 @@ int main(int argc, char **argv) {
 #endif
 
                 value = std::min(1.0f, std::max(0.0f, value));
-                image->at(x, y, 0) = value * 255.0f;
-                image->at(x, y, 1) = value * 255.0f;
-                image->at(x, y, 2) = value * 255.0f;
+                image->at(x, y, 0) = value;
+                image->at(x, y, 1) = value;
+                image->at(x, y, 2) = value;
             }
         }
 
@@ -336,8 +336,9 @@ int main(int argc, char **argv) {
         texture_patches.push_back(TexturePatch::create(i + 1, faces, ps_2d, image));
     }
 
+    tex::Settings settings;
     tex::TextureAtlases texture_atlases;
-    tex::generate_texture_atlases(&texture_patches, &texture_atlases);
+    tex::generate_texture_atlases(&texture_patches, settings, &texture_atlases);
 
     tex::Model model;
     tex::build_model(mesh, texture_atlases, &model);
