@@ -193,18 +193,15 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance,
     if (ctheta < 0.087f) return;
 
     if (!visible(v, v2cn, l, bvh_tree)) return;
-
     if (id >= dir_hist.num_cols) return;
 
     int const stride = dir_hist.pitch / sizeof(cacc::Vec3f);
     uint num_rows = dir_hist.num_rows_ptr[id];
 
-    cacc::Vec3f rel_dir = relative_direction(v2cn, n);
-
-    float contrib = 0.0f;
-
     if (num_rows >= dir_hist.max_rows - 1) return;
 
+    float contrib = 0.0f;
+    cacc::Vec3f rel_dir = relative_direction(v2cn, n);
     if (num_rows >= 1) {
         cacc::Vec3f * rel_dirs = dir_hist.data_ptr + id;
         rel_dirs[num_rows * stride] = rel_dir;
@@ -213,10 +210,12 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance,
         contrib = dot(cacc::Vec3f(0.0f, 0.0f, 1.0f), rel_dir);
     }
 
+    float capture_difficulty = cloud.values_ptr[id];
+
     uint idx;
     float dist;
     cacc::nnsearch::find_nns<3u>(kd_tree, -v2cn, &idx, &dist, 1u);
-    atomicAdd(con_hist.data_ptr + idx, contrib);
+    atomicAdd(con_hist.data_ptr + idx, contrib * capture_difficulty);
 }
 
 __global__
