@@ -9,6 +9,8 @@
 #include "util/arguments.h"
 #include "util/choices.h"
 
+#include "util/matrix_io.h"
+
 #include "math/matrix_tools.h"
 #include "math/matrix_svd.h"
 
@@ -211,18 +213,6 @@ determine_transform(std::vector<Correspondence> const & correspondences)
     std::cout << "\tRANSAC inliers: " << 100.0f * inliers << "%" << std::endl;
 
     return T;
-}
-
-void
-save_matrix_to_file(math::Matrix4f m, std::string const & filename) {
-    std::ofstream out(filename.c_str());
-    if (!out.good()) {
-        throw std::runtime_error("Could not open matrix file");
-    }
-
-    out << m;
-
-    out.close();
 }
 
 int main(int argc, char **argv) {

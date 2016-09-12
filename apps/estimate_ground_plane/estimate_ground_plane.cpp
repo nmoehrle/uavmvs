@@ -5,6 +5,8 @@
 #include "util/system.h"
 #include "util/arguments.h"
 
+#include "util/matrix_io.h"
+
 #include "math/plane.h"
 #include "math/matrix_svd.h"
 
@@ -99,19 +101,6 @@ least_squares_plane(std::vector<math::Vec3f> const & vertices,
 
     return math::Plane3f(normal, c);
 }
-
-void
-save_matrix_to_file(math::Matrix4f m, std::string const & filename) {
-    std::ofstream out(filename.c_str());
-    if (!out.good()) {
-        throw std::runtime_error("Could not open matrix file");
-    }
-
-    out << m;
-
-    out.close();
-}
-
 
 int main(int argc, char **argv) {
     util::system::register_segfault_handler();
