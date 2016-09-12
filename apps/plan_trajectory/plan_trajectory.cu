@@ -17,6 +17,7 @@
 #include "cacc/nnsearch.h"
 
 #include "util/io.h"
+#include "util/trajectory_io.h"
 
 #include "eval/kernels.h"
 
@@ -170,7 +171,7 @@ int main(int argc, char **argv) {
             evaluate_histogram<<<grid, block, 0, stream>>>(cacc::Mat3f(calib.begin()), width, height,
                 dkd_tree->cdata(), dcon_hist->cdata(), dhist->cdata());
         }
-        #if 1
+        #if 0
         {
             cacc::Image<float, cacc::DEVICE>::Ptr dtmp;
             dtmp = cacc::Image<float, cacc::DEVICE>::create(360, 180);
@@ -250,7 +251,7 @@ int main(int argc, char **argv) {
             );
         }
 
-#if 1
+#if 0
         {
             dim3 grid(cacc::divup(360, KERNEL_BLOCK_SIZE), 180);
             dim3 block(KERNEL_BLOCK_SIZE);
