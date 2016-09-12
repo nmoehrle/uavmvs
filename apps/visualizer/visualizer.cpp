@@ -5,37 +5,44 @@
 #include "util/arguments.h"
 #include "util/file_system.h"
 
+#include "util/trajectory_io.h"
+#include "util/matrix_io.h"
+
 #include "math/matrix_tools.h"
 
-#include "mve/volume.h"
 #include "mve/image_io.h"
 #include "mve/marching_cubes.h"
 #include "mve/mesh_io_ply.h"
+#include "math/bspline.h"
 
 #include "ogl/events.h"
 #include "ogl/camera.h"
 #include "ogl/camera_trackball.h"
 #include "ogl/mesh_renderer.h"
 
+#include "sim/engine.h"
 #include "sim/window.h"
 #include "sim/shader.h"
 #include "sim/shader_type.h"
+#include "sim/entities/trajectory_renderer.h"
 
 struct Arguments {
     std::string path;
+    std::string trajectory;
 };
 
 Arguments parse_args(int argc, char **argv) {
     util::Arguments args;
     args.set_exit_on_error(true);
-    args.set_nonopt_minnum(1);
-    args.set_nonopt_maxnum(1);
-    args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] PATH");
+    args.set_nonopt_minnum(2);
+    args.set_nonopt_maxnum(2);
+    args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] MESH TRAJECTORY");
     args.set_description("Visualizer");
     args.parse(argc, argv);
 
     Arguments conf;
     conf.path = args.get_nth_nonopt(0);
+    conf.trajectory = args.get_nth_nonopt(1);
 
     for (util::ArgResult const* i = args.next_option();
          i != 0; i = args.next_option()) {
@@ -55,49 +62,54 @@ init_opengl(void) {
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 }
 
-mve::TriangleMesh::Ptr extract(mve::FloatVolume::Ptr volume, float iso) {
-    std::vector<float> & voxels = volume->get_data();
-    std::for_each(voxels.begin(), voxels.end(), [iso] (float & value) { value -= iso; });
-    mve::VolumeMCAccessor accessor;
-    accessor.vol = volume;
-    mve::TriangleMesh::Ptr mesh = mve::geom::marching_cubes(accessor);
-    mesh->ensure_normals(true, true);
-    return mesh;
-}
-
 int main(int argc, char **argv) {
     util::system::register_segfault_handler();
     util::system::print_build_timestamp(argv[0]);
 
     Arguments args = parse_args(argc, argv);
 
-    mve::FloatVolume::Ptr volume;
-    {
-        mve::FloatImage::Ptr image;
-        image = std::dynamic_pointer_cast<mve::FloatImage>(mve::image::load_mvei_file(args.path));
-        volume = mve::FloatVolume::create(image->width(), image->height(), image->channels());
-        std::vector<float> & data = volume->get_data();
-        std::swap(data, image->get_data());
-    }
-
-    std::cout << volume->width() << "x" << volume->height() << "x" << volume->depth() << std::endl;
-
     Window window("Visualizer", 1920, 1080);
     init_opengl();
 
+    Engine::Ptr engine(new Engine());
+    engine->create_static_model(args.path);
+
     Shader::Ptr shader(new Shader());
     std::string path = util::fs::join_path(__ROOT__, "res/shaders");
-    shader->load_shader_program(path + "/" + shader_names[SURFACE]);
+    shader->load_shader_program(path + "/" + shader_names[LINES]);
     math::Matrix4f eye;
-    math::matrix_set_identity(eye.begin(), 4);
+    math::matrix_set_identity(&eye);
     shader->set_model_matrix(eye);
-    shader->update();
 
-    float iso = 0.5f;
+    math::BSpline<math::Vec3f> spline;
+    spline.set_degree(3);
+    {
+        std::vector<mve::CameraInfo> trajectory;
+        load_trajectory(args.trajectory, &trajectory);
 
-    ogl::MeshRenderer::Ptr renderer = ogl::MeshRenderer::create();
-    renderer->set_shader(shader->get_shader_program());
-    renderer->set_mesh(extract(volume, iso));
+        for (std::size_t i = 0; i < trajectory.size(); ++i) {
+            mve::CameraInfo const & cam = trajectory[i];
+            math::Vec3f trans(cam.trans);
+            math::Matrix3f rot(cam.rot);
+            math::Vec3f pos = -rot.transposed() * trans;
+            spline.add_point(pos);
+        }
+    }
+    spline.uniform_knots(0.0, 1.0f);
+
+    Trajectory::Ptr trajectory(new Trajectory);
+    for (float t = 0.0f; t < 1.0f; t += 0.001f) {
+        trajectory->xs.push_back(spline.evaluate(t));
+        trajectory->qs.emplace_back(math::Vec3f(0.0f, 0.0f, 1.0f), 0.0f);
+    }
+
+    Pose::Ptr pose = Pose::Ptr(new Pose);
+    TrajectoryRenderer::Ptr tr(new TrajectoryRenderer(trajectory, shader));
+    Entity::Ptr ret(new Entity);
+    ret->add_component(pose);
+    ret->add_component(trajectory);
+    ret->add_component(tr);
+    engine->add_entity(ret);
 
     ogl::Camera camera;
     ogl::CamTrackball trackball;
@@ -109,18 +121,7 @@ int main(int argc, char **argv) {
         math::Vec3f(-2.0f, 2.0f, 0.0f), math::Vec3f(0.0f, 1.0f, 0.0f));
 
     ogl::MouseEvent event;
-    window.register_key_callback(333, [volume, renderer, &iso] (int action) {
-        if (!action) return;
-        iso -= 0.01f;
-        std::cout << iso << std::endl;
-        renderer->set_mesh(extract(volume, -0.01f));
-    });
-    window.register_key_callback(334, [volume, renderer, &iso] (int action) {
-        if (!action) return;
-        iso += 0.01f;
-        std::cout << iso << std::endl;
-        renderer->set_mesh(extract(volume, +0.01f));
-    });
+
     window.register_mouse_button_callback(0, [&trackball, &event] (int action) {
         event.button = ogl::MOUSE_BUTTON_LEFT;
         if (action) {
@@ -175,7 +176,7 @@ int main(int argc, char **argv) {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         glViewport(0, 0, 1920, 1080);
-        renderer->draw();
+        engine->render(camera);
 
         glFlush();
 
