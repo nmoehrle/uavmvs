@@ -29,6 +29,7 @@ struct Arguments {
     std::string ovolume;
     std::string ocloud;
     float resolution;
+    float max_distance;
     float max_altitude;
 };
 
@@ -40,7 +41,8 @@ Arguments parse_args(int argc, char **argv) {
     args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] PROXY_MESH PROXY_CLOUD AIRSPACE_MESH OUT_VOLUME");
     args.set_description("TODO");
     args.add_option('r', "resolution", true, "guidance volume resolution [1.0]");
-    args.add_option('m', "max-altitude", true, "maximum altitude [80.0]");
+    args.add_option('\0', "max-distance", true, "maximum distance to surface [80.0]");
+    args.add_option('\0', "max-altitude", true, "maximum altitude [100.0]");
     args.add_option('c', "cloud", true, "save cloud as ply file");
     args.parse(argc, argv);
 
@@ -50,7 +52,8 @@ Arguments parse_args(int argc, char **argv) {
     conf.airspace_mesh = args.get_nth_nonopt(2);
     conf.ovolume = args.get_nth_nonopt(3);
     conf.resolution = 1.0f;
-    conf.max_altitude = 80.0f;
+    conf.max_distance = 80.0f;
+    conf.max_altitude = 100.0f;
 
     for (util::ArgResult const* i = args.next_option();
          i != 0; i = args.next_option()) {
@@ -58,11 +61,17 @@ Arguments parse_args(int argc, char **argv) {
         case 'r':
             conf.resolution = i->get_arg<float>();
         break;
-        case 'm':
-            conf.max_altitude = i->get_arg<float>();
-        break;
         case 'c':
             conf.ocloud = i->arg;
+        break;
+        case '\0':
+            if (i->opt->lopt == "max-distance") {
+                conf.max_distance = i->get_arg<float>();
+            } else if (i->opt->lopt == "max-altitude") {
+                conf.max_altitude = i->get_arg<float>();
+            } else {
+                throw std::invalid_argument("Invalid option");
+            }
         break;
         default:
             throw std::invalid_argument("Invalid option");
@@ -196,7 +205,7 @@ int main(int argc, char **argv) {
         dim3 block(KERNEL_BLOCK_SIZE);
 
         for (std::size_t i = 0; i < overts.size(); ++i) {
-            evaluate_position<<<grid, block, 0, stream>>>(i, args.max_altitude, //TODO replace with GSD
+            evaluate_position<<<grid, block, 0, stream>>>(i, args.max_distance,
                 dbvh_tree->cdata(), dcloud->cdata(), dvolume->cdata());
         }
 
