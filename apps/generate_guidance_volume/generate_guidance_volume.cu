@@ -150,6 +150,10 @@ int main(int argc, char **argv) {
 
     mve::TriangleMesh::Ptr ocloud = mve::TriangleMesh::create();
     std::vector<math::Vec3f> & overts = ocloud->get_vertices();
+    std::vector<uint> & ofaces = ocloud->get_faces();
+    ofaces.push_back(width);
+    ofaces.push_back(height);
+    ofaces.push_back(depth);
     overts.resize(width * height * depth);
     std::vector<float> & ovalues = ocloud->get_vertex_values();
     ovalues.resize(width * height * depth, 0.0f);
