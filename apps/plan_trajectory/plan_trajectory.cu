@@ -7,6 +7,8 @@
 #include "util/file_system.h"
 #include "util/choices.h"
 
+#include "math/bspline.h"
+
 #include "mve/camera.h"
 #include "mve/mesh_io_ply.h"
 #include "mve/image_io.h"
@@ -24,34 +26,69 @@
 struct Arguments {
     std::string proxy_mesh;
     std::string proxy_cloud;
+    std::string guidance_volume;
     std::string out_trajectory;
     std::string trajectory;
+    uint length = 1500;
     float max_distance;
 };
+
+std::vector<std::pair<uint, uint> > grid_trajectory_indices(uint width, uint height) {
+    std::vector<std::pair<uint, uint> > ret;
+    for (uint gy = 0; gy < (height - 1) / 3; ++gy) {
+        for (uint gx = 0; gx < width - 2; ++gx) {
+            uint x;
+            if (gy % 2 == 0) {
+                x = 1 + gx;
+            } else {
+                x = width - 1 - gx;
+            }
+            uint y = 1 + 3 * gy;
+
+            if (gx == 0 && gy != 0) {
+                ret.emplace_back(x, y - 2);
+                ret.emplace_back(x, y - 1);
+            } else {
+                ret.emplace_back(x, y);
+            }
+        }
+    }
+    return ret;
+}
+
 
 Arguments parse_args(int argc, char **argv) {
     util::Arguments args;
     args.set_exit_on_error(true);
-    args.set_nonopt_minnum(3);
-    args.set_nonopt_maxnum(3);
+    args.set_nonopt_minnum(4);
+    args.set_nonopt_maxnum(4);
     args.set_usage("Usage: " + std::string(argv[0])
-        + " [OPTS] PROXY_MESH PROXY_CLOUD OUT_TRAJECTORY");
+        + " [OPTS] PROXY_MESH PROXY_CLOUD GUIDANCE_VOLUME OUT_TRAJECTORY");
     args.set_description("Plans a trajectory maximizing reconstructability");
     args.add_option('t', "trajectory", true,
         "Use positions from given trajectory and only optimize viewing directions.");
+    args.add_option('\0', "max-distance", true, "maximum distance to surface [80.0]");
     args.parse(argc, argv);
 
     Arguments conf;
     conf.proxy_mesh = args.get_nth_nonopt(0);
     conf.proxy_cloud = args.get_nth_nonopt(1);
-    conf.out_trajectory = args.get_nth_nonopt(2);
-    conf.max_distance = 2.0f;
+    conf.guidance_volume = args.get_nth_nonopt(2);
+    conf.out_trajectory = args.get_nth_nonopt(3);
+    conf.max_distance = 80.0f;
 
     for (util::ArgResult const* i = args.next_option();
          i != 0; i = args.next_option()) {
         switch (i->opt->sopt) {
         case 't':
             conf.trajectory = i->arg;
+        break;
+        case '\0':
+            if (i->opt->lopt == "max-distance") {
+                conf.max_distance = i->get_arg<float>();
+            } else {
+                throw std::invalid_argument("Invalid option");
+            }
         break;
         default:
             throw std::invalid_argument("Invalid option");
@@ -69,11 +106,62 @@ int main(int argc, char **argv) {
 
     Arguments args = parse_args(argc, argv);
 
+    std::vector<mve::CameraInfo> trajectory;
     if (args.trajectory.empty()) {
-        std::cerr << "\tAutomatic position planning is not yet implemented.\n"
-            << "\tPlease specify a trajectory with --trajectory=FILE for the positions."
-            << std::endl;
-        std::exit(EXIT_FAILURE);
+        mve::TriangleMesh::Ptr mesh;
+        try {
+            mesh = mve::geom::load_ply_mesh(args.guidance_volume);
+        } catch (std::exception& e) {
+            std::cerr << "\tCould not load mesh: "<< e.what() << std::endl;
+            std::exit(EXIT_FAILURE);
+        }
+
+        std::vector<uint> const & faces = mesh->get_faces();
+        std::vector<math::Vec3f> const & verts = mesh->get_vertices();
+        std::vector<float> const & values = mesh->get_vertex_values();
+
+        if (faces.size() != 3) {
+            std::cerr << "\tInvalid guidance volume - dimensions missing" << std::endl;
+            std::exit(EXIT_FAILURE);
+        }
+        uint width = faces[0];
+        uint height = faces[1];
+        uint depth = faces[2];
+        if (width * height * depth != verts.size() & values.size()) {
+            std::cerr << "\tInvalid guidance volume - dimensions wrong" << std::endl;
+            std::exit(EXIT_FAILURE);
+        }
+
+        std::vector<std::pair<uint, uint> > indices = grid_trajectory_indices(width, height);
+
+        math::BSpline<math::Vec3f> spline;
+        spline.set_degree(3);
+
+        int z = depth - 1;
+        for (std::size_t i = 0; i < indices.size(); ++i) {
+            uint x, y;
+            std::tie(x, y) = indices[i];
+            spline.add_point(verts[((z * height + y) * width) + x]);
+        }
+        spline.uniform_knots(0.0, 1.0f);
+
+        for (float t = 0.0f; t < 1.0f; t += 1.0f / args.length) {
+            mve::CameraInfo cam;
+
+            /* Initialize nadir. */
+            math::Matrix3f rot(0.0f);
+            rot(0, 0) = 1;
+            rot(1, 1) = -1;
+            rot(2, 2) = -1;
+            std::copy(rot.begin(), rot.end(), cam.rot);
+
+            math::Vec3f pos = spline.evaluate(t);
+            math::Vec3f trans = -rot * pos;
+            std::copy(trans.begin(), trans.end(), cam.trans);
+            trajectory.push_back(cam);
+        }
+    } else {
+        load_trajectory(args.trajectory, &trajectory);
     }
 
     cacc::select_cuda_device(3, 5);
@@ -130,10 +218,6 @@ int main(int argc, char **argv) {
     int height = 1080;
 
     int cnt = 0;
-
-    std::vector<mve::CameraInfo> trajectory;
-    load_trajectory(args.trajectory, &trajectory);
-
     for (mve::CameraInfo & cam : trajectory) {
         cam.fill_calibration(calib.begin(), width, height);
         cam.fill_camera_pos(pos.begin());
@@ -150,6 +234,7 @@ int main(int argc, char **argv) {
                 ddir_hist->cdata(), dcon_hist->cdata());
         }
 
+        #if 0
         {
             CHECK(cudaDeviceSynchronize());
             *con_hist = *dcon_hist;
@@ -164,6 +249,7 @@ int main(int argc, char **argv) {
             std::string filename = fmt::format("/tmp/test-sphere-hist-{:04d}.ply", cnt);
             mve::geom::save_ply_mesh(mesh, filename, opts);
         }
+        #endif
 
         {
             dim3 grid(cacc::divup(360, KERNEL_BLOCK_SIZE), 180);
@@ -251,7 +337,7 @@ int main(int argc, char **argv) {
             );
         }
 
-#if 0
+        #if 0
         {
             dim3 grid(cacc::divup(360, KERNEL_BLOCK_SIZE), 180);
             dim3 block(KERNEL_BLOCK_SIZE);
@@ -273,7 +359,7 @@ int main(int argc, char **argv) {
         opts.write_vertex_values = true;
         std::string filename = fmt::format("/tmp/test-2d-hist-{:04d}.ply", cnt++);
         mve::geom::save_ply_mesh(mesh, filename, opts);
-#endif
+        #endif
     }
 
     save_trajectory(trajectory, args.out_trajectory);
