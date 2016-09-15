@@ -40,6 +40,7 @@ Arguments parse_args(int argc, char **argv) {
     args.set_nonopt_minnum(3);
     args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] SCENE PROXY_MESH PROXY_CLOUD");
     args.add_option('e', "export", true, "export per surface point reconstructability as point cloud");
+    args.add_option('\0', "max-distance", true, "maximum distance to surface [80.0]");
     args.set_description("Evaluate trajectory");
     args.parse(argc, argv);
 
@@ -54,6 +55,13 @@ Arguments parse_args(int argc, char **argv) {
         switch (i->opt->sopt) {
         case 'e':
             conf.export_cloud = i->arg;
+        break;
+        case '\0':
+            if (i->opt->lopt == "max-distance") {
+                conf.max_distance = i->get_arg<float>();
+            } else {
+                throw std::invalid_argument("Invalid option");
+            }
         break;
         default:
             throw std::invalid_argument("Invalid option");
