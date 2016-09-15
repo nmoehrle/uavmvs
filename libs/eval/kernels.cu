@@ -439,7 +439,10 @@ estimate_capture_difficulty(float max_distance,
         sum += observation_angle;
     }
 
-    cloud.values_ptr[id] = sum / (kd_tree.num_verts / 2.0f);
+    /* Num samples on hemisphere times expectation of sample (derivation in the thesis) */
+    float max = (kd_tree.num_verts / 2.0f) * 0.5f;
+
+    cloud.values_ptr[id] = sum / max;
 }
 
 __global__
