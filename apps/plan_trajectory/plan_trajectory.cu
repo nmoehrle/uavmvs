@@ -29,8 +29,9 @@ struct Arguments {
     std::string guidance_volume;
     std::string out_trajectory;
     std::string trajectory;
-    uint length = 1500;
+    uint num_views;
     float max_distance;
+    float focal_length;
 };
 
 std::vector<std::pair<uint, uint> > grid_trajectory_indices(uint width, uint height) {
@@ -68,6 +69,7 @@ Arguments parse_args(int argc, char **argv) {
     args.add_option('t', "trajectory", true,
         "Use positions from given trajectory and only optimize viewing directions.");
     args.add_option('\0', "max-distance", true, "maximum distance to surface [80.0]");
+    args.add_option('\0', "focal-length", true, "camera focal length [0.86]");
     args.parse(argc, argv);
 
     Arguments conf;
@@ -76,6 +78,8 @@ Arguments parse_args(int argc, char **argv) {
     conf.guidance_volume = args.get_nth_nonopt(2);
     conf.out_trajectory = args.get_nth_nonopt(3);
     conf.max_distance = 80.0f;
+    conf.num_views = 400;
+    conf.focal_length = 0.86f;
 
     for (util::ArgResult const* i = args.next_option();
          i != 0; i = args.next_option()) {
@@ -137,18 +141,26 @@ int main(int argc, char **argv) {
         math::BSpline<math::Vec3f> spline;
         spline.set_degree(3);
 
-        int z = depth - 1;
         for (std::size_t i = 0; i < indices.size(); ++i) {
             uint x, y;
             std::tie(x, y) = indices[i];
-            spline.add_point(verts[((z * height + y) * width) + x]);
+            int oz = depth - 1;
+            float max = 0.0f;
+            for (int z = 0; z < depth; ++z) {
+                float value = values[((z * height + y) * width) + x];
+                if (value > max) {
+                    max = value;
+                    oz = z;
+                }
+            }
+            spline.add_point(verts[((oz * height + y) * width) + x]);
         }
         spline.uniform_knots(0.0, 1.0f);
 
-        for (float t = 0.0f; t < 1.0f; t += 1.0f / args.length) {
+        for (float t = 0.0f; t < 1.0f; t += 1.0f / (args.num_views - 1)) {
             mve::CameraInfo cam;
 
-            /* Initialize nadir. */
+            /* Initialize nadir */
             math::Matrix3f rot(0.0f);
             rot(0, 0) = 1;
             rot(1, 1) = -1;
@@ -158,6 +170,9 @@ int main(int argc, char **argv) {
             math::Vec3f pos = spline.evaluate(t);
             math::Vec3f trans = -rot * pos;
             std::copy(trans.begin(), trans.end(), cam.trans);
+
+            cam.flen = args.focal_length;
+
             trajectory.push_back(cam);
         }
     } else {
@@ -192,6 +207,7 @@ int main(int argc, char **argv) {
     cacc::tracing::bind_textures(dbvh_tree->cdata());
 
     cacc::PointCloud<cacc::HOST>::Ptr cloud;
+    //TODO check for vertex values...
     cloud = load_point_cloud(args.proxy_cloud);
     cacc::PointCloud<cacc::DEVICE>::Ptr dcloud;
     dcloud = cacc::PointCloud<cacc::DEVICE>::create<cacc::HOST>(cloud);
@@ -268,7 +284,7 @@ int main(int argc, char **argv) {
             CHECK(cudaDeviceSynchronize());
 
             cacc::Image<float, cacc::HOST>::Ptr hist;
-            hist = cacc::Image<float, cacc::HOST>::create<cacc::DEVICE>(dhist);
+            hist = cacc::Image<float, cacc::HOST>::create<cacc::DEVICE>(dtmp);
             cacc::Image<float, cacc::HOST>::Data data = hist->cdata();
             mve::FloatImage::Ptr image = mve::FloatImage::create(360, 180, 1);
             for (int y = 0; y < 180; ++y) {
@@ -281,9 +297,20 @@ int main(int argc, char **argv) {
         #endif
 
         //TODO write a kernel to select best viewing direction
+        CHECK(cudaDeviceSynchronize());
         *hist = *dhist;
 
         cacc::Image<float, cacc::HOST>::Data hist_data = hist->cdata();
+
+        #if 0
+        mve::FloatImage::Ptr image = mve::FloatImage::create(360, 180, 1);
+        for (int y = 0; y < 180; ++y) {
+            for (int x = 0; x < 360; ++x) {
+                image->at(x, y, 0) = hist_data.data_ptr[y * hist_data.pitch / sizeof(float) + x];
+            }
+        }
+        mve::image::save_pfm_file(image, fmt::format("/tmp/test-hist-{:04d}.pfm", cnt));
+        #endif
 
         float max = 0.0f;
         float theta = 0.0f;
@@ -357,9 +384,11 @@ int main(int argc, char **argv) {
 
         mve::geom::SavePLYOptions opts;
         opts.write_vertex_values = true;
-        std::string filename = fmt::format("/tmp/test-2d-hist-{:04d}.ply", cnt++);
+        std::string filename = fmt::format("/tmp/test-2d-hist-{:04d}.ply", cnt);
         mve::geom::save_ply_mesh(mesh, filename, opts);
         #endif
+
+        cnt += 1;
     }
 
     save_trajectory(trajectory, args.out_trajectory);
