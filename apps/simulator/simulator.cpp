@@ -18,6 +18,7 @@
 #include "mve/mesh_tools.h"
 #include "mve/image_io.h"
 #include "mve/image_tools.h"
+#include "mve/camera.h"
 
 #include "ogl/mesh_renderer.h"
 #include "ogl/render_tools.h"
@@ -344,7 +345,20 @@ int main(int argc, char **argv) {
     }
 
     if (!args.trajectory.empty()) {
-        save_trajectory(trajectory, args.trajectory);
+        std::vector<mve::CameraInfo> tmp;
+        std::size_t length = trajectory->xs.size() & trajectory->qs.size();
+        tmp.resize(length);
+        for (std::size_t i = 0; i < length; ++i) {
+            mve::CameraInfo & cam = tmp.at(i);
+            math::Vec3f pos = trajectory->xs[i];
+            math::Matrix3f rot;
+            trajectory->qs[i].to_rotation_matrix(rot.begin());
+            math::Vec3f trans = -rot * pos;
+            std::copy(trans.begin(), trans.end(), cam.trans);
+            std::copy(rot.begin(), rot.end(), cam.rot);
+            cam.flen = 0.86f;
+        }
+        save_trajectory(tmp, args.trajectory);
     }
 
     return EXIT_SUCCESS;

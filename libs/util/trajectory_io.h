@@ -3,29 +3,11 @@
 
 #include <fstream>
 
+#include "math/vector.h"
+#include "math/matrix.h"
+
 #include "mve/camera.h"
 
-#include "sim/entity.h"
-
-void save_trajectory(Trajectory::ConstPtr trajectory, std::string const & path) {
-    std::ofstream out(path.c_str());
-
-    if (!out.good()) throw std::runtime_error("Could not open file");
-
-    std::size_t length = trajectory->xs.size() & trajectory->qs.size();
-    out << length << std::endl;
-    for (std::size_t i = 0; i < length; ++i) {
-        out << trajectory->xs[i] << std::endl;
-
-        math::Matrix3f rot;
-        trajectory->qs[i].to_rotation_matrix(rot.begin());
-        out << rot;
-    }
-    out.close();
-}
-
-//TODO save std::vector<mve::CameraInfo> trajectories only as scenes
-//TODO save quaternions within trajectory files
 
 void save_trajectory(std::vector<mve::CameraInfo> const & trajectory,
     std::string const & path)
@@ -45,6 +27,7 @@ void save_trajectory(std::vector<mve::CameraInfo> const & trajectory,
 
         out << pos << std::endl;
         out << rot;
+        out << cam.flen << std::endl;
     }
 
     out.close();
@@ -63,6 +46,8 @@ void load_trajectory(std::string const & path,
     trajectory->resize(length);
 
     for (std::size_t i = 0; i < length; ++i) {
+        mve::CameraInfo & cam = trajectory->at(i);
+
         math::Vec3f pos;
         for (int j = 0; j < 3; ++j) {
             in >> pos[j];
@@ -72,11 +57,10 @@ void load_trajectory(std::string const & path,
             in >> rot[j];
         }
         math::Vec3f trans = -rot * pos;
-
-        mve::CameraInfo & cam = trajectory->at(i);
-        cam.flen = 0.86f; //TODO save and read from file
         std::copy(trans.begin(), trans.end(), cam.trans);
         std::copy(rot.begin(), rot.end(), cam.rot);
+
+        in >> cam.flen;
     }
 
     if (in.fail()) {
