@@ -33,7 +33,7 @@ Arguments parse_args(int argc, char **argv) {
     args.add_option('s', "second-option", true, "second option");
     args.add_option('\0', "flag", false, "boolean flag [false]");
     args.add_option('\0', "choice", true, "choices "
-            + choices<Choice>(FIRST_CHOICE));
+        + choices<Choice>(FIRST_CHOICE));
     args.parse(argc, argv);
 
     Arguments conf;

@@ -28,7 +28,7 @@ Arguments parse_args(int argc, char **argv) {
     args.set_nonopt_maxnum(2);
     args.set_nonopt_minnum(2);
     args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] IN_MESH OUT_MESH");
-    args.set_description("Prepare mesh for ...");
+    args.set_description("Conversion app for meshes a la image magicks convert");
     args.add_option('t', "transform", true, "transform vertices with matrix file");
     args.add_option('i', "invert", false, "invert transform");
     args.add_option('s', "show-info", false, "show info");

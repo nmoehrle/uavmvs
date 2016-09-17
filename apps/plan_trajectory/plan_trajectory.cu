@@ -146,7 +146,7 @@ int main(int argc, char **argv) {
             std::tie(x, y) = indices[i];
             int oz = depth - 1;
             float max = 0.0f;
-            for (int z = 0; z < depth; ++z) {
+            for (uint z = 0; z < depth; ++z) {
                 float value = values[((z * height + y) * width) + x];
                 if (value > max) {
                     max = value;

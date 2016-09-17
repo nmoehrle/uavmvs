@@ -36,6 +36,7 @@ workspace "uavmvs"
 
     include("apps/mesh_tools")
     include("apps/image_tools")
+    include("apps/volume_tools")
 
     include("apps/create_bundle")
     include("apps/determine_transform")
