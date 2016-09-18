@@ -1,13 +1,18 @@
-#include <iostream>
 #include <vector>
 #include <atomic>
 #include <random>
+#include <iostream>
+#include <algorithm>
 
 #include "math/geometry.h"
 
 #include "util/arguments.h"
+
 #include "mve/mesh.h"
 #include "mve/mesh_io_ply.h"
+
+#include "acc/math.h"
+#include "acc/primitives.h"
 
 typedef unsigned int uint;
 
@@ -115,10 +120,30 @@ int main(int argc, char **argv) {
     }
 
     std::vector<std::size_t> indices(overts.size());
+    std::vector<std::uint64_t> zindices(overts.size());
+
+    {
+        acc::AABB<math::Vec3f> aabb = acc::calculate_aabb(overts);
+        math::Vec3d scale, bias;
+        for (int i = 0; i < 3; ++i) {
+            double div = (aabb.max[i] - aabb.min[i]);
+            scale[i] = 1.0 / div * (double(1 << 20) - 1.0);
+            bias[i] = - aabb.min[i] / div * (double(1 << 20) - 1.0);
+        }
+        for (std::size_t i = 0; i < zindices.size(); ++i) {
+            math::Vec3f const & vert = overts[i];
+            math::Vector<std::uint32_t, 3> position;
+            for (int j = 0; j < 3; ++j) {
+                position[j] = scale[j] * vert[j] + bias[j];
+            }
+            zindices[i] = acc::z_order_index(position);
+        }
+    }
+
     std::iota(indices.begin(), indices.end(), 0);
     std::sort(indices.begin(), indices.end(),
-        [&overts] (uint l, uint r) -> bool {
-            return std::lexicographical_compare(&overts[l][0], &overts[l][3], &overts[r][0], &overts[r][3]);
+        [&zindices] (uint l, uint r) -> bool {
+            return zindices[l] < zindices[r];
         }
     );
 
