@@ -1,7 +1,10 @@
 #include <cuda_runtime.h>
 
 #include "cacc/math.h"
+
+#define TRACING_SSTACK_SIZE 12
 #include "cacc/tracing.h"
+#define NNSEARCH_SSTACK_SIZE 12
 #include "cacc/nnsearch.h"
 
 #include "kernels.h"
@@ -170,6 +173,45 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance,
     cacc::BVHTree<cacc::DEVICE>::Data bvh_tree,
     cacc::PointCloud<cacc::DEVICE>::Data cloud,
     cacc::KDTree<3, cacc::DEVICE>::Data kd_tree,
+    cacc::VectorArray<float, cacc::DEVICE>::Data con_hist)
+{
+    int const bx = blockIdx.x;
+    int const tx = threadIdx.x;
+
+    uint id = bx * blockDim.x + tx;
+
+    if (id >= cloud.num_vertices) return;
+
+    cacc::Vec3f v = cloud.vertices_ptr[id];
+    cacc::Vec3f n = cloud.normals_ptr[id];
+    cacc::Vec3f v2c = view_pos - v;
+    float l = norm(v2c);
+    cacc::Vec3f v2cn = v2c / l;
+
+    float ctheta = dot(v2cn, n);
+
+    if (l > max_distance) return;
+    // 0.087f ~ cos(85.0f / 180.0f * pi)
+    if (ctheta < 0.087f) return;
+
+    if (!visible(v, v2cn, l, bvh_tree)) return;
+
+    float capture_difficulty = cloud.values_ptr[id];
+
+    cacc::Vec3f rel_dir = relative_direction(v2cn, n);
+    float observation_angle = dot(cacc::Vec3f(0.0f, 0.0f, 1.0f), rel_dir);
+
+    uint idx;
+    float dist;
+    cacc::nnsearch::find_nns<3u>(kd_tree, -v2cn, &idx, &dist, 1u);
+    atomicAdd(con_hist.data_ptr + idx, observation_angle * capture_difficulty);
+}
+
+__global__
+void populate_histogram(cacc::Vec3f view_pos, float max_distance,
+    cacc::BVHTree<cacc::DEVICE>::Data bvh_tree,
+    cacc::PointCloud<cacc::DEVICE>::Data cloud,
+    cacc::KDTree<3, cacc::DEVICE>::Data kd_tree,
     cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data dir_hist,
     cacc::VectorArray<float, cacc::DEVICE>::Data con_hist)
 {
@@ -207,7 +249,8 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance,
         rel_dirs[num_rows * stride] = rel_dir;
         contrib = heuristic(rel_dirs, stride, num_rows + 1);
     } else {
-        contrib = dot(cacc::Vec3f(0.0f, 0.0f, 1.0f), rel_dir);
+        float observation_angle = dot(cacc::Vec3f(0.0f, 0.0f, 1.0f), rel_dir);
+        contrib = observation_angle;
     }
 
     float capture_difficulty = cloud.values_ptr[id];

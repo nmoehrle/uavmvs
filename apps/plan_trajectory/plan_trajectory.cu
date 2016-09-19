@@ -194,10 +194,12 @@ int main(int argc, char **argv) {
     std::vector<float> & ovalues = mesh->get_vertex_values();
     ovalues.resize(vertices.size());
 
-    acc::KDTree<3u, uint>::Ptr kd_tree;
-    kd_tree = load_mesh_as_kd_tree(util::fs::join_path(__ROOT__, "res/meshes/sphere.ply"));
     cacc::KDTree<3u, cacc::DEVICE>::Ptr dkd_tree;
-    dkd_tree = cacc::KDTree<3u, cacc::DEVICE>::create<uint>(kd_tree);
+    {
+        acc::KDTree<3u, uint>::Ptr kd_tree;
+        kd_tree = load_mesh_as_kd_tree(util::fs::join_path(__ROOT__, "res/meshes/sphere.ply"));
+        dkd_tree = cacc::KDTree<3u, cacc::DEVICE>::create<uint>(kd_tree);
+    }
     cacc::nnsearch::bind_textures(dkd_tree->cdata());
 
     acc::BVHTree<uint, math::Vec3f>::Ptr bvh_tree;
@@ -388,6 +390,7 @@ int main(int argc, char **argv) {
         mve::geom::save_ply_mesh(mesh, filename, opts);
         #endif
 
+        CHECK(cudaDeviceSynchronize());
         cnt += 1;
     }
 

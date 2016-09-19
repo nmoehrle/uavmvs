@@ -7,6 +7,7 @@
 
 #include "util/io.h"
 
+#include "mve/camera.h"
 #include "mve/mesh_io_ply.h"
 #include "mve/image_io.h"
 #include "mve/image_tools.h"
@@ -17,6 +18,7 @@
 #include "cacc/util.h"
 #include "cacc/bvh_tree.h"
 #include "cacc/tracing.h"
+#include "cacc/nnsearch.h"
 #include "cacc/point_cloud.h"
 
 #include "eval/kernels.h"
@@ -84,7 +86,7 @@ int main(int argc, char **argv) {
 
     Arguments args = parse_args(argc, argv);
 
-    cacc::select_cuda_device(3, 5);
+    int device = cacc::select_cuda_device(3, 5);
 
     cacc::BVHTree<cacc::DEVICE>::Ptr dbvh_tree;
     {
@@ -189,46 +191,78 @@ int main(int argc, char **argv) {
         dcloud = cacc::PointCloud<cacc::DEVICE>::create<cacc::HOST>(cloud);
     }
 
-    cacc::PointCloud<cacc::HOST>::Ptr hvolume;
-    cacc::PointCloud<cacc::DEVICE>::Ptr dvolume;
+    cacc::KDTree<3u, cacc::DEVICE>::Ptr dkd_tree;
     {
-        hvolume = cacc::PointCloud<cacc::HOST>::create(num_samples);
-        cacc::PointCloud<cacc::HOST>::Data data = hvolume->cdata();
-        for (std::size_t i = 0, it = 0; i < overts.size(); ++i) {
-            if (ovalues[i] == -1.0f) continue;
-
-            data.vertices_ptr[it] = cacc::Vec3f(overts[i].begin());
-            data.normals_ptr[it] = cacc::Vec3f(0.0f, 0.0f, 1.0f);
-            data.values_ptr[it] = 0.0f;
-            it += 1;
-        }
-        dvolume = cacc::PointCloud<cacc::DEVICE>::create<cacc::HOST>(hvolume);
+        acc::KDTree<3u, uint>::Ptr kd_tree;
+        kd_tree = load_mesh_as_kd_tree(util::fs::join_path(__ROOT__, "res/meshes/sphere.ply"));
+        dkd_tree = cacc::KDTree<3u, cacc::DEVICE>::create<uint>(kd_tree);
     }
+    cacc::nnsearch::bind_textures(dkd_tree->cdata());
 
+    mve::CameraInfo cam;
+    cam.flen = 0.86f;
+    math::Matrix3f calib;
+
+    #pragma omp parallel
     {
+        cacc::set_cuda_device(device);
+
+        int width = 1920;
+        int height = 1080;
+        cam.fill_calibration(calib.begin(), width, height);
+
+        cacc::VectorArray<float, cacc::DEVICE>::Ptr dcon_hist;
+        dcon_hist = cacc::VectorArray<float, cacc::DEVICE>::create(dkd_tree->cdata().num_verts, 2);
+
+        cacc::Image<float, cacc::DEVICE>::Ptr dhist;
+        dhist = cacc::Image<float, cacc::DEVICE>::create(360, 180);
+        cacc::Image<float, cacc::HOST>::Ptr hist;
+        hist = cacc::Image<float, cacc::HOST>::create(360, 180);
+
         cudaStream_t stream;
         cudaStreamCreate(&stream);
-
-        dim3 grid(cacc::divup(dcloud->cdata().num_vertices, KERNEL_BLOCK_SIZE));
-        dim3 block(KERNEL_BLOCK_SIZE);
-
+        #pragma omp for schedule(dynamic)
         for (std::size_t i = 0; i < overts.size(); ++i) {
-            evaluate_position<<<grid, block, 0, stream>>>(i, args.max_distance,
-                dbvh_tree->cdata(), dcloud->cdata(), dvolume->cdata());
-        }
-
-        cudaStreamDestroy(stream);
-        CHECK(cudaDeviceSynchronize());
-    }
-
-    *hvolume = *dvolume;
-    {
-        cacc::PointCloud<cacc::HOST>::Data data = hvolume->cdata();
-        for (std::size_t i = 0, it = 0; i < overts.size(); ++i) {
             if (ovalues[i] == -1.0f) continue;
-            ovalues[i] = data.values_ptr[it++];
+
+            {
+                dim3 grid(cacc::divup(dcloud->cdata().num_vertices, KERNEL_BLOCK_SIZE));
+                dim3 block(KERNEL_BLOCK_SIZE);
+                initialize_histogram<<<grid, block, 0, stream>>>(dcon_hist->cdata());
+                populate_histogram<<<grid, block, 0, stream>>>(
+                    cacc::Vec3f(overts[i].begin()), args.max_distance,
+                    dbvh_tree->cdata(), dcloud->cdata(), dkd_tree->cdata(),
+                    dcon_hist->cdata());
+            }
+
+            {
+                dim3 grid(cacc::divup(360, KERNEL_BLOCK_SIZE), 180);
+                dim3 block(KERNEL_BLOCK_SIZE);
+                evaluate_histogram<<<grid, block, 0, stream>>>(cacc::Mat3f(calib.begin()), width, height,
+                    dkd_tree->cdata(), dcon_hist->cdata(), dhist->cdata());
+            }
+
+            //CHECK(cudaDeviceSynchronize());
+            *hist = *dhist;
+
+            cacc::Image<float, cacc::HOST>::Data data = hist->cdata();
+
+            float best = 0.0f;
+            //#pragma omp parallel for reduction(max:best)
+            for (int y = 0; y < data.height; ++y) {
+                for (int x = 0; x < data.width; ++x) {
+                    float v = data.data_ptr[y * data.pitch / sizeof(float) + x];
+                    best = std::max(v, best);
+                }
+            }
+
+            if (i % 1000 == 0) std::cout << i << std::endl;
+
+            ovalues[i] = best;
         }
+        cudaStreamDestroy(stream);
     }
+
 
     mve::geom::SavePLYOptions opts;
     opts.write_vertex_values = true;

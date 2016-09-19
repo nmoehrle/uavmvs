@@ -25,6 +25,13 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance,
     cacc::BVHTree<cacc::DEVICE>::Data bvh_tree,
     cacc::PointCloud<cacc::DEVICE>::Data cloud,
     cacc::KDTree<3, cacc::DEVICE>::Data kd_tree,
+    cacc::VectorArray<float, cacc::DEVICE>::Data con_hist);
+
+__global__
+void populate_histogram(cacc::Vec3f view_pos, float max_distance,
+    cacc::BVHTree<cacc::DEVICE>::Data bvh_tree,
+    cacc::PointCloud<cacc::DEVICE>::Data cloud,
+    cacc::KDTree<3, cacc::DEVICE>::Data kd_tree,
     cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data dir_hist,
     cacc::VectorArray<float, cacc::DEVICE>::Data con_hist);
 

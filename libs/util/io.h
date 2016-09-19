@@ -62,10 +62,14 @@ load_point_cloud(std::string const & path)
     try {
         mesh = mve::geom::load_ply_mesh(path);
     } catch (std::exception& e) {
-        std::cerr << "\tCould not load mesh: " << e.what() << std::endl;
+        std::cerr << "\tCould not load point cloud: " << e.what() << std::endl;
         std::exit(EXIT_FAILURE);
     }
-    mesh->ensure_normals(true, true);
+
+    if (!mesh->has_vertex_normals()) {
+        std::cerr << "\tPoint cloud has no vertex normals." << std::endl;
+        std::exit(EXIT_FAILURE);
+    }
 
     std::vector<math::Vec3f> const & vertices = mesh->get_vertices();
     std::vector<math::Vec3f> const & normals = mesh->get_vertex_normals();
