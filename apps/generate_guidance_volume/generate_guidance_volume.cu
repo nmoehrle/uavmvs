@@ -1,11 +1,11 @@
 #include <cassert>
 #include <iostream>
 
+#include "fmt/format.h"
+
 #include "util/system.h"
 #include "util/arguments.h"
 #include "util/file_system.h"
-
-#include "util/io.h"
 
 #include "mve/camera.h"
 #include "mve/mesh_io_ply.h"
@@ -20,6 +20,12 @@
 #include "cacc/tracing.h"
 #include "cacc/nnsearch.h"
 #include "cacc/point_cloud.h"
+
+#include "util/io.h"
+#include "util/progress_counter.h"
+#include "util/itos.h"
+
+#include "geom/sphere.h"
 
 #include "eval/kernels.h"
 
@@ -183,6 +189,17 @@ int main(int argc, char **argv) {
         }
     }
 
+    uint num_verts;
+    cacc::KDTree<3u, cacc::DEVICE>::Ptr dkd_tree;
+    {
+        mve::TriangleMesh::Ptr sphere = generate_sphere(1.0f, 3u);
+        std::vector<math::Vec3f> const & verts = sphere->get_vertices();
+        num_verts = verts.size();
+        acc::KDTree<3u, uint>::Ptr kd_tree = acc::KDTree<3, uint>::create(verts);
+        dkd_tree = cacc::KDTree<3u, cacc::DEVICE>::create<uint>(kd_tree);
+    }
+    cacc::nnsearch::bind_textures(dkd_tree->cdata());
+
     cacc::PointCloud<cacc::DEVICE>::Ptr dcloud;
     {
         cacc::PointCloud<cacc::HOST>::Ptr cloud;
@@ -190,18 +207,13 @@ int main(int argc, char **argv) {
         dcloud = cacc::PointCloud<cacc::DEVICE>::create<cacc::HOST>(cloud);
     }
 
-    cacc::KDTree<3u, cacc::DEVICE>::Ptr dkd_tree;
-    {
-        acc::KDTree<3u, uint>::Ptr kd_tree;
-        kd_tree = load_mesh_as_kd_tree(util::fs::join_path(__ROOT__, "res/meshes/sphere.ply"));
-        dkd_tree = cacc::KDTree<3u, cacc::DEVICE>::create<uint>(kd_tree);
-    }
-    cacc::nnsearch::bind_textures(dkd_tree->cdata());
-    uint num_verts = dkd_tree->cdata().num_verts;
-
     mve::CameraInfo cam;
     cam.flen = 0.86f;
     math::Matrix3f calib;
+
+    std::string positions = litos(num_samples * 256ull * 90ull);
+    std::string task = fmt::format("Sampling 5D volume at {} positions", positions);
+    ProgressCounter counter(task, num_samples);
 
     #pragma omp parallel
     {
@@ -219,13 +231,15 @@ int main(int argc, char **argv) {
         dcon_hist->null();
 
         cacc::Image<float, cacc::DEVICE>::Ptr dhist;
-        dhist = cacc::Image<float, cacc::DEVICE>::create(360, 180, stream);
+        dhist = cacc::Image<float, cacc::DEVICE>::create(256, 90, stream);
         cacc::Image<float, cacc::HOST>::Ptr hist;
-        hist = cacc::Image<float, cacc::HOST>::create(360, 180, stream);
+        hist = cacc::Image<float, cacc::HOST>::create(256, 90, stream);
 
         #pragma omp for schedule(dynamic)
         for (std::size_t i = 0; i < overts.size(); ++i) {
             if (ovalues[i] == -1.0f) continue;
+
+            counter.progress<ETA>();
 
             dcon_hist->null();
             {
@@ -238,7 +252,7 @@ int main(int argc, char **argv) {
             }
 
             {
-                dim3 grid(cacc::divup(360, KERNEL_BLOCK_SIZE), 180);
+                dim3 grid(cacc::divup(256, KERNEL_BLOCK_SIZE), 90);
                 dim3 block(KERNEL_BLOCK_SIZE);
                 evaluate_histogram<<<grid, block, 0, stream>>>(cacc::Mat3f(calib.begin()), width, height,
                     dkd_tree->cdata(), dcon_hist->cdata(), dhist->cdata());
@@ -258,7 +272,7 @@ int main(int argc, char **argv) {
                 }
             }
 
-            if (i % 1000 == 0) std::cout << i << std::endl;
+            counter.inc();
 
             ovalues[i] = best;
         }

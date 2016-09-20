@@ -225,9 +225,9 @@ int main(int argc, char **argv) {
     dcon_hist = cacc::VectorArray<float, cacc::DEVICE>::create(ovalues.size(), 2);
 
     cacc::Image<float, cacc::DEVICE>::Ptr dhist;
-    dhist = cacc::Image<float, cacc::DEVICE>::create(360, 180);
+    dhist = cacc::Image<float, cacc::DEVICE>::create(256, 90);
     cacc::Image<float, cacc::HOST>::Ptr hist;
-    hist = cacc::Image<float, cacc::HOST>::create(360, 180);
+    hist = cacc::Image<float, cacc::HOST>::create(256, 90);
 
     math::Vec3f pos;
     math::Matrix4f w2c;
@@ -270,7 +270,7 @@ int main(int argc, char **argv) {
         #endif
 
         {
-            dim3 grid(cacc::divup(360, KERNEL_BLOCK_SIZE), 180);
+            dim3 grid(cacc::divup(256, KERNEL_BLOCK_SIZE), 90);
             dim3 block(KERNEL_BLOCK_SIZE);
             evaluate_histogram<<<grid, block, 0, stream>>>(cacc::Mat3f(calib.begin()), width, height,
                 dkd_tree->cdata(), dcon_hist->cdata(), dhist->cdata());
@@ -278,9 +278,9 @@ int main(int argc, char **argv) {
         #if 0
         {
             cacc::Image<float, cacc::DEVICE>::Ptr dtmp;
-            dtmp = cacc::Image<float, cacc::DEVICE>::create(360, 180);
+            dtmp = cacc::Image<float, cacc::DEVICE>::create(256, 90);
 
-            dim3 grid(cacc::divup(360, KERNEL_BLOCK_SIZE));
+            dim3 grid(cacc::divup(256, KERNEL_BLOCK_SIZE));
             dim3 block(KERNEL_BLOCK_SIZE);
             suppress_nonmaxima<<<grid, block, 0, stream>>>(dhist->cdata(), dtmp->cdata());
             CHECK(cudaDeviceSynchronize());
@@ -288,9 +288,9 @@ int main(int argc, char **argv) {
             cacc::Image<float, cacc::HOST>::Ptr hist;
             hist = cacc::Image<float, cacc::HOST>::create<cacc::DEVICE>(dtmp);
             cacc::Image<float, cacc::HOST>::Data data = hist->cdata();
-            mve::FloatImage::Ptr image = mve::FloatImage::create(360, 180, 1);
-            for (int y = 0; y < 180; ++y) {
-                for (int x = 0; x < 360; ++x) {
+            mve::FloatImage::Ptr image = mve::FloatImage::create(256, 90, 1);
+            for (int y = 0; y < 90; ++y) {
+                for (int x = 0; x < 256; ++x) {
                     image->at(x, y, 0) = data.data_ptr[y * data.pitch / sizeof(float) + x];
                 }
             }
@@ -305,9 +305,9 @@ int main(int argc, char **argv) {
         cacc::Image<float, cacc::HOST>::Data hist_data = hist->cdata();
 
         #if 0
-        mve::FloatImage::Ptr image = mve::FloatImage::create(360, 180, 1);
-        for (int y = 0; y < 180; ++y) {
-            for (int x = 0; x < 360; ++x) {
+        mve::FloatImage::Ptr image = mve::FloatImage::create(256, 90, 1);
+        for (int y = 0; y < 90; ++y) {
+            for (int x = 0; x < 256; ++x) {
                 image->at(x, y, 0) = hist_data.data_ptr[y * hist_data.pitch / sizeof(float) + x];
             }
         }
@@ -323,7 +323,7 @@ int main(int argc, char **argv) {
                 if (v > max) {
                     max = v;
                     phi = (x / (float) hist_data.width) * 2.0f * pi;
-                    theta = (y / (float) hist_data.height) * pi;
+                    theta = (0.5f + y / (float) hist_data.height) * pi;
                 }
             }
         }
@@ -368,7 +368,7 @@ int main(int argc, char **argv) {
 
         #if 0
         {
-            dim3 grid(cacc::divup(360, KERNEL_BLOCK_SIZE), 180);
+            dim3 grid(cacc::divup(256, KERNEL_BLOCK_SIZE), 90);
             dim3 block(KERNEL_BLOCK_SIZE);
             evaluate_histogram<<<grid, block, 0, stream>>>(dkd_tree->cdata(),
                dhist->cdata(), dcon_hist->cdata());

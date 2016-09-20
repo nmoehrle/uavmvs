@@ -20,4 +20,4 @@ project "generate_guidance_volume"
 
     mve.use({ "util" })
 
-    links { "gomp" }
+    links { "gomp", "fmt" }
