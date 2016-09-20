@@ -21,6 +21,8 @@
 #include "util/io.h"
 #include "util/trajectory_io.h"
 
+#include "geom/sphere.h"
+
 #include "eval/kernels.h"
 
 struct Arguments {
@@ -183,7 +185,7 @@ int main(int argc, char **argv) {
 
     mve::TriangleMesh::Ptr mesh;
     try {
-        mesh = mve::geom::load_ply_mesh(util::fs::join_path(__ROOT__, "res/meshes/sphere.ply"));
+        mve::TriangleMesh::Ptr mesh = generate_sphere(1.0f, 3u);
     } catch (std::exception& e) {
         std::cerr << "\tCould not load mesh: "<< e.what() << std::endl;
         std::exit(EXIT_FAILURE);
@@ -196,8 +198,8 @@ int main(int argc, char **argv) {
 
     cacc::KDTree<3u, cacc::DEVICE>::Ptr dkd_tree;
     {
-        acc::KDTree<3u, uint>::Ptr kd_tree;
-        kd_tree = load_mesh_as_kd_tree(util::fs::join_path(__ROOT__, "res/meshes/sphere.ply"));
+        std::vector<math::Vec3f> const & verts = mesh->get_vertices();
+        acc::KDTree<3u, uint>::Ptr kd_tree = acc::KDTree<3, uint>::create(verts);
         dkd_tree = cacc::KDTree<3u, cacc::DEVICE>::create<uint>(kd_tree);
     }
     cacc::nnsearch::bind_textures(dkd_tree->cdata());

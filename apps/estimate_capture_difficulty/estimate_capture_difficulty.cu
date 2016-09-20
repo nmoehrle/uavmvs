@@ -15,6 +15,8 @@
 
 #include "util/io.h"
 
+#include "geom/sphere.h"
+
 #include "eval/kernels.h"
 
 struct Arguments {
@@ -121,11 +123,13 @@ int main(int argc, char **argv) {
         cacc::tracing::bind_textures(dbvh_tree->cdata());
     }
 
-    acc::KDTree<3u, uint>::Ptr kd_tree;
-    //kd_tree = load_mesh_as_kd_tree(util::fs::join_path(__ROOT__, "res/meshes/sphere.ply"));
-    kd_tree = load_mesh_as_kd_tree("/tmp/sphere.ply");
     cacc::KDTree<3u, cacc::DEVICE>::Ptr dkd_tree;
-    dkd_tree = cacc::KDTree<3u, cacc::DEVICE>::create<uint>(kd_tree);
+    {
+        mve::TriangleMesh::Ptr sphere = generate_sphere(1.0f, 3u);
+        std::vector<math::Vec3f> const & verts = sphere->get_vertices();
+        acc::KDTree<3u, uint>::Ptr kd_tree = acc::KDTree<3, uint>::create(verts);
+        dkd_tree = cacc::KDTree<3u, cacc::DEVICE>::create<uint>(kd_tree);
+    }
 
     {
         dim3 grid(vertices.size());
