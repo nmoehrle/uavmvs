@@ -45,7 +45,6 @@ Arguments parse_args(int argc, char **argv) {
     args.add_option('r', "resolution", true, "guidance volume resolution [1.0]");
     args.add_option('\0', "max-distance", true, "maximum distance to surface [80.0]");
     args.add_option('\0', "max-altitude", true, "maximum altitude [100.0]");
-    args.add_option('c', "cloud", true, "save cloud as ply file");
     args.parse(argc, argv);
 
     Arguments conf;
@@ -198,6 +197,7 @@ int main(int argc, char **argv) {
         dkd_tree = cacc::KDTree<3u, cacc::DEVICE>::create<uint>(kd_tree);
     }
     cacc::nnsearch::bind_textures(dkd_tree->cdata());
+    uint num_verts = dkd_tree->cdata().num_verts;
 
     mve::CameraInfo cam;
     cam.flen = 0.86f;
@@ -207,28 +207,30 @@ int main(int argc, char **argv) {
     {
         cacc::set_cuda_device(device);
 
+        cudaStream_t stream;
+        cudaStreamCreate(&stream);
+
         int width = 1920;
         int height = 1080;
         cam.fill_calibration(calib.begin(), width, height);
 
         cacc::VectorArray<float, cacc::DEVICE>::Ptr dcon_hist;
-        dcon_hist = cacc::VectorArray<float, cacc::DEVICE>::create(dkd_tree->cdata().num_verts, 2);
+        dcon_hist = cacc::VectorArray<float, cacc::DEVICE>::create(num_verts, 1, stream);
+        dcon_hist->null();
 
         cacc::Image<float, cacc::DEVICE>::Ptr dhist;
-        dhist = cacc::Image<float, cacc::DEVICE>::create(360, 180);
+        dhist = cacc::Image<float, cacc::DEVICE>::create(360, 180, stream);
         cacc::Image<float, cacc::HOST>::Ptr hist;
-        hist = cacc::Image<float, cacc::HOST>::create(360, 180);
+        hist = cacc::Image<float, cacc::HOST>::create(360, 180, stream);
 
-        cudaStream_t stream;
-        cudaStreamCreate(&stream);
         #pragma omp for schedule(dynamic)
         for (std::size_t i = 0; i < overts.size(); ++i) {
             if (ovalues[i] == -1.0f) continue;
 
+            dcon_hist->null();
             {
                 dim3 grid(cacc::divup(dcloud->cdata().num_vertices, KERNEL_BLOCK_SIZE));
                 dim3 block(KERNEL_BLOCK_SIZE);
-                initialize_histogram<<<grid, block, 0, stream>>>(dcon_hist->cdata());
                 populate_histogram<<<grid, block, 0, stream>>>(
                     cacc::Vec3f(overts[i].begin()), args.max_distance,
                     dbvh_tree->cdata(), dcloud->cdata(), dkd_tree->cdata(),
@@ -242,10 +244,10 @@ int main(int argc, char **argv) {
                     dkd_tree->cdata(), dcon_hist->cdata(), dhist->cdata());
             }
 
-            //CHECK(cudaDeviceSynchronize());
             *hist = *dhist;
-
             cacc::Image<float, cacc::HOST>::Data data = hist->cdata();
+
+            hist->sync();
 
             float best = 0.0f;
             //#pragma omp parallel for reduction(max:best)
