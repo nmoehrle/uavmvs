@@ -1,6 +1,11 @@
 #ifndef GEOM_SPHERE_HEADER
 #define GEOM_SPHERE_HEADER
 
+#include <map>
+#include <unordered_map>
+
+#include "mve/mesh.h"
+
 mve::TriangleMesh::Ptr generate_sphere(float radius, uint subdivisions) {
     /* Derived from mve/apps/umve/scene_addins/addin_sphere_creator.cc */
 
@@ -83,18 +88,100 @@ mve::TriangleMesh::Ptr generate_sphere(float radius, uint subdivisions) {
         }
     }
 
+    mve::TriangleMesh::Ptr mesh = mve::TriangleMesh::create();
+    std::vector<math::Vec3f> & normals = mesh->get_vertex_normals();
+    normals.resize(verts.size());
+
     /* Normalize and transform vertices. */
     for (std::size_t i = 0; i < verts.size(); ++i) {
-        verts[i].normalize();
-        verts[i] = verts[i] * radius;
+        normals[i] = verts[i].normalized();
+        verts[i] = normals[i] * radius;
     }
 
-    mve::TriangleMesh::Ptr mesh = mve::TriangleMesh::create();
     mesh->get_vertices().swap(verts);
     mesh->get_faces().swap(faces);
 
-    mesh->recalc_normals();
+    mesh->recalc_normals(true, false);
+
     return mesh;
+}
+
+void parameterize_spherical(mve::TriangleMesh::Ptr sphere) {
+    std::vector<uint> & faces = sphere->get_faces();
+    std::vector<math::Vec3f> & verts = sphere->get_vertices();
+    std::vector<math::Vec3f> & normals = sphere->get_vertex_normals();
+    std::vector<math::Vec2f> & texcoords = sphere->get_vertex_texcoords();
+    std::vector<float> * confidences = nullptr;
+    if (sphere->has_vertex_confidences()) {
+        *confidences = sphere->get_vertex_confidences();
+    }
+    std::vector<float> * values = nullptr;
+    if (sphere->has_vertex_values()) {
+        *values = sphere->get_vertex_values();
+    }
+    std::vector<math::Vec4f> * colors = nullptr;
+    if (sphere->has_vertex_colors()) {
+        *colors = sphere->get_vertex_colors();
+    }
+    texcoords.resize(verts.size());
+
+    constexpr float pi = 3.14159265f;
+
+    for (std::size_t i = 0; i < verts.size(); ++i) {
+        math::Vec3f const & vert = verts[i];
+        float theta = std::atan2(vert[1], vert[0]);
+        float phi = std::acos(vert[2] / vert.norm());
+        texcoords[i] = math::Vec2f((pi + theta) / (2 * pi), phi / pi);
+    }
+
+    uint num_faces = faces.size() / 3;
+
+    std::unordered_map<uint, uint> new_vert_ids;
+
+    /* Find and split vertices on seam. */
+    for (std::size_t i = 0; i < num_faces * 3; i += 3) {
+        uint vid0 = faces[i + 0];
+        uint vid1 = faces[i + 1];
+        uint vid2 = faces[i + 2];
+        math::Vec2f const & uv0 = texcoords[vid0];
+        math::Vec2f const & uv1 = texcoords[vid1];
+        math::Vec2f const & uv2 = texcoords[vid2];
+
+        float l01 = (uv1 - uv0).norm();
+        float l12 = (uv2 - uv1).norm();
+        float l20 = (uv0 - uv2).norm();
+
+        uint * vid = nullptr;
+
+        if (l12 < 0.5f && l20 > 0.5f && l01 > 0.5f)  {
+            vid = &faces[i + 0];
+        }
+        if (l20 < 0.5f && l01 > 0.5f && l12 > 0.5f) {
+            vid = &faces[i + 1];
+        }
+        if (l01 < 0.5f && l12 > 0.5f && l20 > 0.5f) {
+            vid = &faces[i + 2];
+        }
+
+        if (vid != nullptr) {
+            auto it = new_vert_ids.find(*vid);
+            if (it != new_vert_ids.end()) {
+                *vid = it->second;
+            } else {
+                uint new_vert_id = new_vert_ids[*vid] = verts.size();
+                verts.push_back(verts[*vid]);
+                normals.push_back(normals[*vid]);
+                if (colors) colors->push_back(colors->at(*vid));
+                if (confidences) confidences->push_back(confidences->at(*vid));
+                if (values) values->push_back(values->at(*vid));
+                math::Vec2f new_uv = texcoords[*vid];
+                new_uv[0] += (new_uv[0] < 0.5f) ? 1.0f : -1.0f;
+                texcoords.push_back(new_uv);
+                *vid = new_vert_id;
+            }
+        }
+    }
+    sphere->recalc_normals(true, false);
 }
 
 #endif /* GEOM_SPHERE_HEADER */

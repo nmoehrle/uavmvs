@@ -133,7 +133,7 @@ int main(int argc, char **argv) {
         uint width = faces[0];
         uint height = faces[1];
         uint depth = faces[2];
-        if (width * height * depth != verts.size() & values.size()) {
+        if (width * height * depth != (verts.size() & values.size())) {
             std::cerr << "\tInvalid guidance volume - dimensions wrong" << std::endl;
             std::exit(EXIT_FAILURE);
         }

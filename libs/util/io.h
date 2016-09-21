@@ -1,4 +1,5 @@
 #include <fstream>
+#include <cstring>
 
 #include "mve/scene.h"
 #include "mve/camera.h"
@@ -92,3 +93,28 @@ load_point_cloud(std::string const & path)
     return ret;
 }
 
+template <typename T> void
+save_vector(std::vector<T> const & vector, std::string const & filename)  {
+    std::ofstream out(filename.c_str(), std::ios::binary);
+    if (!out.good()) throw util::FileException(filename, std::strerror(errno));
+
+    out.write(reinterpret_cast<const char*>(vector.data()), vector.size() * sizeof(T));
+    out.close();
+}
+
+template <typename T> std::vector<T>
+load_vector(std::string const & filename) {
+    std::ifstream in(filename.c_str(), std::ios::binary);
+    if (!in.good()) throw util::FileException(filename, std::strerror(errno));
+
+    in.seekg (0, in.end);
+    const size_t filesize = in.tellg();
+    in.seekg (0, in.beg);
+    const size_t num_elements = filesize / sizeof(T);
+
+    std::vector<T> ret(num_elements);
+    in.read(reinterpret_cast<char*>(ret.data()), num_elements * sizeof(T));
+    in.close();
+
+    return ret;
+}

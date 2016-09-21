@@ -165,7 +165,7 @@ int main(int argc, char **argv) {
     std::vector<float> & ovalues = ocloud->get_vertex_values();
     ovalues.resize(width * height * depth, 0.0f);
 
-    uint num_samples = 0;
+    std::uint32_t sidx = 0;
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
 
@@ -181,9 +181,9 @@ int main(int argc, char **argv) {
 
                 overts[idx] = math::Vec3f(px, py, pz);
                 if (pz > fz) {
-                    num_samples += 1;
+                    ovalues[idx] = cacc::uint32_to_float(sidx++);
                 } else {
-                    ovalues[idx] = -1.0f;
+                    ovalues[idx] = cacc::uint32_to_float(std::uint32_t(-1));
                 }
             }
         }
@@ -211,11 +211,15 @@ int main(int argc, char **argv) {
     cam.flen = 0.86f;
     math::Matrix3f calib;
 
-    std::string positions = litos(num_samples * 256ull * 90ull);
-    std::string task = fmt::format("Sampling 5D volume at {} positions", positions);
-    ProgressCounter counter(task, num_samples);
+    std::size_t num_samples = sidx * 128ull * 45ull;
 
-    #pragma omp parallel
+    std::vector<float> samples(num_samples);
+
+    std::string task = fmt::format("Sampling 5D volume at {} positions", litos(num_samples));
+    ProgressCounter counter(task, sidx);
+
+    float best = 0.0f;
+    #pragma omp parallel reduction(max:best)
     {
         cacc::set_cuda_device(device);
 
@@ -231,13 +235,14 @@ int main(int argc, char **argv) {
         dcon_hist->null();
 
         cacc::Image<float, cacc::DEVICE>::Ptr dhist;
-        dhist = cacc::Image<float, cacc::DEVICE>::create(256, 90, stream);
+        dhist = cacc::Image<float, cacc::DEVICE>::create(128, 45, stream);
         cacc::Image<float, cacc::HOST>::Ptr hist;
-        hist = cacc::Image<float, cacc::HOST>::create(256, 90, stream);
+        hist = cacc::Image<float, cacc::HOST>::create(128, 45, stream);
 
         #pragma omp for schedule(dynamic)
         for (std::size_t i = 0; i < overts.size(); ++i) {
-            if (ovalues[i] == -1.0f) continue;
+            std::uint32_t idx = cacc::float_to_uint32(ovalues[i]);
+            if (idx == std::uint32_t(-1)) continue;
 
             counter.progress<ETA>();
 
@@ -252,7 +257,7 @@ int main(int argc, char **argv) {
             }
 
             {
-                dim3 grid(cacc::divup(256, KERNEL_BLOCK_SIZE), 90);
+                dim3 grid(cacc::divup(128, KERNEL_BLOCK_SIZE), 45);
                 dim3 block(KERNEL_BLOCK_SIZE);
                 evaluate_histogram<<<grid, block, 0, stream>>>(cacc::Mat3f(calib.begin()), width, height,
                     dkd_tree->cdata(), dcon_hist->cdata(), dhist->cdata());
@@ -263,26 +268,38 @@ int main(int argc, char **argv) {
 
             hist->sync();
 
-            float best = 0.0f;
-            //#pragma omp parallel for reduction(max:best)
-            for (int y = 0; y < data.height; ++y) {
-                for (int x = 0; x < data.width; ++x) {
-                    float v = data.data_ptr[y * data.pitch / sizeof(float) + x];
-                    best = std::max(v, best);
-                }
-            }
+
+            float const * begin = data.data_ptr;
+            float const * end = data.data_ptr + data.width * data.height;
+            std::size_t offset = idx * 128ull * 45ull;
+            std::copy(begin, end, samples.data() + offset);
 
             counter.inc();
 
-            ovalues[i] = best;
+            float views_best = 0.0f;
+            for (int y = 0; y < data.height; ++y) {
+                for (int x = 0; x < data.width; ++x) {
+                    float v = data.data_ptr[y * data.pitch / sizeof(float) + x];
+                    views_best = std::max(v, views_best);
+                }
+            }
+            best = std::max(views_best, best);
+
+            //ovalues[i] = views_best;
         }
         cudaStreamDestroy(stream);
     }
 
+    #pragma omp parallel for
+    for (std::size_t i = 0; i < samples.size(); ++i) {
+        samples[i] /= best;
+    }
 
     mve::geom::SavePLYOptions opts;
     opts.write_vertex_values = true;
     mve::geom::save_ply_mesh(ocloud, args.ovolume, opts);
+
+    save_vector(samples, util::fs::replace_extension(args.ovolume, "vec"));
 
     return EXIT_SUCCESS;
 }
