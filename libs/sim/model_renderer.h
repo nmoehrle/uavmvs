@@ -55,7 +55,7 @@ private:
 
 public:
     DynamicModelRenderer(Pose::ConstPtr pose, Shader::Ptr shader)
-        : ModelRenderer(shader), pose(pose)  {};
+        : ModelRenderer(shader), pose(pose) {};
 
     void render(void)
     {

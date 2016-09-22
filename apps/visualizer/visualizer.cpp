@@ -32,8 +32,7 @@
 #include "col/mpl_viridis.h"
 
 #include "geom/sphere.h"
-
-#include "util/io.h"
+#include "geom/volume_io.h"
 
 struct Arguments {
     std::string path;
@@ -63,6 +62,32 @@ Arguments parse_args(int argc, char **argv) {
     }
 
     return conf;
+}
+
+void
+extract(math::Vector<std::uint32_t, 3> pos, Volume<std::uint32_t>::ConstPtr volume, mve::ByteImage::Ptr hist) {
+    mve::FloatImage::Ptr image = volume->at(pos);
+
+    if (volume == nullptr) {
+        hist->fill_color(math::Vector<unsigned char, 3>(0, 0, 0).begin());
+        return;
+    }
+
+    int offset = hist->get_pixel_amount() / 2;
+    static float (*colormap)[3];
+    colormap = col::maps::viridis;
+    for (int i = 0; i < hist->get_pixel_amount() / 2; ++i) {
+        float value = image->at(i);
+        std::uint8_t lidx = std::floor(value * 255.0f);
+        float t = value * 255.0f - lidx;
+        std::uint8_t hidx = lidx == 255 ? 255 : lidx + 1;
+
+        math::Vec3f lc(colormap[lidx]);
+        math::Vec3f hc(colormap[hidx]);
+        for (int j = 0; j < 3; ++j) {
+            hist->at(offset + i, j) = 255.0f * ((1.0f - t) * lc[j] + t * hc[j]);
+        }
+    }
 }
 
 void
@@ -125,10 +150,11 @@ int main(int argc, char **argv) {
         engine->add_entity(ret);
     }
 
-    mve::ByteImage::Ptr hist = mve::ByteImage::create(128, 45, 3);
+    math::Vector<std::uint32_t, 3> pos(0, 0, 0);
     std::vector<float> samples;
-    mve::TriangleMesh::Ptr volume;
+    Volume<std::uint32_t>::Ptr volume;
     Pose::Ptr pose(new Pose);
+    mve::ByteImage::Ptr hist = mve::ByteImage::create(128, 90, 3);
     ogl::Texture::Ptr texture = ogl::Texture::create();
     if (true || !args.volume.empty()) {
         Shader::Ptr shader(new Shader());
@@ -139,56 +165,17 @@ int main(int argc, char **argv) {
         shader->set_model_matrix(eye);
         shaders.push_back(shader);
 
-        mve::TriangleMesh::Ptr mesh;
-        try {
-            mesh = mve::geom::load_ply_mesh("/tmp/volume.ply");
-        } catch (std::exception& e) {
-            std::cerr << "\tCould not load mesh: "<< e.what() << std::endl;
-            std::exit(EXIT_FAILURE);
-        }
+        volume = load_volume<std::uint32_t>("/tmp/volume.vol");
 
-        std::vector<uint> const & faces = mesh->get_faces();
-        std::vector<math::Vec3f> const & verts = mesh->get_vertices();
-        std::vector<float> const & values = mesh->get_vertex_values();
+        std::uint32_t x = volume->width() / 2;
+        std::uint32_t y = volume->height() / 2;
+        std::uint32_t z = volume->depth() - 2;
+        pos = math::Vector<std::uint32_t, 3>(x, y, z);
 
-        if (faces.size() != 3) {
-            std::cerr << "\tInvalid guidance volume - dimensions missing" << std::endl;
-            std::exit(EXIT_FAILURE);
-        }
-        uint width = faces[0];
-        uint height = faces[1];
-        uint depth = faces[2];
-        if (width * height * depth != (verts.size() & values.size())) {
-            std::cerr << "\tInvalid guidance volume - dimensions wrong" << std::endl;
-            std::exit(EXIT_FAILURE);
-        }
-
-        samples = load_vector<float>("/tmp/volume.vec");
-        Pose::Ptr pose = Pose::Ptr(new Pose);
-        uint x = width / 2;
-        uint y = height / 2;
-        uint z = depth - 2;
-
-        uint idx = (z * height + y) * width + x;
-        pose->x = verts[idx];
+        pose->x = volume->position(x, y, z);
         pose->q = math::Quaternion<float>(math::Vec3f(0.0f, 0.0f, 1.0f), 0.0f);
-        std::uint32_t sidx = cacc::float_to_uint32(values[idx]);
-        std::size_t offset = sidx * 128ull * 45ull;
 
-        float (*colormap)[3];
-        colormap = col::maps::viridis;
-        for (int i = 0; i < hist->get_pixel_amount(); ++i) {
-            float value = samples[offset + i];
-            std::uint8_t lidx = std::floor(value * 255.0f);
-            float t = value * 255.0f - lidx;
-            std::uint8_t hidx = lidx == 255 ? 255 : lidx + 1;
-
-            math::Vec3f lc(colormap[lidx]);
-            math::Vec3f hc(colormap[hidx]);
-            for (int j = 0; j < 3; ++j) {
-                hist->at(i, j) = 255.0f * ((1.0f - t) * lc[j] + t * hc[j]);
-            }
-        }
+        extract(pos, volume, hist);
 
         //hist = mve::image::load_png_file("/tmp/uvchecker.png");
 
@@ -216,6 +203,60 @@ int main(int argc, char **argv) {
 
     ogl::MouseEvent event;
 
+    window.register_key_callback(326, [volume, pose, hist, texture, &pos] (int action) {
+        if (action) {
+            if (pos[0] >= volume->width() - 1) return;
+            pos[0] += 1;
+            pose->x = volume->position(pos);
+            extract(pos, volume, hist);
+            texture->upload(hist);
+        }
+    });
+    window.register_key_callback(324, [volume, pose, hist, texture, &pos] (int action) {
+        if (action) {
+            if (pos[0] <= 0) return;
+            pos[0] -= 1;
+            pose->x = volume->position(pos);
+            extract(pos, volume, hist);
+            texture->upload(hist);
+        }
+    });
+    window.register_key_callback(328, [volume, pose, hist, texture, &pos] (int action) {
+        if (action) {
+            if (pos[1] >= volume->height() - 1) return;
+            pos[1] += 1;
+            pose->x = volume->position(pos);
+            extract(pos, volume, hist);
+            texture->upload(hist);
+        }
+    });
+    window.register_key_callback(322, [volume, pose, hist, texture, &pos] (int action) {
+        if (action) {
+            if (pos[1] <= 0) return;
+            pos[1] -= 1;
+            pose->x = volume->position(pos);
+            extract(pos, volume, hist);
+            texture->upload(hist);
+        }
+    });
+    window.register_key_callback(329, [volume, pose, hist, texture, &pos] (int action) {
+        if (action) {
+            if (pos[2] >= volume->depth() - 1) return;
+            pos[2] += 1;
+            pose->x = volume->position(pos);
+            extract(pos, volume, hist);
+            texture->upload(hist);
+        }
+    });
+    window.register_key_callback(327, [volume, pose, hist, texture, &pos] (int action) {
+        if (action) {
+            if (pos[2] <= 0) return;
+            pos[2] -= 1;
+            pose->x = volume->position(pos);
+            extract(pos, volume, hist);
+            texture->upload(hist);
+        }
+    });
     window.register_mouse_button_callback(0, [&trackball, &event] (int action) {
         event.button = ogl::MOUSE_BUTTON_LEFT;
         if (action) {

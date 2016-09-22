@@ -72,6 +72,10 @@ public:
         return values[index(pos)];
     }
 
+    mve::FloatImage::Ptr at(math::Vector<IdxType, 3> pos) const {
+        return values[index(pos)];
+    }
+
     mve::FloatImage::Ptr & at(IdxType x, IdxType y, IdxType z) {
         return values[index(x, y, z)];
     }
