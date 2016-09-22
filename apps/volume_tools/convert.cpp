@@ -10,16 +10,18 @@
 #include "mve/mesh_io_ply.h"
 #include "mve/marching_cubes.h"
 
-#include "grid_mesh_mc_accessor.h"
+#include "geom/volume_io.h"
+#include "geom/grid_mesh_mc_accessor.h"
 
 enum Format {
     IMAGES = 0,
-    SURFACE = 1
+    SURFACE = 1,
+    CLOUD = 2
 };
 
 template <> inline
 const std::vector<std::string> choice_strings<Format>() {
-    return {"images", "surface"};
+    return {"images", "surface", "cloud"};
 }
 
 struct Arguments {
@@ -68,49 +70,80 @@ int main(int argc, char **argv) {
 
     Arguments args = parse_args(argc, argv);
 
-    mve::TriangleMesh::Ptr volume;
+    Volume<std::uint32_t>::Ptr volume;
     try {
-        volume = mve::geom::load_ply_mesh(args.in_volume);
+        volume = load_volume<std::uint32_t>(args.in_volume);
     } catch (std::exception& e) {
-        std::cerr << "\tCould not load mesh: "<< e.what() << std::endl;
+        std::cerr << "Could not load volume: " << e.what() << std::endl;
         std::exit(EXIT_FAILURE);
     }
 
-    std::vector<uint> const & faces = volume->get_faces();
-    std::vector<math::Vec3f> const & verts = volume->get_vertices();
-    std::vector<float> & values = volume->get_vertex_values();
+    std::uint32_t width = volume->width();
+    std::uint32_t height = volume->height();
+    std::uint32_t depth = volume->depth();
 
-    if (faces.size() != 3) {
-        std::cerr << "\tInvalid volume - dimensions missing" << std::endl;
-        std::exit(EXIT_FAILURE);
-    }
-    uint width = faces[0];
-    uint height = faces[1];
-    uint depth = faces[2];
-    if (width * height * depth != (verts.size() & values.size())) {
-        std::cerr << "\tInvalid volume - dimensions wrong" << std::endl;
-        std::exit(EXIT_FAILURE);
-    }
+    if (args.format == CLOUD || args.format == SURFACE) {
+        mve::TriangleMesh::Ptr ocloud = mve::TriangleMesh::create();
+        std::vector<math::Vec3f> overts = ocloud->get_vertices();
+        std::vector<float> ovalues = ocloud->get_vertex_values();
+        overts.reserve(volume->num_positions());
+        ovalues.reserve(volume->num_positions());
 
-    if (args.format == IMAGES) {
-        for (uint i = 0; i < depth; ++i) {
-            mve::FloatImage::Ptr image = mve::FloatImage::create(width, height, 1);
-            for (uint y = 0; y < height; ++y) {
-                for (uint x = 0; x < width; ++x) {
-                    image->at(x, y, 0) = values[(i * height + y) * width + x];
+        for (std::uint32_t z = 0; z < depth; ++z) {
+            #pragma omp parallel for ordered
+            for (std::uint32_t y = 0; y < height; ++y) {
+                for (std::uint32_t x = 0; x < width; ++x) {
+                    float value = -1.0f;
+
+                    mve::FloatImage::Ptr image = volume->at(x, y, z);
+                    if (image != nullptr) {
+                        std::vector<float> const & values = image->get_data();
+                        value = *std::max_element(values.begin(), values.end());
+                    }
+
+                    #pragma omp ordered
+                    {
+                        overts.push_back(volume->position(x, y, z));
+                        ovalues.push_back(value);
+                    }
                 }
             }
-            std::string filename = fmt::format("{}-{:04d}.pfm", args.out_prefix, i);
-            mve::image::save_pfm_file(image, filename);
+        }
+
+        if (args.format == CLOUD) {
+            mve::geom::SavePLYOptions options;
+            options.write_vertex_values = true;
+
+            mve::geom::save_ply_mesh(ocloud, args.out_prefix + ".ply", options);
+        }
+
+        if (args.format == SURFACE) {
+            float iso = 0.55f;
+            std::for_each(ovalues.begin(), ovalues.end(), [iso] (float & v) { v -= iso; });
+            GridMeshMCAccessor accessor(ocloud, width, height, depth);
+            mve::TriangleMesh::Ptr omesh = mve::geom::marching_cubes(accessor);
+            mve::geom::save_ply_mesh(omesh, args.out_prefix + ".ply");
         }
     }
 
-    if (args.format == SURFACE) {
-        float iso = 0.75f;
-        std::for_each(values.begin(), values.end(), [iso] (float & v) { v -= iso; });
-        GridMeshMCAccessor accessor(volume, width, height, depth);
-        mve::TriangleMesh::Ptr mesh = mve::geom::marching_cubes(accessor);
-        mve::geom::save_ply_mesh(mesh, args.out_prefix + ".ply");
+    if (args.format == IMAGES) {
+        for (std::uint32_t z = 0; z < depth; ++z) {
+            mve::FloatImage::Ptr oimage = mve::FloatImage::create(width, height, 1);
+            #pragma omp parallel for
+            for (std::uint32_t y = 0; y < height; ++y) {
+                for (std::uint32_t x = 0; x < width; ++x) {
+                    mve::FloatImage::Ptr image = volume->at(x, y, z);
+                    if (image != nullptr) {
+                        std::vector<float> const & values = image->get_data();
+                        oimage->at(x, y, 0) = *std::max_element(values.begin(), values.end());
+                    } else {
+                        oimage->at(x, y, 0) = -1.0f;
+                    }
+                }
+            }
+            std::string filename = fmt::format("{}-{:04d}.pfm", args.out_prefix, z);
+            mve::image::save_pfm_file(oimage, filename);
+        }
     }
 
     return EXIT_SUCCESS;
