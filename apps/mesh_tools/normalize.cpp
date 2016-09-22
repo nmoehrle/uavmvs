@@ -127,14 +127,26 @@ int main(int argc, char **argv) {
         }
     }
 
-    std::cout << values.size() << " are non zero" << std::endl;
-    std::sort(values.begin(), values.end());
+    std::cout << values.size() << " valid values" << std::endl;
     std::size_t c = (values.size() * args.eps) / 2;
 
-    float real_min = values[0];
-    float real_max = values[values.size() - 1];
-    float min = values[c];
-    float max = values[values.size() - 1 - c];
+    typedef std::vector<float>::iterator Iter;
+
+    std::pair<Iter, Iter> real_minmax = std::minmax_element(values.begin(), values.end());
+
+    float real_min = *(real_minmax.first);
+    float real_max = *(real_minmax.second);
+
+    Iter nth;
+
+    nth = values.begin() + c;
+    std::nth_element(values.begin(), nth, values.end(), std::less<float>());
+    float min = *nth;
+
+    nth = values.begin() + c;
+    std::nth_element(values.begin(), nth, values.end(), std::greater<float>());
+    float max = *nth;
+
     float delta = max - min;
     std::cout << "Minimal value: " << real_min << std::endl;
     std::cout << "Maximal value: " << real_max << std::endl;
@@ -142,7 +154,7 @@ int main(int argc, char **argv) {
 
     int num_outliers = 0;
     mve::TriangleMesh::ValueList & vertex_values = mesh_to_normalize->get_vertex_values();
-    for (std::size_t i = 0; i < vertex_values.size(); i++){
+    for (std::size_t i = 0; i < vertex_values.size(); ++i) {
         float value = vertex_values[i];
         if (value == args.no_value) continue;
 
