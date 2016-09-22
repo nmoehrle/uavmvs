@@ -26,6 +26,7 @@
 #include "util/itos.h"
 
 #include "geom/sphere.h"
+#include "geom/volume_io.h"
 
 #include "eval/kernels.h"
 
@@ -155,17 +156,11 @@ int main(int argc, char **argv) {
     }
     //ODOT merge with proxy mesh generation code
 
-    mve::TriangleMesh::Ptr ocloud = mve::TriangleMesh::create();
-    std::vector<math::Vec3f> & overts = ocloud->get_vertices();
-    std::vector<uint> & ofaces = ocloud->get_faces();
-    ofaces.push_back(width);
-    ofaces.push_back(height);
-    ofaces.push_back(depth);
-    overts.resize(width * height * depth);
-    std::vector<float> & ovalues = ocloud->get_vertex_values();
-    ovalues.resize(width * height * depth, 0.0f);
+    Volume<std::uint32_t>::Ptr volume;
+    volume = Volume<std::uint32_t>::create(width, height, depth, aabb.min, aabb.max);
+    std::vector<math::Vector<std::uint32_t, 3> > sample_positions;
+    sample_positions.reserve(volume->num_positions());
 
-    std::uint32_t sidx = 0;
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
 
@@ -177,14 +172,9 @@ int main(int argc, char **argv) {
             for (int z = 0; z < depth; ++z) {
                 float pz = ground_level + z * args.resolution;
 
-                int idx = (z * height + y) * width + x;
+                if (pz < fz) continue;
 
-                overts[idx] = math::Vec3f(px, py, pz);
-                if (pz > fz) {
-                    ovalues[idx] = cacc::uint32_to_float(sidx++);
-                } else {
-                    ovalues[idx] = cacc::uint32_to_float(std::uint32_t(-1));
-                }
+                sample_positions.emplace_back(x, y, z);
             }
         }
     }
@@ -211,12 +201,10 @@ int main(int argc, char **argv) {
     cam.flen = 0.86f;
     math::Matrix3f calib;
 
-    std::size_t num_samples = sidx * 128ull * 45ull;
-
-    std::vector<float> samples(num_samples);
+    std::size_t num_samples = sample_positions.size() * 128ull * 45ull;
 
     std::string task = fmt::format("Sampling 5D volume at {} positions", litos(num_samples));
-    ProgressCounter counter(task, sidx);
+    ProgressCounter counter(task, sample_positions.size());
 
     float best = 0.0f;
     #pragma omp parallel reduction(max:best)
@@ -240,10 +228,7 @@ int main(int argc, char **argv) {
         hist = cacc::Image<float, cacc::HOST>::create(128, 45, stream);
 
         #pragma omp for schedule(dynamic)
-        for (std::size_t i = 0; i < overts.size(); ++i) {
-            std::uint32_t idx = cacc::float_to_uint32(ovalues[i]);
-            if (idx == std::uint32_t(-1)) continue;
-
+        for (std::size_t i = 0; i < sample_positions.size(); ++i) {
             counter.progress<ETA>();
 
             dcon_hist->null();
@@ -251,8 +236,8 @@ int main(int argc, char **argv) {
                 dim3 grid(cacc::divup(dcloud->cdata().num_vertices, KERNEL_BLOCK_SIZE));
                 dim3 block(KERNEL_BLOCK_SIZE);
                 populate_histogram<<<grid, block, 0, stream>>>(
-                    cacc::Vec3f(overts[i].begin()), args.max_distance,
-                    dbvh_tree->cdata(), dcloud->cdata(), dkd_tree->cdata(),
+                    cacc::Vec3f(volume->position(sample_positions[i]).begin()),
+                    args.max_distance, dbvh_tree->cdata(), dcloud->cdata(), dkd_tree->cdata(),
                     dcon_hist->cdata());
             }
 
@@ -268,38 +253,29 @@ int main(int argc, char **argv) {
 
             hist->sync();
 
-
+            mve::FloatImage::Ptr image = mve::FloatImage::create(128, 45, 1);
             float const * begin = data.data_ptr;
             float const * end = data.data_ptr + data.width * data.height;
-            std::size_t offset = idx * 128ull * 45ull;
-            std::copy(begin, end, samples.data() + offset);
+            std::copy(begin, end, image->get_data_pointer());
+            volume->at(sample_positions[i]) = image;
+
+            best = std::max(best, *std::max_element(begin, end));
 
             counter.inc();
-
-            float views_best = 0.0f;
-            for (int y = 0; y < data.height; ++y) {
-                for (int x = 0; x < data.width; ++x) {
-                    float v = data.data_ptr[y * data.pitch / sizeof(float) + x];
-                    views_best = std::max(v, views_best);
-                }
-            }
-            best = std::max(views_best, best);
-
-            //ovalues[i] = views_best;
         }
         cudaStreamDestroy(stream);
     }
 
     #pragma omp parallel for
-    for (std::size_t i = 0; i < samples.size(); ++i) {
-        samples[i] /= best;
+    for (std::size_t i = 0; i < volume->num_positions(); ++i) {
+        mve::FloatImage::Ptr const & image = volume->at(i);
+        if (image == nullptr) continue;
+        for (int j = 0; j < image->get_value_amount(); ++j) {
+            image->at(j) /= best;
+        }
     }
 
-    mve::geom::SavePLYOptions opts;
-    opts.write_vertex_values = true;
-    mve::geom::save_ply_mesh(ocloud, args.ovolume, opts);
-
-    save_vector(samples, util::fs::replace_extension(args.ovolume, "vec"));
+    save_volume<std::uint32_t>(volume, args.ovolume);
 
     return EXIT_SUCCESS;
 }
