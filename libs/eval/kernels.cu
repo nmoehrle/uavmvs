@@ -296,7 +296,7 @@ evaluate_histogram(cacc::Mat3f calib, int width, int height,
 
     float phi = (x / (float) hist.width) * 2.0f * pi;
     //float theta = (y / (float) hist.height) * pi;
-    float theta = (0.5f + y / (float) hist.height) * pi;
+    float theta = (0.5f + (y / (float) hist.height) / 2.0f) * pi;
     float ctheta = cos(theta);
     float stheta = sin(theta);
     float cphi = cos(phi);
