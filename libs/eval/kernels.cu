@@ -294,21 +294,18 @@ evaluate_histogram(cacc::Mat3f calib, int width, int height,
 
     if (x >= hist.width || y >= hist.height) return;
 
-    float phi = (x / (float) hist.width) * 2.0f * pi;
+    float theta = (x / (float) hist.width) * 2.0f * pi;
     //float theta = (y / (float) hist.height) * pi;
-    float theta = (0.5f + (y / (float) hist.height) / 2.0f) * pi;
-    float ctheta = cos(theta);
-    float stheta = sin(theta);
-    float cphi = cos(phi);
+    float phi = (0.5f + (y / (float) hist.height) / 2.0f) * pi;
     float sphi = sin(phi);
-    cacc::Vec3f view_dir(stheta * cphi, stheta * sphi, ctheta);
+    cacc::Vec3f view_dir(cos(theta) * sphi, sin(theta) * sphi, cos(phi));
     view_dir.normalize();
 
     cacc::Vec3f rz = -view_dir;
 
     cacc::Vec3f up = cacc::Vec3f(0.0f, 0.0f, 1.0f);
     bool stable = abs(dot(up, rz)) < 0.99f;
-    up = stable ? up : cacc::Vec3f(cphi, sphi, 0.0f);
+    up = stable ? up : cacc::Vec3f(cos(theta), sin(theta), 0.0f);
 
     cacc::Vec3f rx = cross(up, rz).normalize();
     cacc::Vec3f ry = cross(rz, rx).normalize();
@@ -430,10 +427,11 @@ evaluate_histogram(cacc::KDTree<3, cacc::DEVICE>::Data const kd_tree,
 
     int const stride = hist.pitch / sizeof(float);
     float sum = hist.data_ptr[y * stride + x];
-    float phi = (x / (float) hist.width) * 2.0f * pi;
-    float theta = (y / (float) hist.height) * pi;
-
-    cacc::Vec3f view_dir(sin(theta) * cos(phi), sin(theta) * sin(phi), cos(theta));
+    float theta = (x / (float) hist.width) * 2.0f * pi;
+    //float theta = (y / (float) hist.height) * pi;
+    float phi = (0.5f + (y / (float) hist.height) / 2.0f) * pi;
+    float sphi = sin(phi);
+    cacc::Vec3f view_dir(cos(theta) * sphi, sin(theta) * sphi, cos(phi));
     view_dir.normalize();
 
     uint idx;

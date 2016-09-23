@@ -318,8 +318,9 @@ int main(int argc, char **argv) {
                 float v = hist_data.data_ptr[y * hist_data.pitch / sizeof(float) + x];
                 if (v > max) {
                     max = v;
-                    phi = (x / (float) hist_data.width) * 2.0f * pi;
-                    theta = (0.5f + y / (float) hist_data.height) * pi;
+                    theta = (x / (float) hist_data.width) * 2.0f * pi;
+                    //float theta = (y / (float) hist_data.height) * pi;
+                    phi = (0.5f + (y / (float) hist_data.height) / 2.0f) * pi;
                 }
             }
         }
@@ -328,7 +329,7 @@ int main(int argc, char **argv) {
         float stheta = std::sin(theta);
         float cphi = std::cos(phi);
         float sphi = std::sin(phi);
-        math::Vec3f view_dir(stheta * cphi, stheta * sphi, ctheta);
+        math::Vec3f view_dir(ctheta * sphi, stheta * sphi, cphi);
         view_dir.normalize();
 
         math::Vec3f rz = view_dir;
