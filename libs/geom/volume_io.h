@@ -82,11 +82,11 @@ typename Volume<IdxType>::Ptr load_volume(const std::string & filename) {
     typename Volume<IdxType>::Ptr volume;
     volume = Volume<IdxType>::create(width, height, depth, min, max);
 
-    IdxType idx = -1, channels = 0;
-    int iwidth = 0, iheight = 0;
-    while(in >> idx >> iwidth >> iheight >> channels) {
+    IdxType idx = IdxType(-1);
+    int iwidth = 0, iheight = 0, ichannels = 0;
+    while(in >> idx >> iwidth >> iheight >> ichannels) {
         std::getline(in, buffer);
-        mve::FloatImage::Ptr image = mve::FloatImage::create(iwidth, iheight, channels);
+        mve::FloatImage::Ptr image = mve::FloatImage::create(iwidth, iheight, ichannels);
         if (!(in.read(image->get_byte_pointer(), image->get_byte_size()))) {
             in.close();
             throw util::FileException(filename, "Corrupt Volume file");

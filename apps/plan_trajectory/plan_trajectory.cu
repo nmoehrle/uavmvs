@@ -22,6 +22,7 @@
 #include "util/trajectory_io.h"
 
 #include "geom/sphere.h"
+#include "geom/volume_io.h"
 
 #include "eval/kernels.h"
 
@@ -114,29 +115,17 @@ int main(int argc, char **argv) {
 
     std::vector<mve::CameraInfo> trajectory;
     if (args.trajectory.empty()) {
-        mve::TriangleMesh::Ptr mesh;
+        Volume<std::uint32_t>::Ptr volume;
         try {
-            mesh = mve::geom::load_ply_mesh(args.guidance_volume);
+            volume = load_volume<std::uint32_t>(args.guidance_volume);
         } catch (std::exception& e) {
-            std::cerr << "\tCould not load mesh: "<< e.what() << std::endl;
+            std::cerr << "Could not load volume: " << e.what() << std::endl;
             std::exit(EXIT_FAILURE);
         }
 
-        std::vector<uint> const & faces = mesh->get_faces();
-        std::vector<math::Vec3f> const & verts = mesh->get_vertices();
-        std::vector<float> const & values = mesh->get_vertex_values();
-
-        if (faces.size() != 3) {
-            std::cerr << "\tInvalid guidance volume - dimensions missing" << std::endl;
-            std::exit(EXIT_FAILURE);
-        }
-        uint width = faces[0];
-        uint height = faces[1];
-        uint depth = faces[2];
-        if (width * height * depth != (verts.size() & values.size())) {
-            std::cerr << "\tInvalid guidance volume - dimensions wrong" << std::endl;
-            std::exit(EXIT_FAILURE);
-        }
+        std::uint32_t width = volume->width();
+        std::uint32_t height = volume->height();
+        std::uint32_t depth = volume->depth();
 
         std::vector<std::pair<uint, uint> > indices = grid_trajectory_indices(width, height);
 
@@ -149,13 +138,18 @@ int main(int argc, char **argv) {
             int oz = depth - 1;
             float max = 0.0f;
             for (uint z = 0; z < depth; ++z) {
-                float value = values[((z * height + y) * width) + x];
+                mve::FloatImage::Ptr image = volume->at(x, y, z);
+                float value = 0.0f;
+                if (image != nullptr) {
+                    std::vector<float> const & values = image->get_data();
+                    value = *std::max_element(values.begin(), values.end());
+                }
                 if (value > max) {
                     max = value;
                     oz = z;
                 }
             }
-            spline.add_point(verts[((oz * height + y) * width) + x]);
+            spline.add_point(volume->position(x, y, oz));
         }
         spline.uniform_knots(0.0, 1.0f);
 
