@@ -149,9 +149,9 @@ int main(int argc, char **argv) {
     math::Vector<std::uint32_t, 3> pos(0, 0, 0);
     std::vector<float> samples;
     Volume<std::uint32_t>::Ptr volume;
-    Pose::Ptr pose(new Pose);
+    Pose::Ptr poses[3][3];
     mve::ByteImage::Ptr hist = mve::ByteImage::create(128, 90, 3);
-    ogl::Texture::Ptr texture = ogl::Texture::create();
+    ogl::Texture::Ptr textures[3][3];
     if (!args.volume.empty()) {
         Shader::Ptr shader(new Shader());
         std::string path = util::fs::join_path(__ROOT__, "res/shaders");
@@ -168,22 +168,7 @@ int main(int argc, char **argv) {
             std::exit(EXIT_FAILURE);
         }
 
-        std::uint32_t x = volume->width() / 2;
-        std::uint32_t y = volume->height() / 2;
-        std::uint32_t z = volume->depth() - 2;
-        pos = math::Vector<std::uint32_t, 3>(x, y, z);
-
-        pose->x = volume->position(x, y, z);
-        pose->q = math::Quaternion<float>(math::Vec3f(0.0f, 0.0f, 1.0f), 0.0f);
-
-        extract(pos, volume, hist);
-
-        //hist = mve::image::load_png_file("/tmp/uvchecker.png");
-
-        texture->upload(hist);
-
-        DynamicModelRenderer::Ptr mr(new DynamicModelRenderer(pose, shader));
-        mve::TriangleMesh::Ptr sphere = generate_sphere(0.2f, 5u);
+        mve::TriangleMesh::Ptr sphere = generate_sphere(0.1f, 5u);
         parameterize_spherical(sphere);
 
         /* Delete upper hemisphere */
@@ -194,11 +179,31 @@ int main(int argc, char **argv) {
         }
         sphere->delete_vertices_fix_faces(dlist);
 
-        mr->add_mesh(sphere, texture);
-        Entity::Ptr ret(new Entity);
-        ret->add_component(pose);
-        ret->add_component(mr);
-        engine->add_entity(ret);
+        std::uint32_t x = volume->width() / 2;
+        std::uint32_t y = volume->height() / 2;
+        std::uint32_t z = volume->depth() - 2;
+        pos = math::Vector<std::uint32_t, 3>(x, y, z);
+
+        for (int ry = -1; ry <= 1; ++ry) {
+            for (int rx = -1; rx <= 1; ++rx) {
+                Pose::Ptr & pose = poses[ry + 1][rx + 1];
+                ogl::Texture::Ptr & texture = textures[ry + 1][rx + 1];
+                pose = Pose::Ptr(new Pose);
+                texture = ogl::Texture::create();
+                DynamicModelRenderer::Ptr mr(new DynamicModelRenderer(pose, shader));
+                math::Vector<std::uint32_t, 3> rpos(x + rx, y + ry, z);
+                extract(rpos, volume, hist);
+                texture->upload(hist);
+                pose->x = volume->position(x + rx, y + ry, z);
+                pose->q = math::Quaternion<float>(math::Vec3f(0.0f, 0.0f, 1.0f), 0.0f);
+
+                mr->add_mesh(sphere, texture);
+                Entity::Ptr ret(new Entity);
+                ret->add_component(pose);
+                ret->add_component(mr);
+                engine->add_entity(ret);
+            }
+        }
     }
 
     ogl::Camera camera;
@@ -212,58 +217,108 @@ int main(int argc, char **argv) {
 
     ogl::MouseEvent event;
 
-    window.register_key_callback(326, [volume, pose, hist, texture, &pos] (int action) {
+    window.register_key_callback(326, [volume, &poses, hist, &textures, &pos] (int action) {
         if (action) {
-            if (pos[0] >= volume->width() - 1) return;
+            if (pos[0] >= volume->width() - 2) return;
             pos[0] += 1;
-            pose->x = volume->position(pos);
-            extract(pos, volume, hist);
-            texture->upload(hist);
+
+            for (int y = 0; y < 3; ++y) {
+                std::swap(poses[y][0], poses[y][1]);
+                std::swap(poses[y][1], poses[y][2]);
+                std::swap(textures[y][0], textures[y][1]);
+                std::swap(textures[y][1], textures[y][2]);
+            }
+            for (int y = 0; y < 3; ++y) {
+                math::Vector<std::uint32_t, 3> rpos(pos[0] + 1, pos[1] + y - 1, pos[2]);
+                poses[y][2]->x = volume->position(pos[0] + 1, pos[1] + y - 1, pos[2]);
+                extract(rpos, volume, hist);
+                textures[y][2]->upload(hist);
+            }
         }
     });
-    window.register_key_callback(324, [volume, pose, hist, texture, &pos] (int action) {
+    window.register_key_callback(324, [volume, &poses, hist, &textures, &pos] (int action) {
         if (action) {
-            if (pos[0] <= 0) return;
+            if (pos[0] <= 1) return;
             pos[0] -= 1;
-            pose->x = volume->position(pos);
-            extract(pos, volume, hist);
-            texture->upload(hist);
+
+            for (int y = 0; y < 3; ++y) {
+                std::swap(poses[y][2], poses[y][1]);
+                std::swap(poses[y][1], poses[y][0]);
+                std::swap(textures[y][2], textures[y][1]);
+                std::swap(textures[y][1], textures[y][0]);
+            }
+            for (int y = 0; y < 3; ++y) {
+                math::Vector<std::uint32_t, 3> rpos(pos[0] - 1, pos[1] + y - 1, pos[2]);
+                poses[y][0]->x = volume->position(pos[0] - 1, pos[1] + y - 1, pos[2]);
+                extract(rpos, volume, hist);
+                textures[y][0]->upload(hist);
+            }
         }
     });
-    window.register_key_callback(328, [volume, pose, hist, texture, &pos] (int action) {
+    window.register_key_callback(328, [volume, &poses, hist, &textures, &pos] (int action) {
         if (action) {
-            if (pos[1] >= volume->height() - 1) return;
+            if (pos[1] >= volume->height() - 2) return;
             pos[1] += 1;
-            pose->x = volume->position(pos);
-            extract(pos, volume, hist);
-            texture->upload(hist);
+            for (int x = 0; x < 3; ++x) {
+                std::swap(poses[0][x], poses[1][x]);
+                std::swap(poses[1][x], poses[2][x]);
+                std::swap(textures[0][x], textures[1][x]);
+                std::swap(textures[1][x], textures[2][x]);
+            }
+            for (int x = 0; x < 3; ++x) {
+                math::Vector<std::uint32_t, 3> rpos(pos[0] + x - 1, pos[1] + 1, pos[2]);
+                poses[2][x]->x = volume->position(pos[0] + x - 1, pos[1] + 1, pos[2]);
+                extract(rpos, volume, hist);
+                textures[2][x]->upload(hist);
+            }
         }
     });
-    window.register_key_callback(322, [volume, pose, hist, texture, &pos] (int action) {
+    window.register_key_callback(322, [volume, &poses, hist, &textures, &pos] (int action) {
         if (action) {
-            if (pos[1] <= 0) return;
+            if (pos[1] <= 1) return;
             pos[1] -= 1;
-            pose->x = volume->position(pos);
-            extract(pos, volume, hist);
-            texture->upload(hist);
+            for (int x = 0; x < 3; ++x) {
+                std::swap(poses[2][x], poses[1][x]);
+                std::swap(poses[1][x], poses[0][x]);
+                std::swap(textures[2][x], textures[1][x]);
+                std::swap(textures[1][x], textures[0][x]);
+            }
+            for (int x = 0; x < 3; ++x) {
+                math::Vector<std::uint32_t, 3> rpos(pos[0] + x - 1, pos[1] - 1, pos[2]);
+                poses[0][x]->x = volume->position(pos[0] + x - 1, pos[1] - 1, pos[2]);
+                extract(rpos, volume, hist);
+                textures[0][x]->upload(hist);
+            }
         }
     });
-    window.register_key_callback(329, [volume, pose, hist, texture, &pos] (int action) {
+    window.register_key_callback(329, [volume, poses, hist, textures, &pos] (int action) {
         if (action) {
-            if (pos[2] >= volume->depth() - 1) return;
+            if (pos[2] >= volume->depth() - 2) return;
             pos[2] += 1;
-            pose->x = volume->position(pos);
-            extract(pos, volume, hist);
-            texture->upload(hist);
+
+            for (int y = 0; y < 3; ++y) {
+                for (int x = 0; x < 3; ++x) {
+                    math::Vector<std::uint32_t, 3> rpos(pos[0] + x - 1, pos[1] + y - 1, pos[2]);
+                    poses[y][x]->x = volume->position(pos[0] + x - 1, pos[1] + y - 1, pos[2]);
+                    extract(rpos, volume, hist);
+                    textures[y][x]->upload(hist);
+                }
+            }
         }
     });
-    window.register_key_callback(327, [volume, pose, hist, texture, &pos] (int action) {
+    window.register_key_callback(327, [volume, poses, hist, textures, &pos] (int action) {
         if (action) {
-            if (pos[2] <= 0) return;
+            if (pos[2] <= 1) return;
             pos[2] -= 1;
-            pose->x = volume->position(pos);
-            extract(pos, volume, hist);
-            texture->upload(hist);
+
+            for (int y = 0; y < 3; ++y) {
+                for (int x = 0; x < 3; ++x) {
+                    math::Vector<std::uint32_t, 3> rpos(pos[0] + x - 1, pos[1] + y - 1, pos[2]);
+                    poses[y][x]->x = volume->position(pos[0] + x - 1, pos[1] + y - 1, pos[2]);
+                    extract(rpos, volume, hist);
+                    textures[y][x]->upload(hist);
+                }
+            }
         }
     });
     window.register_mouse_button_callback(0, [&trackball, &event] (int action) {
