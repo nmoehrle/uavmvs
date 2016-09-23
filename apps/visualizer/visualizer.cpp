@@ -52,6 +52,7 @@ Arguments parse_args(int argc, char **argv) {
     Arguments conf;
     conf.path = args.get_nth_nonopt(0);
     conf.trajectory = args.get_nth_nonopt(1);
+    conf.volume = "/tmp/volume.vol";
 
     for (util::ArgResult const* i = args.next_option();
          i != 0; i = args.next_option()) {
@@ -68,16 +69,11 @@ void
 extract(math::Vector<std::uint32_t, 3> pos, Volume<std::uint32_t>::ConstPtr volume, mve::ByteImage::Ptr hist) {
     mve::FloatImage::Ptr image = volume->at(pos);
 
-    if (volume == nullptr) {
-        hist->fill_color(math::Vector<unsigned char, 3>(0, 0, 0).begin());
-        return;
-    }
-
     int offset = hist->get_pixel_amount() / 2;
     static float (*colormap)[3];
     colormap = col::maps::viridis;
     for (int i = 0; i < hist->get_pixel_amount() / 2; ++i) {
-        float value = image->at(i);
+        float value = image ? image->at(i) : 0.0f;
         std::uint8_t lidx = std::floor(value * 255.0f);
         float t = value * 255.0f - lidx;
         std::uint8_t hidx = lidx == 255 ? 255 : lidx + 1;
@@ -156,7 +152,7 @@ int main(int argc, char **argv) {
     Pose::Ptr pose(new Pose);
     mve::ByteImage::Ptr hist = mve::ByteImage::create(128, 90, 3);
     ogl::Texture::Ptr texture = ogl::Texture::create();
-    if (true || !args.volume.empty()) {
+    if (!args.volume.empty()) {
         Shader::Ptr shader(new Shader());
         std::string path = util::fs::join_path(__ROOT__, "res/shaders");
         shader->load_shader_program(path + "/" + shader_names[TEXTURE]);
@@ -165,7 +161,12 @@ int main(int argc, char **argv) {
         shader->set_model_matrix(eye);
         shaders.push_back(shader);
 
-        volume = load_volume<std::uint32_t>("/tmp/volume.vol");
+        try {
+            volume = load_volume<std::uint32_t>(args.volume);
+        } catch (std::exception& e) {
+            std::cerr << "Could not load volume: " << e.what() << std::endl;
+            std::exit(EXIT_FAILURE);
+        }
 
         std::uint32_t x = volume->width() / 2;
         std::uint32_t y = volume->height() / 2;
@@ -184,6 +185,14 @@ int main(int argc, char **argv) {
         DynamicModelRenderer::Ptr mr(new DynamicModelRenderer(pose, shader));
         mve::TriangleMesh::Ptr sphere = generate_sphere(0.2f, 5u);
         parameterize_spherical(sphere);
+
+        /* Delete upper hemisphere */
+        std::vector<math::Vec3f> verts = sphere->get_vertices();
+        std::vector<bool> dlist(verts.size(), false);
+        for (std::size_t i = 0; i < verts.size(); ++i) {
+            if (verts[i][2] > 0.0f) dlist[i] = true;
+        }
+        sphere->delete_vertices_fix_faces(dlist);
 
         mr->add_mesh(sphere, texture);
         Entity::Ptr ret(new Entity);
