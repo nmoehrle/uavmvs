@@ -206,8 +206,7 @@ int main(int argc, char **argv) {
     std::string task = fmt::format("Sampling 5D volume at {} positions", litos(num_samples));
     ProgressCounter counter(task, sample_positions.size());
 
-    float best = 0.0f;
-    #pragma omp parallel reduction(max:best)
+    #pragma omp parallel
     {
         cacc::set_cuda_device(device);
 
@@ -259,20 +258,9 @@ int main(int argc, char **argv) {
             std::copy(begin, end, image->get_data_pointer());
             volume->at(sample_positions[i]) = image;
 
-            best = std::max(best, *std::max_element(begin, end));
-
             counter.inc();
         }
         cudaStreamDestroy(stream);
-    }
-
-    #pragma omp parallel for
-    for (std::size_t i = 0; i < volume->num_positions(); ++i) {
-        mve::FloatImage::Ptr const & image = volume->at(i);
-        if (image == nullptr) continue;
-        for (int j = 0; j < image->get_value_amount(); ++j) {
-            image->at(j) /= best;
-        }
     }
 
     save_volume<std::uint32_t>(volume, args.ovolume);
