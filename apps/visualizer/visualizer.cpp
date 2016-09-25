@@ -35,28 +35,37 @@
 #include "geom/volume_io.h"
 
 struct Arguments {
-    std::string path;
-    std::string trajectory;
+    std::string mesh;
     std::string volume;
+    std::string trajectory;
 };
 
 Arguments parse_args(int argc, char **argv) {
     util::Arguments args;
     args.set_exit_on_error(true);
-    args.set_nonopt_minnum(2);
-    args.set_nonopt_maxnum(2);
-    args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] MESH TRAJECTORY");
+    args.set_nonopt_minnum(0);
+    args.set_nonopt_maxnum(0);
+    args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS]");
+    args.add_option('m', "mesh", true, "TODO");
+    args.add_option('v', "volume", true, "TODO");
+    args.add_option('t', "trajectory", true, "TODO");
     args.set_description("Visualizer");
     args.parse(argc, argv);
 
     Arguments conf;
-    conf.path = args.get_nth_nonopt(0);
-    conf.trajectory = args.get_nth_nonopt(1);
-    conf.volume = "/tmp/volume.vol";
 
     for (util::ArgResult const* i = args.next_option();
          i != 0; i = args.next_option()) {
         switch (i->opt->sopt) {
+        case 'm':
+            conf.mesh = i->arg;
+        break;
+        case 'v':
+            conf.volume = i->arg;
+        break;
+        case 't':
+            conf.trajectory = i->arg;
+        break;
         default:
             throw std::invalid_argument("Invalid option");
         }
@@ -103,7 +112,9 @@ int main(int argc, char **argv) {
     init_opengl();
 
     Engine::Ptr engine(new Engine());
-    engine->create_static_model(args.path);
+    if (!args.mesh.empty()) {
+        engine->create_static_model(args.mesh);
+    }
 
     std::vector<Shader::Ptr> shaders;
     if (!args.trajectory.empty()) {
