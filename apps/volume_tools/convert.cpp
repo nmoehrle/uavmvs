@@ -84,8 +84,8 @@ int main(int argc, char **argv) {
 
     if (args.format == CLOUD || args.format == SURFACE) {
         mve::TriangleMesh::Ptr ocloud = mve::TriangleMesh::create();
-        std::vector<math::Vec3f> overts = ocloud->get_vertices();
-        std::vector<float> ovalues = ocloud->get_vertex_values();
+        std::vector<math::Vec3f> & overts = ocloud->get_vertices();
+        std::vector<float> & ovalues = ocloud->get_vertex_values();
         overts.reserve(volume->num_positions());
         ovalues.reserve(volume->num_positions());
 
