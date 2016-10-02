@@ -27,8 +27,6 @@
 #include "sim/entities/trajectory_renderer.h"
 #include "sim/model_renderer.h"
 
-#include "cacc/math.h"
-
 #include "col/mpl_viridis.h"
 
 #include "geom/sphere.h"
