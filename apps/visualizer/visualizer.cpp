@@ -78,7 +78,7 @@ extract(math::Vector<std::uint32_t, 3> pos, Volume<std::uint32_t>::ConstPtr volu
 
     int offset = hist->get_pixel_amount() / 2;
     static float (*colormap)[3];
-    colormap = col::maps::viridis;
+    colormap = col::maps::lin::viridis;
     for (int i = 0; i < hist->get_pixel_amount() / 2; ++i) {
         float value = image ? image->at(i) : 0.0f;
         std::uint8_t lidx = std::floor(value * 255.0f);
@@ -98,6 +98,7 @@ init_opengl(void) {
     glClearColor(0.9f, 0.9f, 0.9f, 1.0f);
     glEnable(GL_DEPTH_TEST);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_FRAMEBUFFER_SRGB);
 }
 
 int main(int argc, char **argv) {

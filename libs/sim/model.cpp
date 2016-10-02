@@ -5,6 +5,8 @@
 #include "ogl/texture.h"
 #include "ogl/check_gl_error.h"
 
+#include "col/gamma.h"
+
 #include "shader_type.h"
 #include "model.h" //IO???
 
@@ -41,6 +43,11 @@ load_model(std::string const & path) {
         } catch (std::exception& e) {
             throw std::runtime_error(std::string("Could not load mesh: ") + e.what());
         }
+        std::vector<math::Vec4f> & colors = mesh->get_vertex_colors();
+        std::for_each(colors.begin(), colors.end(), [] (math::Vec4f & color) {
+            col::gamma_decode_srgb(color.begin());
+        });
+
         mesh->ensure_normals(true, true);
 
         model->shader_type = mesh->has_vertex_colors() ? VCOLOR : SURFACE;

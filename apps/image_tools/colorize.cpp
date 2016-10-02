@@ -87,9 +87,9 @@ int main(int argc, char **argv) {
 
     float (*colormap)[3];
     switch(args.colormap) {
-        case VIRIDIS: colormap = col::maps::viridis; break;
+        case VIRIDIS: colormap = col::maps::srgb::viridis; break;
         case COOLWARM: colormap = col::maps::coolwarm; break;
-        default: colormap = col::maps::viridis;
+        default: colormap = col::maps::srgb::viridis;
     }
 
     mve::FloatImage::Ptr out_image;
