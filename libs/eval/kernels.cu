@@ -77,7 +77,7 @@ heuristic(cacc::Vec3f const * rel_dirs, uint stride, uint n)
     float quality = dot(cacc::Vec3f(0.0f, 0.0f, 1.0f), new_rel_dir);
     for (uint i = 0; i < (n - 1); ++i) {
         cacc::Vec3f rel_dir = rel_dirs[i * stride];
-        float theta = acos(dot(new_rel_dir, rel_dir));
+        float theta = acosf(dot(new_rel_dir, rel_dir));
         novelty = min(novelty, sigmoid(theta, pi / 8.0f, 16.0f));
         matchability = max(matchability,
             1.0f - sigmoid(theta, pi / 4.0f, 16.0f));
@@ -106,9 +106,9 @@ populate_histogram(cacc::Vec3f view_pos, float max_distance,
     float l = norm(v2c);
     cacc::Vec3f v2cn = v2c / l;
 
-    float ctheta = dot(v2cn, n);
+    float cphi = dot(v2cn, n);
     // 0.087f ~ cos(85.0f / 180.0f * pi)
-    if (ctheta < 0.087f) return;
+    if (cphi < 0.087f) return;
 
     if (l > max_distance) return;
     cacc::Vec2f p = project(mult(w2c, v, 1.0f), calib);
@@ -188,23 +188,25 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance,
     float l = norm(v2c);
     cacc::Vec3f v2cn = v2c / l;
 
-    float ctheta = dot(v2cn, n);
+    float scale = 1.0f - l / max_distance;
+    if (scale <= 0.0f) return;
 
-    if (l > max_distance) return;
+    float cphi = dot(v2cn, n);
     // 0.087f ~ cos(85.0f / 180.0f * pi)
-    if (ctheta < 0.087f) return;
+    if (cphi <= 0.087f) return;
+
+    float capture_difficulty = cloud.values_ptr[id];
+    if (capture_difficulty <= 0.0f) return;
 
     if (!visible(v, v2cn, l, bvh_tree)) return;
 
-    float capture_difficulty = cloud.values_ptr[id];
 
-    cacc::Vec3f rel_dir = relative_direction(v2cn, n);
-    float observation_angle = dot(cacc::Vec3f(0.0f, 0.0f, 1.0f), rel_dir);
+    float score = scale * capture_difficulty * cphi;
 
     uint idx;
     float dist;
     cacc::nnsearch::find_nns<3u>(kd_tree, -v2cn, &idx, &dist, 1u);
-    atomicAdd(con_hist.data_ptr + idx, observation_angle * capture_difficulty);
+    atomicAdd(con_hist.data_ptr + idx, score);
 }
 
 __global__
@@ -228,14 +230,18 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance,
     float l = norm(v2c);
     cacc::Vec3f v2cn = v2c / l;
 
-    float ctheta = dot(v2cn, n);
+    float scale = 1.0f - l / max_distance;
+    if (scale <= 0.0f) return;
 
-    if (l > max_distance) return;
+    float cphi = dot(v2cn, n);
     // 0.087f ~ cos(85.0f / 180.0f * pi)
-    if (ctheta < 0.087f) return;
+    if (cphi < 0.087f) return;
+
+    float capture_difficulty = cloud.values_ptr[id];
+    if (capture_difficulty <= 0.0f) return;
 
     if (!visible(v, v2cn, l, bvh_tree)) return;
-    if (id >= dir_hist.num_cols) return;
+    assert(id < dir_hist.num_cols);
 
     int const stride = dir_hist.pitch / sizeof(cacc::Vec3f);
     uint num_rows = dir_hist.num_rows_ptr[id];
@@ -249,11 +255,8 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance,
         rel_dirs[num_rows * stride] = rel_dir;
         contrib = heuristic(rel_dirs, stride, num_rows + 1);
     } else {
-        float observation_angle = dot(cacc::Vec3f(0.0f, 0.0f, 1.0f), rel_dir);
-        contrib = observation_angle;
+        contrib = cphi;
     }
-
-    float capture_difficulty = cloud.values_ptr[id];
 
     uint idx;
     float dist;
@@ -297,15 +300,15 @@ evaluate_histogram(cacc::Mat3f calib, int width, int height,
     float theta = (x / (float) hist.width) * 2.0f * pi;
     //float theta = (y / (float) hist.height) * pi;
     float phi = (0.5f + (y / (float) hist.height) / 2.0f) * pi;
-    float sphi = sin(phi);
-    cacc::Vec3f view_dir(cos(theta) * sphi, sin(theta) * sphi, cos(phi));
+    float sphi = sinf(phi);
+    cacc::Vec3f view_dir(cosf(theta) * sphi, sinf(theta) * sphi, cosf(phi));
     view_dir.normalize();
 
     cacc::Vec3f rz = -view_dir;
 
     cacc::Vec3f up = cacc::Vec3f(0.0f, 0.0f, 1.0f);
     bool stable = abs(dot(up, rz)) < 0.99f;
-    up = stable ? up : cacc::Vec3f(cos(theta), sin(theta), 0.0f);
+    up = stable ? up : cacc::Vec3f(cosf(theta), sinf(theta), 0.0f);
 
     cacc::Vec3f rx = cross(up, rz).normalize();
     cacc::Vec3f ry = cross(rz, rx).normalize();
@@ -430,8 +433,8 @@ evaluate_histogram(cacc::KDTree<3, cacc::DEVICE>::Data const kd_tree,
     float theta = (x / (float) hist.width) * 2.0f * pi;
     //float theta = (y / (float) hist.height) * pi;
     float phi = (0.5f + (y / (float) hist.height) / 2.0f) * pi;
-    float sphi = sin(phi);
-    cacc::Vec3f view_dir(cos(theta) * sphi, sin(theta) * sphi, cos(phi));
+    float sphi = sinf(phi);
+    cacc::Vec3f view_dir(cosf(theta) * sphi, sinf(theta) * sphi, cosf(phi));
     view_dir.normalize();
 
     uint idx;
@@ -463,8 +466,8 @@ estimate_capture_difficulty(float max_distance,
 
     for (uint i = 0; i < kd_tree.num_verts; ++i) {
         cacc::Vec3f dir = kd_tree.verts_ptr[i].normalize();
-        float ctheta = dot(dir, n);
-        if (ctheta < 0.087f) continue;
+        float cphi = dot(dir, n);
+        if (cphi < 0.087f) continue;
 
         cacc::Ray ray;
         ray.origin = v;
@@ -508,20 +511,19 @@ void evaluate_position(uint pid, float max_distance,
     float l = norm(v2c);
     cacc::Vec3f v2cn = v2c / l;
 
-    float ctheta = dot(v2cn, n);
+    float scale = 1.0f - l / max_distance;
+    if (scale <= 0.0f) return;
 
-    if (l > max_distance) return;
+    float cphi = dot(v2cn, n);
     // 0.087f ~ cos(85.0f / 180.0f * pi)
-    if (ctheta < 0.087f) return;
+    if (cphi < 0.087f) return;
+
+    float capture_difficulty = cloud.values_ptr[id];
+    if (capture_difficulty <= 0.0f) return;
 
     if (!visible(v, v2cn, l, bvh_tree)) return;
 
-    float capture_difficulty = cloud.values_ptr[id];
-
-    cacc::Vec3f rel_dir = relative_direction(v2cn, n);
-    float observation_angle = dot(cacc::Vec3f(0.0f, 0.0f, 1.0f), rel_dir);
-
-    float score = capture_difficulty * observation_angle;
+    float score = scale * capture_difficulty * cphi;
 
     atomicAdd(volume.values_ptr + pid, score); //TODO reduction
 }
