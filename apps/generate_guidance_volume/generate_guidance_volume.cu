@@ -39,6 +39,7 @@ struct Arguments {
     std::string ovolume;
     float resolution;
     float max_distance;
+    float min_altitude;
     float max_altitude;
 };
 
@@ -51,6 +52,7 @@ Arguments parse_args(int argc, char **argv) {
     args.set_description("TODO");
     args.add_option('r', "resolution", true, "guidance volume resolution [1.0]");
     args.add_option('\0', "max-distance", true, "maximum distance to surface [80.0]");
+    args.add_option('\0', "min-altitude", true, "minimum altitude [0.0]");
     args.add_option('\0', "max-altitude", true, "maximum altitude [100.0]");
     args.parse(argc, argv);
 
@@ -61,6 +63,7 @@ Arguments parse_args(int argc, char **argv) {
     conf.ovolume = args.get_nth_nonopt(3);
     conf.resolution = 1.0f;
     conf.max_distance = 80.0f;
+    conf.min_altitude = 0.0f;
     conf.max_altitude = 100.0f;
 
     for (util::ArgResult const* i = args.next_option();
@@ -72,6 +75,8 @@ Arguments parse_args(int argc, char **argv) {
         case '\0':
             if (i->opt->lopt == "max-distance") {
                 conf.max_distance = i->get_arg<float>();
+            } else if (i->opt->lopt == "min-altitude") {
+                conf.min_altitude = i->get_arg<float>();
             } else if (i->opt->lopt == "max-altitude") {
                 conf.max_altitude = i->get_arg<float>();
             } else {
@@ -167,7 +172,7 @@ int main(int argc, char **argv) {
             float px = (x - args.resolution / 2.0f) * args.resolution + aabb.min[0];
             float py = (y - args.resolution / 2.0f) * args.resolution + aabb.min[1];
 
-            float fz = hmap->at(x, y, 0);
+            float fz = std::max(hmap->at(x, y, 0), args.min_altitude);
 
             for (int z = 0; z < depth; ++z) {
                 float pz = ground_level + z * args.resolution;
