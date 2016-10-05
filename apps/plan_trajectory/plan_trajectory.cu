@@ -31,68 +31,57 @@ struct Arguments {
     std::string proxy_cloud;
     std::string guidance_volume;
     std::string out_trajectory;
-    std::string trajectory;
     uint num_views;
+    float min_distance;
     float max_distance;
+    float min_altitude;
+    float max_altitude;
+    float max_velocity;
     float focal_length;
 };
-
-std::vector<std::pair<uint, uint> > grid_trajectory_indices(uint width, uint height) {
-    std::vector<std::pair<uint, uint> > ret;
-    for (uint gy = 0; gy < (height - 1) / 3; ++gy) {
-        for (uint gx = 0; gx < width - 2; ++gx) {
-            uint x;
-            if (gy % 2 == 0) {
-                x = 1 + gx;
-            } else {
-                x = width - 1 - gx;
-            }
-            uint y = 1 + 3 * gy;
-
-            if (gx == 0 && gy != 0) {
-                ret.emplace_back(x, y - 2);
-                ret.emplace_back(x, y - 1);
-            } else {
-                ret.emplace_back(x, y);
-            }
-        }
-    }
-    return ret;
-}
-
 
 Arguments parse_args(int argc, char **argv) {
     util::Arguments args;
     args.set_exit_on_error(true);
-    args.set_nonopt_minnum(4);
-    args.set_nonopt_maxnum(4);
+    args.set_nonopt_minnum(3);
+    args.set_nonopt_maxnum(3);
     args.set_usage("Usage: " + std::string(argv[0])
-        + " [OPTS] PROXY_MESH PROXY_CLOUD GUIDANCE_VOLUME OUT_TRAJECTORY");
+        + " [OPTS] PROXY_MESH PROXY_CLOUD OUT_TRAJECTORY");
     args.set_description("Plans a trajectory maximizing reconstructability");
-    args.add_option('t', "trajectory", true,
-        "Use positions from given trajectory and only optimize viewing directions.");
+    args.add_option('\0', "min-distance", true, "minimum distance to surface [0.0]");
     args.add_option('\0', "max-distance", true, "maximum distance to surface [80.0]");
+    args.add_option('\0', "min-altitude", true, "minimum altitude [0.0]");
+    args.add_option('\0', "max-altitude", true, "maximum altitude [100.0]");
+    args.add_option('\0', "max-velocity", true, "maximum velocity [5.0]");
     args.add_option('\0', "focal-length", true, "camera focal length [0.86]");
     args.parse(argc, argv);
 
     Arguments conf;
     conf.proxy_mesh = args.get_nth_nonopt(0);
     conf.proxy_cloud = args.get_nth_nonopt(1);
-    conf.guidance_volume = args.get_nth_nonopt(2);
-    conf.out_trajectory = args.get_nth_nonopt(3);
+    conf.out_trajectory = args.get_nth_nonopt(2);
+    conf.min_distance = 0.0f;
     conf.max_distance = 80.0f;
+    conf.min_altitude = 0.0f;
+    conf.max_altitude = 100.0f;
+    conf.max_velocity = 5.0f;
     conf.num_views = 400;
     conf.focal_length = 0.86f;
 
     for (util::ArgResult const* i = args.next_option();
          i != 0; i = args.next_option()) {
         switch (i->opt->sopt) {
-        case 't':
-            conf.trajectory = i->arg;
-        break;
         case '\0':
-            if (i->opt->lopt == "max-distance") {
+            if (i->opt->lopt == "min-distance") {
+                conf.min_distance = i->get_arg<float>();
+            } else if (i->opt->lopt == "max-distance") {
                 conf.max_distance = i->get_arg<float>();
+            } else if (i->opt->lopt == "min-altitude") {
+                conf.min_altitude = i->get_arg<float>();
+            } else if (i->opt->lopt == "max-altitude") {
+                conf.max_altitude = i->get_arg<float>();
+            } else if (i->opt->lopt == "max-velocity") {
+                conf.max_velocity = i->get_arg<float>();
             } else {
                 throw std::invalid_argument("Invalid option");
             }
@@ -113,282 +102,246 @@ int main(int argc, char **argv) {
 
     Arguments args = parse_args(argc, argv);
 
-    std::vector<mve::CameraInfo> trajectory;
-    if (args.trajectory.empty()) {
-        Volume<std::uint32_t>::Ptr volume;
-        try {
-            volume = load_volume<std::uint32_t>(args.guidance_volume);
-        } catch (std::exception& e) {
-            std::cerr << "Could not load volume: " << e.what() << std::endl;
-            std::exit(EXIT_FAILURE);
-        }
+    int device = cacc::select_cuda_device(3, 5);
 
-        std::uint32_t width = volume->width();
-        std::uint32_t height = volume->height();
-        std::uint32_t depth = volume->depth();
-
-        std::vector<std::pair<uint, uint> > indices = grid_trajectory_indices(width, height);
-
-        math::BSpline<math::Vec3f> spline;
-        spline.set_degree(3);
-
-        for (std::size_t i = 0; i < indices.size(); ++i) {
-            uint x, y;
-            std::tie(x, y) = indices[i];
-            int oz = depth - 1;
-            float max = 0.0f;
-            for (uint z = 0; z < depth; ++z) {
-                mve::FloatImage::Ptr image = volume->at(x, y, z);
-                float value = 0.0f;
-                if (image != nullptr) {
-                    std::vector<float> const & values = image->get_data();
-                    value = *std::max_element(values.begin(), values.end());
-                }
-                if (value > max) {
-                    max = value;
-                    oz = z;
-                }
-            }
-            spline.add_point(volume->position(x, y, oz));
-        }
-        spline.uniform_knots(0.0, 1.0f);
-
-        for (float t = 0.0f; t < 1.0f; t += 1.0f / (args.num_views - 1)) {
-            mve::CameraInfo cam;
-
-            /* Initialize nadir */
-            math::Matrix3f rot(0.0f);
-            rot(0, 0) = 1;
-            rot(1, 1) = -1;
-            rot(2, 2) = -1;
-            std::copy(rot.begin(), rot.end(), cam.rot);
-
-            math::Vec3f pos = spline.evaluate(t);
-            math::Vec3f trans = -rot * pos;
-            std::copy(trans.begin(), trans.end(), cam.trans);
-
-            cam.flen = args.focal_length;
-
-            trajectory.push_back(cam);
-        }
-    } else {
-        load_trajectory(args.trajectory, &trajectory);
+    cacc::BVHTree<cacc::DEVICE>::Ptr dbvh_tree;
+    {
+        acc::BVHTree<uint, math::Vec3f>::Ptr bvh_tree;
+        bvh_tree = load_mesh_as_bvh_tree(args.proxy_mesh);
+        dbvh_tree = cacc::BVHTree<cacc::DEVICE>::create<uint, math::Vec3f>(bvh_tree);
     }
+    cacc::tracing::bind_textures(dbvh_tree->cdata());
 
-    cacc::select_cuda_device(3, 5);
-
-    mve::TriangleMesh::Ptr mesh;
-    try {
-        mve::TriangleMesh::Ptr mesh = generate_sphere(1.0f, 3u);
-    } catch (std::exception& e) {
-        std::cerr << "\tCould not load mesh: "<< e.what() << std::endl;
-        std::exit(EXIT_FAILURE);
-    }
-
-    std::vector<math::Vec3f> & overtices = mesh->get_vertices();
-    std::vector<math::Vec3f> vertices = mesh->get_vertices();
-    std::vector<float> & ovalues = mesh->get_vertex_values();
-    ovalues.resize(vertices.size());
-
+    uint num_sverts;
     cacc::KDTree<3u, cacc::DEVICE>::Ptr dkd_tree;
     {
-        std::vector<math::Vec3f> const & verts = mesh->get_vertices();
+        mve::TriangleMesh::Ptr sphere = generate_sphere(1.0f, 3u);
+        std::vector<math::Vec3f> const & verts = sphere->get_vertices();
+        num_sverts = verts.size();
         acc::KDTree<3u, uint>::Ptr kd_tree = acc::KDTree<3, uint>::create(verts);
         dkd_tree = cacc::KDTree<3u, cacc::DEVICE>::create<uint>(kd_tree);
     }
     cacc::nnsearch::bind_textures(dkd_tree->cdata());
 
-    acc::BVHTree<uint, math::Vec3f>::Ptr bvh_tree;
-    bvh_tree = load_mesh_as_bvh_tree(args.proxy_mesh);
-    cacc::BVHTree<cacc::DEVICE>::Ptr dbvh_tree;
-    dbvh_tree = cacc::BVHTree<cacc::DEVICE>::create<uint, math::Vec3f>(bvh_tree);
-    cacc::tracing::bind_textures(dbvh_tree->cdata());
-
-    cacc::PointCloud<cacc::HOST>::Ptr cloud;
-    //TODO check for vertex values...
-    cloud = load_point_cloud(args.proxy_cloud);
     cacc::PointCloud<cacc::DEVICE>::Ptr dcloud;
-    dcloud = cacc::PointCloud<cacc::DEVICE>::create<cacc::HOST>(cloud);
+    {
+        cacc::PointCloud<cacc::HOST>::Ptr cloud;
+        cloud = load_point_cloud(args.proxy_cloud);
+        dcloud = cacc::PointCloud<cacc::DEVICE>::create<cacc::HOST>(cloud);
+    }
+    uint num_verts = dcloud->cdata().num_vertices;
 
-    uint num_vertices = dcloud->cdata().num_vertices;
+    acc::KDTree<3, uint>::Ptr kd_tree(load_mesh_as_kd_tree(args.proxy_cloud));
+
     uint max_cameras = 20;
 
     cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Ptr ddir_hist;
-    ddir_hist = cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::create(num_vertices, max_cameras);
-    cacc::VectorArray<float, cacc::HOST>::Ptr con_hist;
-    con_hist = cacc::VectorArray<float, cacc::HOST>::create(ovalues.size(), 2);
-    cacc::VectorArray<float, cacc::DEVICE>::Ptr dcon_hist;
-    dcon_hist = cacc::VectorArray<float, cacc::DEVICE>::create(ovalues.size(), 2);
+    ddir_hist = cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::create(num_verts, max_cameras);
 
-    cacc::Image<float, cacc::DEVICE>::Ptr dhist;
-    dhist = cacc::Image<float, cacc::DEVICE>::create(256, 90);
-    cacc::Image<float, cacc::HOST>::Ptr hist;
-    hist = cacc::Image<float, cacc::HOST>::create(256, 90);
-
-    math::Vec3f pos;
-    math::Matrix4f w2c;
+    mve::CameraInfo cam;
+    cam.flen = 0.86f;
     math::Matrix3f calib;
     int width = 1920;
     int height = 1080;
+    cam.fill_calibration(calib.begin(), width, height);
 
-    int cnt = 0;
-    for (mve::CameraInfo & cam : trajectory) {
-        cam.fill_calibration(calib.begin(), width, height);
-        cam.fill_camera_pos(pos.begin());
+    struct State {
+        math::Vec3f pos;
+        math::Vec3f vel;
+    } state;
+
+    state.pos = math::Vec3f(-10.0f, 10.0f, 2.0f);
+    state.vel = math::Vec3f(1.0f, 0.0f, 0.0f) * 0.1f;
+
+    std::vector<mve::CameraInfo> trajectory;
+    struct ViewCandidate {
+        math::Vec3f pos;
+        math::Matrix3f rot;
+    };
+    std::array<ViewCandidate, 27> view_candidates;
+    std::array<float, 27> view_scores;
+    std::mt19937 gen(12345);
+
+    std::array<math::Vec3f, 27> offsets;
+    std::array<float, 27> oweights;
+    for (int z = 0; z < 3; ++z) {
+        for (int y = 0; y < 3; ++y) {
+            for (int x = 0; x < 3; ++x) {
+                float r = 1.0f + (z - 1) * 0.25f;
+                float theta = (y - 1) * (pi / 8.0f);
+                float phi = pi / 2 + (x - 1) * (pi / 8.0f);
+
+                int idx = (z * 3 + y) * 3 + x;
+                offsets[idx][0] = r * std::cos(theta) * sin(phi);
+                offsets[idx][1] = r * std::sin(theta) * sin(phi);
+                offsets[idx][2] = r * cos(phi);
+
+                oweights[idx] = 1.0f - (math::Vec3f(1.0f, 0.0f, 0.0f) - offsets[idx]).norm() / 10.0f;
+            }
+        }
+    }
+
+#if 0
+    mve::TriangleMesh::Ptr mesh = mve::TriangleMesh::create();
+    std::vector<math::Vec3f> & verts = mesh->get_vertices();
+    std::vector<float> & values = mesh->get_vertex_values();
+    verts.resize(27);
+    std::copy(offsets.begin(), offsets.end(), verts.data());
+    values.resize(27);
+    std::copy(oweights.begin(), oweights.end(), values.data());
+    mve::geom::save_ply_mesh(mesh, "/tmp/test.ply");
+#endif
+
+    #pragma omp parallel
+    {
+        cacc::set_cuda_device(device);
 
         cudaStream_t stream;
         cudaStreamCreate(&stream);
-        {
-            dim3 grid(cacc::divup(num_vertices, KERNEL_BLOCK_SIZE));
-            dim3 block(KERNEL_BLOCK_SIZE);
-            initialize_histogram<<<grid, block, 0, stream>>>(dcon_hist->cdata());
-            populate_histogram<<<grid, block, 0, stream>>>(
-                cacc::Vec3f(pos.begin()), args.max_distance,
-                dbvh_tree->cdata(), dcloud->cdata(), dkd_tree->cdata(),
-                ddir_hist->cdata(), dcon_hist->cdata());
-        }
 
-        #if 0
-        {
-            CHECK(cudaDeviceSynchronize());
-            *con_hist = *dcon_hist;
-            cacc::VectorArray<float, cacc::HOST>::Data data = con_hist->cdata();
-            for (std::size_t i = 0; i < vertices.size(); ++i) {
-                overtices[i] = vertices[i] + pos;
-                ovalues[i] = data.data_ptr[i];
-            }
+        cacc::VectorArray<float, cacc::DEVICE>::Ptr dcon_hist;
+        dcon_hist = cacc::VectorArray<float, cacc::DEVICE>::create(num_sverts, 1, stream);
 
-            mve::geom::SavePLYOptions opts;
-            opts.write_vertex_values = true;
-            std::string filename = fmt::format("/tmp/test-sphere-hist-{:04d}.ply", cnt);
-            mve::geom::save_ply_mesh(mesh, filename, opts);
-        }
-        #endif
+        cacc::Image<float, cacc::DEVICE>::Ptr dhist;
+        dhist = cacc::Image<float, cacc::DEVICE>::create(128, 45, stream);
+        cacc::Image<float, cacc::HOST>::Ptr hist;
+        hist = cacc::Image<float, cacc::HOST>::create(128, 45, stream);
 
-        {
-            dim3 grid(cacc::divup(256, KERNEL_BLOCK_SIZE), 90);
-            dim3 block(KERNEL_BLOCK_SIZE);
-            evaluate_histogram<<<grid, block, 0, stream>>>(cacc::Mat3f(calib.begin()), width, height,
-                dkd_tree->cdata(), dcon_hist->cdata(), dhist->cdata());
-        }
-        #if 0
-        {
-            cacc::Image<float, cacc::DEVICE>::Ptr dtmp;
-            dtmp = cacc::Image<float, cacc::DEVICE>::create(256, 90);
+        for (uint i = 0; i < args.num_views; ++i) {
+            #pragma omp for schedule(dynamic)
+            for (int j = 0; j < 27; ++j) {
+                view_scores[j] = 0.0f;
+                dcon_hist->null();
 
-            dim3 grid(cacc::divup(256, KERNEL_BLOCK_SIZE));
-            dim3 block(KERNEL_BLOCK_SIZE);
-            suppress_nonmaxima<<<grid, block, 0, stream>>>(dhist->cdata(), dtmp->cdata());
-            CHECK(cudaDeviceSynchronize());
+                //Disable velocity adjustment
+                //if (j < 9 || 18 <= j) continue;
 
-            cacc::Image<float, cacc::HOST>::Ptr hist;
-            hist = cacc::Image<float, cacc::HOST>::create<cacc::DEVICE>(dtmp);
-            cacc::Image<float, cacc::HOST>::Data data = hist->cdata();
-            mve::FloatImage::Ptr image = mve::FloatImage::create(256, 90, 1);
-            for (int y = 0; y < 90; ++y) {
-                for (int x = 0; x < 256; ++x) {
-                    image->at(x, y, 0) = data.data_ptr[y * data.pitch / sizeof(float) + x];
+                //Disable altitude adjustment
+                if ((j % 3) != 1) continue;
+
+                math::Vec3f & pos = view_candidates[j].pos;
+                math::Vec3f rel_offset(0.0f);
+                {
+                    math::Vec3f rx = state.vel / state.vel.norm();
+
+                    math::Vec3f up = math::Vec3f(0.0f, 0.0f, 1.0f);
+                    bool stable = abs(up.dot(rx)) < 0.99f;
+
+                    math::Vec3f ry = up.cross(rx).normalize();
+                    math::Vec3f rz = rx.cross(ry).normalize();
+
+                    math::Vec3f const & o = offsets[j];
+
+                    for (int k = 0; k < 3; ++k) {
+                        rel_offset[k] = rx[k] * o[0] + ry[k] * o[1] + rz[k] * o[2];
+                    }
+                }
+                pos = state.pos + rel_offset * state.vel.norm();
+
+                if ((pos - state.pos).norm() > args.max_velocity) continue;
+                if (pos[2] < args.min_altitude || args.max_altitude < pos[2]) continue;
+                if (kd_tree->find_nn(pos, nullptr, args.min_distance)) continue;
+
+                {
+                    dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
+                    dim3 block(KERNEL_BLOCK_SIZE);
+                    populate_histogram<<<grid, block, 0, stream>>>(
+                        cacc::Vec3f(pos.begin()),
+                        args.max_distance, dbvh_tree->cdata(), dcloud->cdata(), dkd_tree->cdata(),
+                        ddir_hist->cdata(), dcon_hist->cdata());
+                }
+
+                {
+                    dim3 grid(cacc::divup(128, KERNEL_BLOCK_SIZE), 45);
+                    dim3 block(KERNEL_BLOCK_SIZE);
+                    evaluate_histogram<<<grid, block, 0, stream>>>(cacc::Mat3f(calib.begin()), width, height,
+                        dkd_tree->cdata(), dcon_hist->cdata(), dhist->cdata());
+                }
+
+                *hist = *dhist;
+                cacc::Image<float, cacc::HOST>::Data data = hist->cdata();
+
+                hist->sync();
+
+                //TODO write a kernel to select best viewing direction
+
+                float max = 0.0f;
+                float theta = 0.0f;
+                float phi = 0.0f;
+                for (int y = 0; y < data.height; ++y) {
+                    for (int x = 0; x < data.width; ++x) {
+                        float v = data.data_ptr[y * data.pitch / sizeof(float) + x];
+                        if (v > max) {
+                            max = v;
+                            theta = (x / (float) data.width) * 2.0f * pi;
+                            //float theta = (y / (float) data.height) * pi;
+                            phi = (0.5f + (y / (float) data.height) / 2.0f) * pi;
+                        }
+                    }
+                }
+
+                view_scores[j] = max * oweights[j];
+
+                float ctheta = std::cos(theta);
+                float stheta = std::sin(theta);
+                float cphi = std::cos(phi);
+                float sphi = std::sin(phi);
+                math::Vec3f view_dir(ctheta * sphi, stheta * sphi, cphi);
+                view_dir.normalize();
+
+                math::Vec3f rz = view_dir;
+
+                math::Vec3f up = math::Vec3f(0.0f, 0.0f, -1.0f);
+                bool stable = abs(up.dot(rz)) < 0.99f;
+                up = stable ? up : math::Vec3f(cphi, sphi, 0.0f);
+
+                math::Vec3f rx = up.cross(rz).normalize();
+                math::Vec3f ry = rz.cross(rx).normalize();
+
+                math::Matrix3f & rot = view_candidates[j].rot;
+                for (int k = 0; k < 3; ++k) {
+                    rot[k] = rx[k];
+                    rot[3 + k] = ry[k];
+                    rot[6 + k] = rz[k];
                 }
             }
-            mve::image::save_pfm_file(image, fmt::format("/tmp/test-hist-{:04d}.pfm", cnt));
-        }
-        #endif
 
-        //TODO write a kernel to select best viewing direction
-        CHECK(cudaDeviceSynchronize());
-        *hist = *dhist;
+            auto it = std::max_element(view_scores.begin(), view_scores.end());
+            if (*it < 0.1f) break;
 
-        cacc::Image<float, cacc::HOST>::Data hist_data = hist->cdata();
+            #pragma omp single
+            {
+                std::size_t idx = std::distance(view_scores.begin(), it);
 
-        #if 0
-        mve::FloatImage::Ptr image = mve::FloatImage::create(256, 90, 1);
-        for (int y = 0; y < 90; ++y) {
-            for (int x = 0; x < 256; ++x) {
-                image->at(x, y, 0) = hist_data.data_ptr[y * hist_data.pitch / sizeof(float) + x];
-            }
-        }
-        mve::image::save_pfm_file(image, fmt::format("/tmp/test-hist-{:04d}.pfm", cnt));
-        #endif
+                //std::discrete_distribution<> dist(view_scores.begin(), view_scores.end());
+                //idx = dist(gen);
 
-        float max = 0.0f;
-        float theta = 0.0f;
-        float phi = 0.0f;
-        for (int y = 0; y < hist_data.height; ++y) {
-            for (int x = 0; x < hist_data.width; ++x) {
-                float v = hist_data.data_ptr[y * hist_data.pitch / sizeof(float) + x];
-                if (v > max) {
-                    max = v;
-                    theta = (x / (float) hist_data.width) * 2.0f * pi;
-                    //float theta = (y / (float) hist_data.height) * pi;
-                    phi = (0.5f + (y / (float) hist_data.height) / 2.0f) * pi;
+                ViewCandidate const & view = view_candidates[idx];
+
+                state.vel = view.pos - state.pos;
+                state.pos = view.pos;
+                math::Vec3f trans = -view.rot * view.pos;
+
+                std::copy(trans.begin(), trans.end(), cam.trans);
+                std::copy(view.rot.begin(), view.rot.end(), cam.rot);
+
+                math::Matrix4f w2c;
+                cam.fill_world_to_cam(w2c.begin());
+                {
+                    dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
+                    dim3 block(KERNEL_BLOCK_SIZE);
+                    populate_histogram<<<grid, block, 0, stream>>>(
+                        cacc::Vec3f(state.pos.begin()), args.max_distance,
+                        cacc::Mat4f(w2c.begin()), cacc::Mat3f(calib.begin()), width, height,
+                        dbvh_tree->cdata(), dcloud->cdata(), ddir_hist->cdata()
+                    );
                 }
+
+                std::cout << i << std::endl;
+
+                trajectory.push_back(cam);
             }
         }
-
-        float ctheta = std::cos(theta);
-        float stheta = std::sin(theta);
-        float cphi = std::cos(phi);
-        float sphi = std::sin(phi);
-        math::Vec3f view_dir(ctheta * sphi, stheta * sphi, cphi);
-        view_dir.normalize();
-
-        math::Vec3f rz = view_dir;
-
-        math::Vec3f up = math::Vec3f(0.0f, 0.0f, -1.0f);
-        bool stable = abs(up.dot(rz)) < 0.99f;
-        up = stable ? up : math::Vec3f(cphi, sphi, 0.0f);
-
-        math::Vec3f rx = up.cross(rz).normalize();
-        math::Vec3f ry = rz.cross(rx).normalize();
-
-        math::Matrix3f rot;
-        for (int i = 0; i < 3; ++i) {
-            rot[i] = rx[i];
-            rot[3 + i] = ry[i];
-            rot[6 + i] = rz[i];
-        }
-
-        math::Vec3f trans = -rot * pos;
-        std::copy(trans.begin(), trans.end(), cam.trans);
-        std::copy(rot.begin(), rot.end(), cam.rot);
-
-        cam.fill_world_to_cam(w2c.begin());
-        {
-            dim3 grid(cacc::divup(num_vertices, KERNEL_BLOCK_SIZE));
-            dim3 block(KERNEL_BLOCK_SIZE);
-            populate_histogram<<<grid, block, 0, stream>>>(
-                cacc::Vec3f(pos.begin()), args.max_distance,
-                cacc::Mat4f(w2c.begin()), cacc::Mat3f(calib.begin()), width, height,
-                dbvh_tree->cdata(), dcloud->cdata(), ddir_hist->cdata()
-            );
-        }
-
-        #if 0
-        {
-            dim3 grid(cacc::divup(256, KERNEL_BLOCK_SIZE), 90);
-            dim3 block(KERNEL_BLOCK_SIZE);
-            evaluate_histogram<<<grid, block, 0, stream>>>(dkd_tree->cdata(),
-               dhist->cdata(), dcon_hist->cdata());
-        }
-
-        *con_hist = *dcon_hist;
-        cacc::VectorArray<float, cacc::HOST>::Data data = con_hist->cdata();
-        for (std::size_t i = 0; i < vertices.size(); ++i) {
-            overtices[i] = vertices[i] + pos;
-
-            float * f = data.data_ptr + data.pitch / sizeof(float) + i;
-            uint32_t v = reinterpret_cast<uint32_t&>(*f);
-            ovalues[i] = cacc::uint32_to_float(v);
-        }
-
-        mve::geom::SavePLYOptions opts;
-        opts.write_vertex_values = true;
-        std::string filename = fmt::format("/tmp/test-2d-hist-{:04d}.ply", cnt);
-        mve::geom::save_ply_mesh(mesh, filename, opts);
-        #endif
-
-        CHECK(cudaDeviceSynchronize());
-        cnt += 1;
     }
 
     save_trajectory(trajectory, args.out_trajectory);

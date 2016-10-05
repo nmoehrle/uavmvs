@@ -224,7 +224,6 @@ int main(int argc, char **argv) {
 
         cacc::VectorArray<float, cacc::DEVICE>::Ptr dcon_hist;
         dcon_hist = cacc::VectorArray<float, cacc::DEVICE>::create(num_verts, 1, stream);
-        dcon_hist->null();
 
         cacc::Image<float, cacc::DEVICE>::Ptr dhist;
         dhist = cacc::Image<float, cacc::DEVICE>::create(128, 45, stream);

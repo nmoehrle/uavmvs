@@ -4,6 +4,8 @@ project "plan_trajectory"
     language "C++"
     toolset "nvcc"
 
+    buildoptions { "-Xcompiler -fopenmp" }
+
     flags { "RelocatableDeviceCode" }
     defines { "_MWAITXINTRIN_H_INCLUDED", "_FORCE_INLINES" }
 
@@ -18,4 +20,4 @@ project "plan_trajectory"
 
     mve.use({ "util" })
 
-    links { "fmt" }
+    links { "fmt", "gomp" }
