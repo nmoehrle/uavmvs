@@ -18,6 +18,7 @@
 #include "cacc/math.h"
 #include "cacc/matrix.h"
 #include "cacc/tracing.h"
+#include "cacc/reduction.h"
 
 #include "col/mpl_viridis.h"
 
@@ -90,13 +91,14 @@ int main(int argc, char * argv[])
     cacc::PointCloud<cacc::DEVICE>::Ptr dcloud;
     dcloud = cacc::PointCloud<cacc::DEVICE>::create<cacc::HOST>(cloud);
 
-    uint num_vertices = dcloud->cdata().num_vertices;
+    uint num_verts = dcloud->cdata().num_vertices;
     uint max_cameras = 20;
 
-    cacc::VectorArray<cacc::Vec3f, cacc::HOST>::Ptr hdir_hist;
-    hdir_hist = cacc::VectorArray<cacc::Vec3f, cacc::HOST>::create(num_vertices, max_cameras);
     cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Ptr ddir_hist;
-    ddir_hist = cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::create(num_vertices, max_cameras);
+    ddir_hist = cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::create(num_verts, max_cameras);
+    cacc::Array<float, cacc::DEVICE>::Ptr drecons;
+    drecons = cacc::Array<float, cacc::DEVICE>::create(num_verts);
+    drecons->null();
 
     std::vector<mve::CameraInfo> trajectory;
     load_scene_as_trajectory(args.scene, &trajectory);
@@ -113,7 +115,7 @@ int main(int argc, char * argv[])
     {
         cudaStream_t stream;
         cudaStreamCreate(&stream);
-        dim3 grid(cacc::divup(num_vertices, KERNEL_BLOCK_SIZE));
+        dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
         dim3 block(KERNEL_BLOCK_SIZE);
 
         for (mve::CameraInfo const & cam : trajectory) {
@@ -121,10 +123,10 @@ int main(int argc, char * argv[])
             cam.fill_world_to_cam(w2c.begin());
             cam.fill_camera_pos(view_pos.begin());
 
-            populate_histogram<<<grid, block, 0, stream>>>(
+            populate_direction_histogram<<<grid, block, 0, stream>>>(
                 cacc::Vec3f(view_pos.begin()), args.max_distance,
                 cacc::Mat4f(w2c.begin()), cacc::Mat3f(calib.begin()), width, height,
-                dbvh_tree->cdata(), dcloud->cdata(), ddir_hist->cdata()
+                dbvh_tree->cdata(), dcloud->cdata(), drecons->cdata(), ddir_hist->cdata()
             );
         }
         CHECK(cudaDeviceSynchronize());
@@ -133,14 +135,14 @@ int main(int argc, char * argv[])
     std::chrono::duration<double> diff = end - start;
     std::cout << "GPU: " << diff.count() << std::endl;
 
+#if 0
     {
-        dim3 grid(cacc::divup(num_vertices, KERNEL_BLOCK_SIZE));
+        dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
         dim3 block(KERNEL_BLOCK_SIZE);
         evaluate_histogram<<<grid, block>>>(ddir_hist->cdata());
         CHECK(cudaDeviceSynchronize());
     }
-
-    *hdir_hist = *ddir_hist;
+#endif
 
     if (!args.export_cloud.empty()) {
         mve::TriangleMesh::Ptr mesh;
@@ -152,14 +154,19 @@ int main(int argc, char * argv[])
         }
 
         std::vector<float> & values = mesh->get_vertex_values();
-        values.resize(num_vertices);
+        values.resize(num_verts);
 
-        cacc::VectorArray<cacc::Vec3f, cacc::HOST>::Data const & dir_hist = hdir_hist->cdata();
-        int const stride = dir_hist.pitch / sizeof(cacc::Vec3f);
-        #pragma omp parallel for
-        for (std::size_t i = 0; i < num_vertices; ++i) {
-            values[i] = dir_hist.data_ptr[(max_cameras - 1) * stride + i][3];
+        std::cout << "GPU: " << cacc::sum(drecons) / num_verts << std::endl;
+
+        cacc::Array<float, cacc::HOST> recons(*drecons);
+        cacc::Array<float, cacc::HOST>::Data const & data = recons.cdata();
+        for (std::size_t i = 0; i < num_verts; ++i) {
+            values[i] = data.data_ptr[i];
         }
+
+        float sum = std::accumulate(values.begin(), values.end(), 1.0f);
+        std::cout << "CPU: " << sum / num_verts << std::endl;
+
         mve::geom::SavePLYOptions opts;
         opts.write_vertex_values = true;
         mve::geom::save_ply_mesh(mesh, args.export_cloud, opts);

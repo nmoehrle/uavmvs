@@ -17,6 +17,7 @@
 #include "cacc/math.h"
 #include "cacc/tracing.h"
 #include "cacc/nnsearch.h"
+#include "cacc/reduction.h"
 
 #include "util/io.h"
 #include "util/trajectory_io.h"
@@ -137,6 +138,9 @@ int main(int argc, char **argv) {
 
     cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Ptr ddir_hist;
     ddir_hist = cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::create(num_verts, max_cameras);
+    cacc::Array<float, cacc::DEVICE>::Ptr drecons;
+    drecons = cacc::Array<float, cacc::DEVICE>::create(num_verts);
+    drecons->null();
 
     mve::CameraInfo cam;
     cam.flen = 0.86f;
@@ -330,14 +334,15 @@ int main(int argc, char **argv) {
                 {
                     dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
                     dim3 block(KERNEL_BLOCK_SIZE);
-                    populate_histogram<<<grid, block, 0, stream>>>(
+                    populate_direction_histogram<<<grid, block, 0, stream>>>(
                         cacc::Vec3f(state.pos.begin()), args.max_distance,
                         cacc::Mat4f(w2c.begin()), cacc::Mat3f(calib.begin()), width, height,
-                        dbvh_tree->cdata(), dcloud->cdata(), ddir_hist->cdata()
+                        dbvh_tree->cdata(), dcloud->cdata(), drecons->cdata(), ddir_hist->cdata()
                     );
                 }
 
-                std::cout << i << std::endl;
+                float avg_recon = cacc::sum(drecons) / num_verts;
+                std::cout << i << " " << avg_recon << std::endl;
 
                 trajectory.push_back(cam);
             }

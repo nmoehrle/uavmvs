@@ -87,10 +87,11 @@ heuristic(cacc::Vec3f const * rel_dirs, uint stride, uint n)
 
 __global__
 void
-populate_histogram(cacc::Vec3f view_pos, float max_distance,
+populate_direction_histogram(cacc::Vec3f view_pos, float max_distance,
     cacc::Mat4f w2c, cacc::Mat3f calib, int width, int height,
     cacc::BVHTree<cacc::DEVICE>::Data bvh_tree,
     cacc::PointCloud<cacc::DEVICE>::Data cloud,
+    cacc::Array<float, cacc::DEVICE>::Data recons,
     cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data dir_hist)
 {
     int const bx = blockIdx.x;
@@ -130,11 +131,14 @@ populate_histogram(cacc::Vec3f view_pos, float max_distance,
 
     float recon = dot(cacc::Vec3f(0.0f, 0.0f, 1.0f), rel_dir);
     if (row >= 1) {
-        float recon_before = rel_dirs[(row - 1) * stride][3];
+        //float recon_before = rel_dirs[(row - 1) * stride][3];
+        float recon_before = recons.data_ptr[id];
         recon = recon_before + heuristic(rel_dirs, stride, row + 1);
     }
 
-    rel_dirs[row * stride][3] = recon;
+    recons.data_ptr[id] = recon;
+    //rel_dirs[row * stride][3] = recon;
+
     dir_hist.num_rows_ptr[id] += 1;
 }
 
