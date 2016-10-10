@@ -1,4 +1,6 @@
 #include <iostream>
+#include <algorithm>
+#include <unordered_set>
 
 #include "util/system.h"
 #include "util/arguments.h"
@@ -42,7 +44,7 @@ Arguments parse_args(int argc, char **argv) {
     args.set_description("Template app");
     args.add_option('\0', "max-distance", true, "maximum distance to surface [80.0]");
     args.add_option('\0', "focal-length", true, "camera focal length [0.86]");
-    args.add_option('m', "max-iterations", true, "maximum iterations [500]");
+    args.add_option('m', "max-iterations", true, "maximum iterations [100]");
     args.parse(argc, argv);
 
     Arguments conf;
@@ -50,7 +52,7 @@ Arguments parse_args(int argc, char **argv) {
     conf.proxy_mesh = args.get_nth_nonopt(1);
     conf.proxy_cloud = args.get_nth_nonopt(2);
     conf.out_trajectory = args.get_nth_nonopt(3);
-    conf.max_iters = 500;
+    conf.max_iters = 100;
     conf.max_distance = 80.0f;
     conf.focal_length = 0.86f;
 
@@ -129,119 +131,163 @@ int main(int argc, char **argv) {
     int width = 1920;
     int height = 1080;
     cam.fill_calibration(calib.begin(), width, height);
-    std::mt19937 gen(12345);
-
-    //TODO
-    // - update multiple simultaneously
-    // - parallelize
-    // - increase sphere resolution
 
     std::vector<mve::CameraInfo> trajectory;
     utp::load_trajectory(args.in_trajectory, &trajectory);
 
-    for (uint i = 0; i < args.max_iters; ++i) {
-        std::uniform_int_distribution<> dist(0, trajectory.size() - 1);
-        std::size_t idx = dist(gen);
+    std::mt19937 gen(12345);
+    std::uniform_int_distribution<> dist(0, trajectory.size() - 1);
 
-        drecons->null();
-        ddir_hist->clear();
+    float min_sq_distance = args.max_distance * args.max_distance;
+
+    std::vector<std::size_t> indices;
+    #pragma omp parallel
+    {
+        cacc::set_cuda_device(device);
 
         cudaStream_t stream;
         cudaStreamCreate(&stream);
-        dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
-        dim3 block(KERNEL_BLOCK_SIZE);
-
-        math::Vec3f pos;
-
-        for (std::size_t j = 0; j < trajectory.size(); ++j) {
-            mve::CameraInfo const & cam = trajectory[j];
-            if (j == idx) continue;
-
-            math::Matrix4f w2c;
-            cam.fill_world_to_cam(w2c.begin());
-            cam.fill_camera_pos(pos.begin());
-
-            populate_direction_histogram<<<grid, block, 0, stream>>>(
-                cacc::Vec3f(pos.begin()), args.max_distance,
-                cacc::Mat4f(w2c.begin()), cacc::Mat3f(calib.begin()), width, height,
-                dbvh_tree->cdata(), dcloud->cdata(), drecons->cdata(), ddir_hist->cdata()
-            );
-        }
-
-        mve::CameraInfo & cam = trajectory[idx];
-
-        cam.fill_camera_pos(pos.begin());
 
         cacc::VectorArray<float, cacc::DEVICE>::Ptr dcon_hist;
         dcon_hist = cacc::VectorArray<float, cacc::DEVICE>::create(num_sverts, 1, stream);
-        dcon_hist->null();
 
         cacc::Image<float, cacc::DEVICE>::Ptr dhist;
         dhist = cacc::Image<float, cacc::DEVICE>::create(128, 45, stream);
         cacc::Image<float, cacc::HOST>::Ptr hist;
         hist = cacc::Image<float, cacc::HOST>::create(128, 45, stream);
-        {
-            dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
-            dim3 block(KERNEL_BLOCK_SIZE);
-            populate_histogram<<<grid, block, 0, stream>>>(
-                cacc::Vec3f(pos.begin()),
-                args.max_distance, dbvh_tree->cdata(), dcloud->cdata(), dkd_tree->cdata(),
-                ddir_hist->cdata(), dcon_hist->cdata());
-        }
 
-        {
-            dim3 grid(cacc::divup(128, KERNEL_BLOCK_SIZE), 45);
-            dim3 block(KERNEL_BLOCK_SIZE);
-            evaluate_histogram<<<grid, block, 0, stream>>>(cacc::Mat3f(calib.begin()), width, height,
-                dkd_tree->cdata(), dcon_hist->cdata(), dhist->cdata());
-        }
+        for (uint i = 0; i < args.max_iters; ++i) {
+            #pragma omp single
+            {
+                drecons->null();
+                ddir_hist->clear();
 
-        *hist = *dhist;
-        cacc::Image<float, cacc::HOST>::Data data = hist->cdata();
+                std::unordered_set<std::size_t> idxs;
+                {
+                    std::vector<math::Vec3f> poss;
+                    for (int j = 0; j < 1000; ++j) {
+                        std::size_t idx = dist(gen);
 
-        hist->sync();
+                        std::unordered_set<std::size_t>::iterator it;
+                        bool success;
+                        std::tie(it, success) = idxs.insert(idx);
+                        if (!success) continue;
 
-        //TODO write a kernel to select best viewing direction
+                        math::Vec3f pos;
+                        trajectory[idx].fill_camera_pos(pos.begin());
 
-        float max = 0.0f;
-        float theta = 0.0f;
-        float phi = 0.0f;
-        for (int y = 0; y < data.height; ++y) {
-            for (int x = 0; x < data.width; ++x) {
-                float v = data.data_ptr[y * data.pitch / sizeof(float) + x];
-                if (v > max) {
-                    max = v;
-                    theta = (x / (float) data.width) * 2.0f * pi;
-                    //float theta = (y / (float) data.height) * pi;
-                    phi = (0.5f + (y / (float) data.height) / 2.0f) * pi;
+                        bool too_close = std::any_of(poss.begin(), poss.end(),
+                            [&pos, &min_sq_distance](math::Vec3f const & opos) -> bool {
+                                return (pos - opos).square_norm() < min_sq_distance;
+                        });
+
+                        if (too_close) {
+                            idxs.erase(it);
+                        } else {
+                            poss.push_back(pos);
+                        }
+                    }
                 }
+                indices.clear();
+                indices.insert(indices.end(), idxs.begin(), idxs.end());
+
+                for (std::size_t j = 0; j < trajectory.size(); ++j) {
+                    if (idxs.count(j)) continue;
+                    mve::CameraInfo const & cam = trajectory[j];
+
+                    math::Vec3f pos;
+                    cam.fill_camera_pos(pos.begin());
+                    math::Matrix4f w2c;
+                    cam.fill_world_to_cam(w2c.begin());
+
+                    dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
+                    dim3 block(KERNEL_BLOCK_SIZE);
+                    populate_direction_histogram<<<grid, block, 0, stream>>>(
+                        cacc::Vec3f(pos.begin()), args.max_distance,
+                        cacc::Mat4f(w2c.begin()), cacc::Mat3f(calib.begin()), width, height,
+                        dbvh_tree->cdata(), dcloud->cdata(), drecons->cdata(), ddir_hist->cdata()
+                    );
+                }
+                cudaStreamSynchronize(stream);
+            }
+
+            #pragma omp for schedule(dynamic)
+            for (std::size_t j = 0; j < indices.size(); ++j) {
+                mve::CameraInfo & cam = trajectory[indices[j]];
+
+                math::Vec3f pos;
+                cam.fill_camera_pos(pos.begin());
+
+                dcon_hist->null();
+                {
+                    dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
+                    dim3 block(KERNEL_BLOCK_SIZE);
+                    populate_histogram<<<grid, block, 0, stream>>>(
+                        cacc::Vec3f(pos.begin()),
+                        args.max_distance, dbvh_tree->cdata(), dcloud->cdata(), dkd_tree->cdata(),
+                        ddir_hist->cdata(), dcon_hist->cdata());
+                }
+
+                {
+                    dim3 grid(cacc::divup(128, KERNEL_BLOCK_SIZE), 45);
+                    dim3 block(KERNEL_BLOCK_SIZE);
+                    evaluate_histogram<<<grid, block, 0, stream>>>(cacc::Mat3f(calib.begin()), width, height,
+                        dkd_tree->cdata(), dcon_hist->cdata(), dhist->cdata());
+                }
+
+                *hist = *dhist;
+                cacc::Image<float, cacc::HOST>::Data data = hist->cdata();
+
+                hist->sync();
+
+                //TODO write a kernel to select best viewing direction
+
+                float max = 0.0f;
+                float theta = 0.0f;
+                float phi = 0.0f;
+                for (int y = 0; y < data.height; ++y) {
+                    for (int x = 0; x < data.width; ++x) {
+                        float v = data.data_ptr[y * data.pitch / sizeof(float) + x];
+                        if (v > max) {
+                            max = v;
+                            theta = (x / (float) data.width) * 2.0f * pi;
+                            //float theta = (y / (float) data.height) * pi;
+                            phi = (0.5f + (y / (float) data.height) / 2.0f) * pi;
+                        }
+                    }
+                }
+
+                math::Matrix3f rot = utp::rotation_from_spherical(theta, phi);
+
+                math::Vec3f trans = -rot * pos;
+
+                std::copy(trans.begin(), trans.end(), cam.trans);
+                std::copy(rot.begin(), rot.end(), cam.rot);
+            }
+
+            #pragma omp single
+            {
+                for (std::size_t j = 0; j < indices.size(); ++j) {
+                    mve::CameraInfo & cam = trajectory[indices[j]];
+                    math::Vec3f pos;
+                    cam.fill_camera_pos(pos.begin());
+                    math::Matrix4f w2c;
+                    cam.fill_world_to_cam(w2c.begin());
+                    {
+                        dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
+                        dim3 block(KERNEL_BLOCK_SIZE);
+                        populate_direction_histogram<<<grid, block, 0, stream>>>(
+                            cacc::Vec3f(pos.begin()), args.max_distance,
+                            cacc::Mat4f(w2c.begin()), cacc::Mat3f(calib.begin()), width, height,
+                            dbvh_tree->cdata(), dcloud->cdata(), drecons->cdata(), ddir_hist->cdata()
+                        );
+                    }
+                }
+                float avg_recon = cacc::sum(drecons) / num_verts;
+                std::cout << i << " " << avg_recon << std::endl;
             }
         }
-
-        math::Matrix3f rot = utp::rotation_from_spherical(theta, phi);
-
-        math::Vec3f trans = -rot * pos;
-
-        std::copy(trans.begin(), trans.end(), cam.trans);
-        std::copy(rot.begin(), rot.end(), cam.rot);
-
-        math::Matrix4f w2c;
-        cam.fill_world_to_cam(w2c.begin());
-        {
-            dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
-            dim3 block(KERNEL_BLOCK_SIZE);
-            populate_direction_histogram<<<grid, block, 0, stream>>>(
-                cacc::Vec3f(pos.begin()), args.max_distance,
-                cacc::Mat4f(w2c.begin()), cacc::Mat3f(calib.begin()), width, height,
-                dbvh_tree->cdata(), dcloud->cdata(), drecons->cdata(), ddir_hist->cdata()
-            );
-        }
-
         cudaStreamDestroy(stream);
-        CHECK(cudaDeviceSynchronize());
-
-        float avg_recon = cacc::sum(drecons) / num_verts;
-        std::cout << i << " " << avg_recon << std::endl;
     }
 
     utp::save_trajectory(trajectory, args.out_trajectory);

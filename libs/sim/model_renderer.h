@@ -36,6 +36,9 @@ public:
         part.mr->set_mesh(mesh);
         part.mr->set_shader(shader->get_shader_program());
         part.texture = texture;
+        if (mesh->get_faces().empty()) {
+            part.mr->set_primitive(GL_POINTS);
+        }
     }
 
     void render(void)
