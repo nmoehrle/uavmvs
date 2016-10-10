@@ -1,17 +1,11 @@
 #include <iostream>
 
-#include "fmt/format.h"
-
 #include "util/system.h"
 #include "util/arguments.h"
 #include "util/file_system.h"
-#include "util/choices.h"
-
-#include "math/bspline.h"
 
 #include "mve/camera.h"
 #include "mve/mesh_io_ply.h"
-#include "mve/image_io.h"
 
 #include "cacc/util.h"
 #include "cacc/math.h"
@@ -20,17 +14,18 @@
 #include "cacc/reduction.h"
 
 #include "util/io.h"
-#include "util/trajectory_io.h"
 
 #include "geom/sphere.h"
 #include "geom/volume_io.h"
+
+#include "utp/trajectory.h"
+#include "utp/trajectory_io.h"
 
 #include "eval/kernels.h"
 
 struct Arguments {
     std::string proxy_mesh;
     std::string proxy_cloud;
-    std::string guidance_volume;
     std::string out_trajectory;
     uint num_views;
     float min_distance;
@@ -55,6 +50,7 @@ Arguments parse_args(int argc, char **argv) {
     args.add_option('\0', "max-altitude", true, "maximum altitude [100.0]");
     args.add_option('\0', "max-velocity", true, "maximum velocity [5.0]");
     args.add_option('\0', "focal-length", true, "camera focal length [0.86]");
+    args.add_option('n', "num-views", true, "number of views [500]");
     args.parse(argc, argv);
 
     Arguments conf;
@@ -66,14 +62,19 @@ Arguments parse_args(int argc, char **argv) {
     conf.min_altitude = 0.0f;
     conf.max_altitude = 100.0f;
     conf.max_velocity = 5.0f;
-    conf.num_views = 400;
+    conf.num_views = 500;
     conf.focal_length = 0.86f;
 
     for (util::ArgResult const* i = args.next_option();
          i != 0; i = args.next_option()) {
         switch (i->opt->sopt) {
+        case 'n':
+            conf.num_views = i->get_arg<uint>();
+        break;
         case '\0':
-            if (i->opt->lopt == "min-distance") {
+            if (i->opt->lopt == "focal-length") {
+                conf.focal_length = i->get_arg<float>();
+            } else if (i->opt->lopt == "min-distance") {
                 conf.min_distance = i->get_arg<float>();
             } else if (i->opt->lopt == "max-distance") {
                 conf.max_distance = i->get_arg<float>();
@@ -143,7 +144,7 @@ int main(int argc, char **argv) {
     drecons->null();
 
     mve::CameraInfo cam;
-    cam.flen = 0.86f;
+    cam.flen = args.focal_length;
     math::Matrix3f calib;
     int width = 1920;
     int height = 1080;
@@ -217,11 +218,13 @@ int main(int argc, char **argv) {
                 view_scores[j] = 0.0f;
                 dcon_hist->null();
 
+                float penalties = 0.0f;
+
                 //Disable velocity adjustment
                 //if (j < 9 || 18 <= j) continue;
 
                 //Disable altitude adjustment
-                if ((j % 3) != 1) continue;
+                //if ((j % 3) != 1) continue;
 
                 math::Vec3f & pos = view_candidates[j].pos;
                 math::Vec3f rel_offset(0.0f);
@@ -244,7 +247,13 @@ int main(int argc, char **argv) {
 
                 if ((pos - state.pos).norm() > args.max_velocity) continue;
                 if (pos[2] < args.min_altitude || args.max_altitude < pos[2]) continue;
-                if (kd_tree->find_nn(pos, nullptr, args.min_distance)) continue;
+                std::pair<uint, float> nn;
+                if (kd_tree->find_nn(pos, &nn, 2.0f * args.min_distance)) {
+                    if (nn.second < args.min_distance) continue;
+                    penalties += 1.0f - (nn.second - args.min_distance) / args.min_distance;
+                }
+
+                if (penalties > 1.0f) continue;
 
                 {
                     dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
@@ -263,9 +272,9 @@ int main(int argc, char **argv) {
                 }
 
                 *hist = *dhist;
-                cacc::Image<float, cacc::HOST>::Data data = hist->cdata();
-
                 hist->sync();
+
+                cacc::Image<float, cacc::HOST>::Data data = hist->cdata();
 
                 //TODO write a kernel to select best viewing direction
 
@@ -284,30 +293,9 @@ int main(int argc, char **argv) {
                     }
                 }
 
-                view_scores[j] = max * oweights[j];
+                view_scores[j] = max * oweights[j] * (1.0f - penalties);
 
-                float ctheta = std::cos(theta);
-                float stheta = std::sin(theta);
-                float cphi = std::cos(phi);
-                float sphi = std::sin(phi);
-                math::Vec3f view_dir(ctheta * sphi, stheta * sphi, cphi);
-                view_dir.normalize();
-
-                math::Vec3f rz = view_dir;
-
-                math::Vec3f up = math::Vec3f(0.0f, 0.0f, -1.0f);
-                bool stable = abs(up.dot(rz)) < 0.99f;
-                up = stable ? up : math::Vec3f(cphi, sphi, 0.0f);
-
-                math::Vec3f rx = up.cross(rz).normalize();
-                math::Vec3f ry = rz.cross(rx).normalize();
-
-                math::Matrix3f & rot = view_candidates[j].rot;
-                for (int k = 0; k < 3; ++k) {
-                    rot[k] = rx[k];
-                    rot[3 + k] = ry[k];
-                    rot[6 + k] = rz[k];
-                }
+                view_candidates[j].rot = utp::rotation_from_spherical(theta, phi);
             }
 
             auto it = std::max_element(view_scores.begin(), view_scores.end());
@@ -349,7 +337,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    save_trajectory(trajectory, args.out_trajectory);
+    utp::save_trajectory(trajectory, args.out_trajectory);
 
     return EXIT_SUCCESS;
 }

@@ -1,8 +1,6 @@
 #include <iostream>
 #include <fstream>
 #include <array>
-#include <mutex>
-#include <condition_variable>
 #include <random>
 #include <tuple>
 
@@ -10,8 +8,6 @@
 #include "util/file_system.h"
 #include "util/system.h"
 #include "util/exception.h"
-
-#include "util/trajectory_io.h"
 
 #include "mve/mesh_io_ply.h"
 #include "mve/mesh_io_obj.h"
@@ -36,6 +32,8 @@
 #include "sim/entities/trajectory_renderer.h"
 #include "sim/entities/propulsion_renderer.h"
 #include "sim/engine.h"
+
+#include "utp/trajectory_io.h"
 
 struct Arguments {
     std::string model;
@@ -359,7 +357,7 @@ int main(int argc, char **argv) {
             std::copy(rot.begin(), rot.end(), cam.rot);
             cam.flen = 0.86f;
         }
-        save_trajectory(tmp, args.trajectory);
+        utp::save_trajectory(tmp, args.trajectory);
     }
 
     return EXIT_SUCCESS;

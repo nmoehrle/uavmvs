@@ -5,7 +5,6 @@
 #include "util/arguments.h"
 #include "util/file_system.h"
 
-#include "util/trajectory_io.h"
 #include "util/matrix_io.h"
 
 #include "math/matrix_tools.h"
@@ -31,6 +30,9 @@
 
 #include "geom/sphere.h"
 #include "geom/volume_io.h"
+
+#include "utp/trajectory_io.h"
+
 
 struct Arguments {
     std::string mesh;
@@ -95,7 +97,7 @@ extract(math::Vector<std::uint32_t, 3> pos, Volume<std::uint32_t>::ConstPtr volu
 
 void
 init_opengl(void) {
-    glClearColor(0.9f, 0.9f, 0.9f, 1.0f);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glEnable(GL_DEPTH_TEST);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glEnable(GL_FRAMEBUFFER_SRGB);
@@ -129,7 +131,7 @@ int main(int argc, char **argv) {
         spline.set_degree(3);
         {
             std::vector<mve::CameraInfo> trajectory;
-            load_trajectory(args.trajectory, &trajectory);
+            utp::load_trajectory(args.trajectory, &trajectory);
 
             for (std::size_t i = 0; i < trajectory.size(); ++i) {
                 mve::CameraInfo const & cam = trajectory[i];

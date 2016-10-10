@@ -1,15 +1,16 @@
-#ifndef UTIL_TRAJECTORY_IO_HEADER
-#define UTIL_TRAJECTORY_IO_HEADER
+#ifndef UTP_TRAJECTORY_IO_HEADER
+#define UTP_TRAJECTORY_IO_HEADER
 
 #include <fstream>
 
 #include "math/vector.h"
 #include "math/matrix.h"
 
-#include "mve/camera.h"
+#include "trajectory.h"
 
+UTP_NAMESPACE_BEGIN
 
-void save_trajectory(std::vector<mve::CameraInfo> const & trajectory,
+void save_trajectory(Trajectory const & trajectory,
     std::string const & path)
 {
     std::ofstream out(path.c_str());
@@ -34,7 +35,7 @@ void save_trajectory(std::vector<mve::CameraInfo> const & trajectory,
 }
 
 void load_trajectory(std::string const & path,
-    std::vector<mve::CameraInfo> * trajectory)
+    Trajectory * trajectory)
 {
     std::ifstream in(path.c_str());
 
@@ -71,4 +72,6 @@ void load_trajectory(std::string const & path,
     in.close();
 }
 
-#endif /* UTIL_TRAJECTORY_IO_HEADER */
+UTP_NAMESPACE_END
+
+#endif /* UTP_TRAJECTORY_IO_HEADER */

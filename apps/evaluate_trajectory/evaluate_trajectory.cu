@@ -129,6 +129,8 @@ int main(int argc, char * argv[])
                 dbvh_tree->cdata(), dcloud->cdata(), drecons->cdata(), ddir_hist->cdata()
             );
         }
+
+        cudaStreamDestroy(stream);
         CHECK(cudaDeviceSynchronize());
     }
     end = std::chrono::high_resolution_clock::now();
