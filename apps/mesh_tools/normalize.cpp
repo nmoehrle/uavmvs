@@ -152,23 +152,35 @@ int main(int argc, char **argv) {
     std::cout << "Maximal value: " << real_max << std::endl;
     std::cout << "Normalizing range " << min << " - " << max << std::endl;
 
+    std::array<uint, 11> hist = {};
+
     int num_outliers = 0;
     mve::TriangleMesh::ValueList & vertex_values = mesh_to_normalize->get_vertex_values();
     for (std::size_t i = 0; i < vertex_values.size(); ++i) {
-        float value = vertex_values[i];
+        float & value = vertex_values[i];
         if (value == args.no_value) continue;
 
         if (value >= min) {
             if(value <= max) {
-                vertex_values[i] = ((value - min) / delta);
+                value = ((value - min) / delta);
             } else {
-                vertex_values[i] = args.clamp ? 1.0f : args.no_value;
+                value = args.clamp ? 1.0f : args.no_value;
                 num_outliers++;
             }
         } else {
-            vertex_values[i] = args.clamp ? 0.0f : args.no_value;
+            value = args.clamp ? 0.0f : args.no_value;
             num_outliers++;
         }
+
+        if (value != args.no_value) {
+            hist[value * 10.0f] += 1;
+        }
+    }
+
+    float binmax = *std::max_element(hist.begin(), hist.end());
+    for (int i = 0; i < 11; ++i) {
+        std::string bar((hist[i] / binmax) * 20 + 0.5, '#');
+        std::cout << i / 10.0f << '\t' << bar << std::endl;
     }
 
     if (args.clamp) {
