@@ -48,6 +48,7 @@ workspace "uavmvs"
     include("apps/generate_texture")
     include("apps/generate_proxy_mesh")
     include("apps/generate_proxy_cloud")
+    include("apps/generate_grid_trajectory")
     include("apps/generate_guidance_volume")
 
     include("apps/simulator")
