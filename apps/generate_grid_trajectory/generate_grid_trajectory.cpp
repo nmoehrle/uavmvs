@@ -84,7 +84,7 @@ int main(int argc, char **argv) {
     float hfov = 2.0f * std::atan2(1.0f, 2.0f * args.focal_length);
     float vfov = 2.0f * std::atan2(2.0f / 3.0f, 2.0f * args.focal_length);
 
-    float altitude = args.max_distance;
+    float altitude = args.max_distance * 0.9f;
     float width = std::tan(hfov / 2.0f) * altitude * 2.0f;
     float height = std::tan(vfov / 2.0f) * altitude * 2.0f;
 
@@ -95,8 +95,8 @@ int main(int argc, char **argv) {
     float aheight = aabb.max[1] - aabb.min[1];
     math::Vec2f center(aabb.min[0] + awidth / 2.0f, aabb.min[1] + aheight / 2.0f);
 
-    int cols = std::ceil(awidth / spacing);
-    int rows = std::ceil(aheight / velocity);
+    int cols = std::ceil(awidth / spacing) + 1;
+    int rows = std::ceil(aheight / velocity) + 2;
 
     std::vector<mve::CameraInfo> trajectory;
 

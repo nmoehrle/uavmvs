@@ -141,7 +141,6 @@ int main(int argc, char **argv) {
     std::vector<float> const & values = cloud->get_vertex_values();
     std::vector<float> const & confidences = cloud->get_vertex_confidences();
 
-    /* Calculate AABB. */
     acc::AABB<math::Vec3f> aabb = acc::calculate_aabb(verts);
 
     assert(acc::valid(aabb) && acc::volume(aabb) > 0.0f);
