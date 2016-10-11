@@ -128,10 +128,11 @@ int main(int argc, char **argv) {
         shaders.push_back(shader);
 
         math::BSpline<math::Vec3f> spline;
-        spline.set_degree(3);
+        float step;
         {
             std::vector<mve::CameraInfo> trajectory;
             utp::load_trajectory(args.trajectory, &trajectory);
+            step = 0.1f / (trajectory.size() - 1);
 
             for (std::size_t i = 0; i < trajectory.size(); ++i) {
                 mve::CameraInfo const & cam = trajectory[i];
@@ -144,7 +145,7 @@ int main(int argc, char **argv) {
         spline.uniform_knots(0.0, 1.0f);
 
         Trajectory::Ptr trajectory(new Trajectory);
-        for (float t = 0.0f; t < 1.0f; t += 0.001f) {
+        for (float t = 0.0f; t < 1.0f; t += step) {
             trajectory->xs.push_back(spline.evaluate(t));
             trajectory->qs.emplace_back(math::Vec3f(0.0f, 0.0f, 1.0f), 0.0f);
         }

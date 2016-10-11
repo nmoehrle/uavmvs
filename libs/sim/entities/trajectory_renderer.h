@@ -20,7 +20,7 @@ class TrajectoryRenderer : public RenderComponent {
             mve::TriangleMesh::FaceList& faces(mesh->get_faces());
             mve::TriangleMesh::ColorList& colors(mesh->get_vertex_colors());
 
-            math::Vec4f color(0.0f, 0.0f, 1.0f, 1.0f);
+            math::Vec4f color(1.0f, 1.0f, 1.0f, 1.0f);
 
             verts.insert(verts.end(), trajectory->xs.begin(), trajectory->xs.end());
             if (verts.empty()) return;
