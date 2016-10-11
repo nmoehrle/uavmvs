@@ -142,21 +142,24 @@ int main(int argc, char **argv) {
         for (int y = 0; y < 3; ++y) {
             for (int x = 0; x < 3; ++x) {
                 int idx = (z * 3 + y) * 3 + x;
-                offsets[idx][0] = (x - 1) * 0.1f;
-                offsets[idx][1] = (y - 1) * 0.1f;
-                offsets[idx][2] = (z - 1) * 0.1f;
+                offsets[idx][0] = (x - 1) * 1.0f;
+                offsets[idx][1] = (y - 1) * 1.0f;
+                offsets[idx][2] = (z - 1) * 1.0f;
             }
         }
     }
+    float scale = 0.1f;
+
     std::vector<mve::CameraInfo> trajectory;
     utp::load_trajectory(args.in_trajectory, &trajectory);
 
     std::mt19937 gen(12345);
-    std::uniform_int_distribution<> dist(0, trajectory.size() - 1);
+    std::vector<std::size_t> indices(trajectory.size());
+    std::iota(indices.begin(), indices.end(), 0);
 
     float min_sq_distance = args.max_distance * args.max_distance;
 
-    std::vector<std::size_t> indices;
+    std::vector<std::size_t> oindices;
     #pragma omp parallel
     {
         cacc::set_cuda_device(device);
@@ -175,20 +178,14 @@ int main(int argc, char **argv) {
         for (uint i = 0; i < args.max_iters; ++i) {
             #pragma omp single
             {
+                std::shuffle(indices.begin(), indices.end(), gen);
                 drecons->null();
                 ddir_hist->clear();
 
-                std::unordered_set<std::size_t> idxs;
+                oindices.clear();
                 {
                     std::vector<math::Vec3f> poss;
-                    for (int j = 0; j < 1000; ++j) {
-                        std::size_t idx = dist(gen);
-
-                        std::unordered_set<std::size_t>::iterator it;
-                        bool success;
-                        std::tie(it, success) = idxs.insert(idx);
-                        if (!success) continue;
-
+                    for (std::size_t idx : indices) {
                         math::Vec3f pos;
                         trajectory[idx].fill_camera_pos(pos.begin());
 
@@ -197,18 +194,16 @@ int main(int argc, char **argv) {
                                 return (pos - opos).square_norm() < min_sq_distance;
                         });
 
-                        if (too_close) {
-                            idxs.erase(it);
-                        } else {
+                        if (!too_close) {
+                            oindices.push_back(idx);
                             poss.push_back(pos);
                         }
                     }
                 }
-                indices.clear();
-                indices.insert(indices.end(), idxs.begin(), idxs.end());
 
+                std::unordered_set<std::size_t> idxset(oindices.begin(), oindices.end());
                 for (std::size_t j = 0; j < trajectory.size(); ++j) {
-                    if (idxs.count(j)) continue;
+                    if (idxset.count(j)) continue;
                     mve::CameraInfo const & cam = trajectory[j];
 
                     math::Vec3f pos;
@@ -224,19 +219,20 @@ int main(int argc, char **argv) {
                         dbvh_tree->cdata(), dcloud->cdata(), drecons->cdata(), ddir_hist->cdata()
                     );
                 }
+
                 cudaStreamSynchronize(stream);
             }
 
             #pragma omp for schedule(dynamic)
-            for (std::size_t j = 0; j < indices.size(); ++j) {
-                mve::CameraInfo & cam = trajectory[indices[j]];
+            for (std::size_t j = 0; j < oindices.size(); ++j) {
+                mve::CameraInfo & cam = trajectory[oindices[j]];
                 math::Vec3f cpos;
                 cam.fill_camera_pos(cpos.begin());
 
                 float vmax = 0.0f;
 
                 for (int k = 0; k < 27; ++k) {
-                    math::Vec3f pos = cpos + offsets[k];
+                    math::Vec3f pos = cpos + scale * offsets[k];
 
                     if (kd_tree->find_nn(pos, nullptr, args.min_distance)) continue;
 
@@ -294,8 +290,8 @@ int main(int argc, char **argv) {
 
             #pragma omp single
             {
-                for (std::size_t j = 0; j < indices.size(); ++j) {
-                    mve::CameraInfo & cam = trajectory[indices[j]];
+                for (std::size_t j = 0; j < oindices.size(); ++j) {
+                    mve::CameraInfo & cam = trajectory[oindices[j]];
                     math::Vec3f pos;
                     cam.fill_camera_pos(pos.begin());
                     math::Matrix4f w2c;
@@ -311,7 +307,7 @@ int main(int argc, char **argv) {
                     }
                 }
                 float avg_recon = cacc::sum(drecons) / num_verts;
-                std::cout << i << "(" << indices.size() << ") " << avg_recon << std::endl;
+                std::cout << i << "(" << oindices.size() << ") " << avg_recon << std::endl;
             }
         }
         cudaStreamDestroy(stream);
