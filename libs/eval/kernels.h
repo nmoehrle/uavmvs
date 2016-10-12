@@ -9,6 +9,8 @@
 #include "cacc/point_cloud.h"
 #include "cacc/vector_array.h"
 
+#define RECONSTRUCTABLE 3.0f
+
 #define KERNEL_BLOCK_SIZE 128
 __global__
 void populate_direction_histogram(cacc::Vec3f view_pos, float max_distance,
@@ -19,15 +21,16 @@ void populate_direction_histogram(cacc::Vec3f view_pos, float max_distance,
     cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data dir_hist);
 
 __global__
-void evaluate_histogram(
-    cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data hist);
+void evaluate_direction_histogram(
+    cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data hist,
+    cacc::Array<float, cacc::DEVICE>::Data recons);
 
 __global__
 void populate_histogram(cacc::Vec3f view_pos, float max_distance,
     cacc::BVHTree<cacc::DEVICE>::Data bvh_tree,
     cacc::PointCloud<cacc::DEVICE>::Data cloud,
     cacc::KDTree<3, cacc::DEVICE>::Data kd_tree,
-    cacc::VectorArray<float, cacc::DEVICE>::Data con_hist);
+    cacc::VectorArray<float, cacc::DEVICE>::Data obs_hist);
 
 __global__
 void populate_histogram(cacc::Vec3f view_pos, float max_distance,
@@ -35,6 +38,7 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance,
     cacc::PointCloud<cacc::DEVICE>::Data cloud,
     cacc::KDTree<3, cacc::DEVICE>::Data kd_tree,
     cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data dir_hist,
+    cacc::Array<float, cacc::DEVICE>::Data recons,
     cacc::VectorArray<float, cacc::DEVICE>::Data con_hist);
 
 __global__

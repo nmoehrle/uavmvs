@@ -222,8 +222,8 @@ int main(int argc, char **argv) {
         int height = 1080;
         cam.fill_calibration(calib.begin(), width, height);
 
-        cacc::VectorArray<float, cacc::DEVICE>::Ptr dcon_hist;
-        dcon_hist = cacc::VectorArray<float, cacc::DEVICE>::create(num_verts, 1, stream);
+        cacc::VectorArray<float, cacc::DEVICE>::Ptr dobs_hist;
+        dobs_hist = cacc::VectorArray<float, cacc::DEVICE>::create(num_verts, 1, stream);
 
         cacc::Image<float, cacc::DEVICE>::Ptr dhist;
         dhist = cacc::Image<float, cacc::DEVICE>::create(128, 45, stream);
@@ -234,21 +234,21 @@ int main(int argc, char **argv) {
         for (std::size_t i = 0; i < sample_positions.size(); ++i) {
             counter.progress<ETA>();
 
-            dcon_hist->null();
+            dobs_hist->null();
             {
                 dim3 grid(cacc::divup(dcloud->cdata().num_vertices, KERNEL_BLOCK_SIZE));
                 dim3 block(KERNEL_BLOCK_SIZE);
                 populate_histogram<<<grid, block, 0, stream>>>(
                     cacc::Vec3f(volume->position(sample_positions[i]).begin()),
                     args.max_distance, dbvh_tree->cdata(), dcloud->cdata(), dkd_tree->cdata(),
-                    dcon_hist->cdata());
+                    dobs_hist->cdata());
             }
 
             {
                 dim3 grid(cacc::divup(128, KERNEL_BLOCK_SIZE), 45);
                 dim3 block(KERNEL_BLOCK_SIZE);
                 evaluate_histogram<<<grid, block, 0, stream>>>(cacc::Mat3f(calib.begin()), width, height,
-                    dkd_tree->cdata(), dcon_hist->cdata(), dhist->cdata());
+                    dkd_tree->cdata(), dobs_hist->cdata(), dhist->cdata());
             }
 
             *hist = *dhist;

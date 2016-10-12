@@ -261,7 +261,7 @@ int main(int argc, char **argv) {
                     populate_histogram<<<grid, block, 0, stream>>>(
                         cacc::Vec3f(pos.begin()),
                         args.max_distance, dbvh_tree->cdata(), dcloud->cdata(), dkd_tree->cdata(),
-                        ddir_hist->cdata(), dcon_hist->cdata());
+                        ddir_hist->cdata(), drecons->cdata(), dcon_hist->cdata());
                 }
 
                 {
@@ -328,6 +328,7 @@ int main(int argc, char **argv) {
                         dbvh_tree->cdata(), dcloud->cdata(), drecons->cdata(), ddir_hist->cdata()
                     );
                 }
+                cudaStreamSynchronize(stream);
 
                 float avg_recon = cacc::sum(drecons) / num_verts;
                 std::cout << i << " " << avg_recon << std::endl;

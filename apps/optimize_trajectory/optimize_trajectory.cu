@@ -9,6 +9,8 @@
 #include "mve/camera.h"
 #include "mve/mesh_io_ply.h"
 
+#include "math/bspline.h"
+
 #include "cacc/util.h"
 #include "cacc/math.h"
 #include "cacc/tracing.h"
@@ -46,7 +48,7 @@ Arguments parse_args(int argc, char **argv) {
     args.add_option('\0', "min-distance", true, "minimum distance to surface [0.0]");
     args.add_option('\0', "max-distance", true, "maximum distance to surface [80.0]");
     args.add_option('\0', "focal-length", true, "camera focal length [0.86]");
-    args.add_option('m', "max-iterations", true, "maximum iterations [100]");
+    args.add_option('m', "max-iters", true, "maximum iterations [100]");
     args.parse(argc, argv);
 
     Arguments conf;
@@ -148,7 +150,7 @@ int main(int argc, char **argv) {
             }
         }
     }
-    float scale = 0.1f;
+    float scale = args.max_distance / 25.0f;
 
     std::vector<mve::CameraInfo> trajectory;
     utp::load_trajectory(args.in_trajectory, &trajectory);
@@ -225,14 +227,37 @@ int main(int argc, char **argv) {
 
             #pragma omp for schedule(dynamic)
             for (std::size_t j = 0; j < oindices.size(); ++j) {
-                mve::CameraInfo & cam = trajectory[oindices[j]];
+                std::size_t idx = oindices[j];
+                mve::CameraInfo & cam = trajectory[idx];
                 math::Vec3f cpos;
                 cam.fill_camera_pos(cpos.begin());
 
                 float vmax = 0.0f;
 
                 for (int k = 0; k < 27; ++k) {
-                    math::Vec3f pos = cpos + scale * offsets[k];
+                    math::Vec3f pos = cpos + scale * offsets[k] * (1.0f - i / (args.max_iters / 2.0f));
+
+                    #if 0
+                    if (i > args.max_iters / 2) {
+                        math::BSpline<math::Vec3f> spline;
+                        for (std::size_t h = 0; h < 3; ++h) {
+                            mve::CameraInfo & cam = trajectory[std::max(0ul, idx - h)];
+                            math::Vec3f pos;
+                            cam.fill_camera_pos(pos.begin());
+                            spline.add_point(pos);
+                        }
+                        spline.add_point(pos);
+                        for (std::size_t h = 0; h < 3; ++h) {
+                            mve::CameraInfo & cam = trajectory[std::min(idx + h, trajectory.size() - 1)];
+                            math::Vec3f pos;
+                            cam.fill_camera_pos(pos.begin());
+                            spline.add_point(pos);
+                        }
+                        spline.uniform_knots(0.0, 1.0f);
+
+                        pos = spline.evaluate(0.5f);
+                    }
+                    #endif
 
                     if (kd_tree->find_nn(pos, nullptr, args.min_distance)) continue;
 
@@ -243,7 +268,7 @@ int main(int argc, char **argv) {
                         populate_histogram<<<grid, block, 0, stream>>>(
                             cacc::Vec3f(pos.begin()),
                             args.max_distance, dbvh_tree->cdata(), dcloud->cdata(), dkd_tree->cdata(),
-                            ddir_hist->cdata(), dcon_hist->cdata());
+                            ddir_hist->cdata(), drecons->cdata(), dcon_hist->cdata());
                     }
 
                     {
@@ -290,6 +315,7 @@ int main(int argc, char **argv) {
 
             #pragma omp single
             {
+                /* Compute current reconstructability (every nth iteration?) */
                 for (std::size_t j = 0; j < oindices.size(); ++j) {
                     mve::CameraInfo & cam = trajectory[oindices[j]];
                     math::Vec3f pos;
@@ -306,9 +332,11 @@ int main(int argc, char **argv) {
                         );
                     }
                 }
+
                 float avg_recon = cacc::sum(drecons) / num_verts;
                 std::cout << i << "(" << oindices.size() << ") " << avg_recon << std::endl;
             }
+
         }
         cudaStreamDestroy(stream);
     }
