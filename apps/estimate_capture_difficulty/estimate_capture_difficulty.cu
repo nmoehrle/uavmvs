@@ -36,6 +36,7 @@ Arguments parse_args(int argc, char **argv) {
         + " [OPTS] IN_CLOUD PROXY_MESH AIRSPACE_MESH OUT_CLOUD");
     args.set_description("Estimates the difficulty to capture each vertex by "
         "sampling how much of its hemisphere is visible from the airspace");
+    args.add_option('\0', "max-distance", true, "maximum distance to surface [80.0]");
     args.parse(argc, argv);
 
     Arguments conf;
@@ -43,11 +44,18 @@ Arguments parse_args(int argc, char **argv) {
     conf.proxy_mesh = args.get_nth_nonopt(1);
     conf.airspace_mesh = args.get_nth_nonopt(2);
     conf.ocloud = args.get_nth_nonopt(3);
-    conf.max_distance = 2.0f;
+    conf.max_distance = 80.0f;
 
     for (util::ArgResult const* i = args.next_option();
          i != 0; i = args.next_option()) {
         switch (i->opt->sopt) {
+        case '\0':
+            if (i->opt->lopt == "max-distance") {
+                conf.max_distance = i->get_arg<float>();
+            } else {
+                throw std::invalid_argument("Invalid option");
+            }
+        break;
         default:
             throw std::invalid_argument("Invalid option");
         }
