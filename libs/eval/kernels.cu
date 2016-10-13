@@ -202,7 +202,7 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance,
     uint idx;
     float dist;
     cacc::nnsearch::find_nns<3u>(kd_tree, -v2cn, &idx, &dist, 1u);
-    atomicAdd(con_hist.data_ptr + idx, score);
+    atomicAdd(obs_hist.data_ptr + idx, score);
 }
 
 __global__
