@@ -8,6 +8,8 @@
 #include "mve/mesh_io_ply.h"
 #include "mve/bundle_io.h"
 
+#include "acc/primitives.h"
+
 typedef unsigned int uint;
 
 constexpr float inf = std::numeric_limits<float>::infinity();
@@ -20,6 +22,7 @@ struct Arguments {
     bool invert;
     bool show_info;
     bool flip_normals;
+    bool delete_faces;
 };
 
 Arguments parse_args(int argc, char **argv) {
@@ -34,6 +37,11 @@ Arguments parse_args(int argc, char **argv) {
     args.add_option('s', "show-info", false, "show info");
     args.add_option('f', "flip-normals", false, "flip vertex normals");
     args.add_option('\0', "ascii", false, "write out ascii file");
+    args.add_option('\0', "delete-faces", false, "delete faces");
+    args.add_option('\0', "delete-vnormals", false, "delete vertex normals");
+    args.add_option('\0', "delete-vcolors", false, "delete vertex colors");
+    args.add_option('\0', "delete-values", false, "delete vertex values");
+    args.add_option('\0', "delete-confidences", false, "delete vertex confidences");
     args.parse(argc, argv);
 
     Arguments conf;
@@ -42,6 +50,7 @@ Arguments parse_args(int argc, char **argv) {
     conf.invert = false;
     conf.show_info = false;
     conf.flip_normals = false;
+    conf.delete_faces = false;
 
     conf.opts.format_binary = true;
     conf.opts.write_face_colors = false;
@@ -69,6 +78,16 @@ Arguments parse_args(int argc, char **argv) {
         case '\0':
             if (i->opt->lopt == "ascii") {
                 conf.opts.format_binary = false;
+            } else if (i->opt->lopt == "delete-faces") {
+                conf.delete_faces = true;
+            } else if (i->opt->lopt == "delete-vnormals") {
+                conf.opts.write_vertex_normals = false;
+            } else if (i->opt->lopt == "delete-vcolors") {
+                conf.opts.write_vertex_colors = false;
+            } else if (i->opt->lopt == "delete-values") {
+                conf.opts.write_vertex_values = false;
+            } else if (i->opt->lopt == "delete-confidences") {
+                conf.opts.write_vertex_confidences = false;
             } else {
                 throw std::invalid_argument("Invalid option");
             }
@@ -93,21 +112,18 @@ int main(int argc, char **argv) {
     }
     mesh->ensure_normals(true, false);
 
+    std::vector<uint> & faces = mesh->get_faces();
     std::vector<math::Vec3f> & vertices = mesh->get_vertices();
     std::vector<math::Vec3f> & normals = mesh->get_vertex_normals();
 
     if (args.show_info) {
-        math::Vec3f min(+inf);
-        math::Vec3f max(-inf);
+        acc::AABB<math::Vec3f> aabb = acc::calculate_aabb(vertices);
 
-        for (std::size_t i = 0; i < vertices.size(); ++i) {
-            for (std::size_t j = 0; j < 3; ++j){
-                min[j] = std::min(min[j], vertices[i][j]);
-                max[j] = std::max(max[j], vertices[i][j]);
-            }
-        }
+        std::cout << aabb.min << " " << aabb.max << std::endl;
+    }
 
-        std::cout << min << " " << max << std::endl;
+    if (args.delete_faces) {
+        faces.clear();
     }
 
     if (!args.transform.empty()) {
