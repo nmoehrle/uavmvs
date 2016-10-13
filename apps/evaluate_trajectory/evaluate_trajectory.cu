@@ -49,7 +49,7 @@ Arguments parse_args(int argc, char **argv) {
     conf.scene = args.get_nth_nonopt(0);
     conf.proxy_mesh = args.get_nth_nonopt(1);
     conf.proxy_cloud = args.get_nth_nonopt(2);
-    conf.max_distance = 2.0f;
+    conf.max_distance = 80.0f;
 
     for (util::ArgResult const* i = args.next_option();
          i != nullptr; i = args.next_option()) {
