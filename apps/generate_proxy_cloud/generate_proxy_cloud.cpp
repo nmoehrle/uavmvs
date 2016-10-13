@@ -72,12 +72,31 @@ int main(int argc, char **argv) {
     std::uniform_real_distribution<float> dist(0.0f, 1.0f);
     std::atomic<int> num_threads(0);
 
+    float surface = 0.0f;
     #pragma omp parallel
     {
         num_threads += 1;
         std::mt19937 gen;
         std::vector<math::Vec3f> samples;
         std::vector<math::Vec3f> normals;
+
+        #pragma omp for reduction(+:surface)
+        for (std::size_t i = 0; i < faces.size(); i += 3) {
+            math::Vec3f v0 = verts[faces[i + 0]];
+            math::Vec3f v1 = verts[faces[i + 1]];
+            math::Vec3f v2 = verts[faces[i + 2]];
+
+            surface += math::geom::triangle_area(v0, v1, v2);
+        }
+        std::size_t num_samples = surface * args.samples;
+
+        #pragma omp single
+        {
+            std::cout << num_samples << std::endl;
+        }
+
+        samples.reserve(num_samples / num_threads);
+        normals.reserve(num_samples / num_threads);
 
         #pragma omp for schedule(static)
         for (std::size_t i = 0; i < faces.size(); i += 3) {
@@ -90,11 +109,13 @@ int main(int argc, char **argv) {
 
             float area = math::geom::triangle_area(v0, v1, v2);
 
-            uint num_samples = std::ceil(area * args.samples);
+            uint num_face_samples = area * args.samples;
 
-            samples.reserve(samples.size() + num_samples);
-            normals.reserve(normals.size() + num_samples);
-            for (uint j = 0; j < num_samples; ++j) {
+            if (num_face_samples == 0 && dist(gen) < area * args.samples) {
+                num_face_samples += 1;
+            }
+
+            for (uint j = 0; j < num_face_samples; ++j) {
                 float u = dist(gen);
                 float v = dist(gen);
 
