@@ -105,7 +105,7 @@ int main(int argc, char **argv) {
             math::Vec3f v0 = verts[faces[i + 0]];
             math::Vec3f v1 = verts[faces[i + 1]];
             math::Vec3f v2 = verts[faces[i + 2]];
-            math::Vec3f normal = (v2 - v0).cross(v1 - v0).normalized();
+            math::Vec3f normal = (v1 - v0).cross(v2 - v0).normalized();
 
             float area = math::geom::triangle_area(v0, v1, v2);
 
