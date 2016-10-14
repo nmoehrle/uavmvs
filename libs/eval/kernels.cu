@@ -203,8 +203,7 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance,
 
     float phi = acosf(__saturatef(cphi));
     float rel_phi = max(phi - min_phi, 0.0f) * scaling;
-    float rel_cphi = __saturatef(cosf(rel_phi));
-    float score = scale * capture_difficulty * rel_cphi;
+    float score = scale * capture_difficulty * cosf(rel_phi);
 #else
     float score = scale * capture_difficulty * cphi;
 #endif
