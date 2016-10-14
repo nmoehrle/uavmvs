@@ -149,6 +149,8 @@ int main(int argc, char **argv) {
 
     std::vector<float> & values = cloud->get_vertex_values();
     values.resize(vertices.size());
+    std::vector<float> & confidences = cloud->get_vertex_confidences();
+    confidences.resize(vertices.size());
 
     *hcloud = *dcloud;
     {
@@ -156,12 +158,14 @@ int main(int argc, char **argv) {
 
         for (std::size_t i = 0; i < vertices.size(); ++i) {
             values[i] = data.values_ptr[i];
+            confidences[i] = data.qualities_ptr[i];
         }
     }
 
     mve::geom::SavePLYOptions opts;
     opts.write_vertex_values = true;
     opts.write_vertex_normals = true;
+    opts.write_vertex_confidences = true;
     mve::geom::save_ply_mesh(cloud, args.ocloud, opts);
 
     return EXIT_SUCCESS;

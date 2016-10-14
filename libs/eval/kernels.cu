@@ -191,17 +191,26 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance,
     // 0.087f ~ cos(85.0f / 180.0f * pi)
     if (cphi <= 0.087f) return;
 
-    float capture_difficulty = cloud.values_ptr[id];
-    if (capture_difficulty <= 0.0f) return;
-
     if (!visible(v, v2cn, l, bvh_tree)) return;
 
+    float capture_difficulty = max(cloud.qualities_ptr[id], 0.0f);
 
+#if 1
+    // 1.484f ~ 85.0f / 180.0f * pi
+    float min_phi = min(cloud.values_ptr[id], 1.484f);
+
+    float scaling = (pi / 2.0f) / ((pi / 2.0f) - min_phi);
+
+    float phi = acosf(__saturatef(cphi));
+    float rel_phi = max(phi - min_phi, 0.0f) * scaling;
+    float rel_cphi = __saturatef(cosf(rel_phi));
+    float score = scale * capture_difficulty * rel_cphi;
+#else
     float score = scale * capture_difficulty * cphi;
+#endif
 
     uint idx;
-    float dist;
-    cacc::nnsearch::find_nns<3u>(kd_tree, -v2cn, &idx, &dist, 1u);
+    cacc::nnsearch::find_nn<3u>(kd_tree, -v2cn, &idx, nullptr);
     atomicAdd(obs_hist.data_ptr + idx, score);
 }
 
@@ -236,11 +245,9 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance,
     // 0.087f ~ cos(85.0f / 180.0f * pi)
     if (cphi < 0.087f) return;
 
-    float capture_difficulty = cloud.values_ptr[id];
-    if (capture_difficulty <= 0.0f) return;
-
     if (!visible(v, v2cn, l, bvh_tree)) return;
-    assert(id < dir_hist.num_cols);
+
+    float capture_difficulty = max(cloud.qualities_ptr[id], 0.0f);
 
     int const stride = dir_hist.pitch / sizeof(cacc::Vec3f);
     uint num_rows = dir_hist.num_rows_ptr[id];
@@ -257,8 +264,7 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance,
     contrib = scale * capture_difficulty * contrib;
 
     uint idx;
-    float dist;
-    cacc::nnsearch::find_nns<3u>(kd_tree, -v2cn, &idx, &dist, 1u);
+    cacc::nnsearch::find_nn<3u>(kd_tree, -v2cn, &idx, nullptr);
     atomicAdd(con_hist.data_ptr + idx, contrib);
 }
 
@@ -349,6 +355,7 @@ estimate_capture_difficulty(float max_distance,
     float l = max_distance;
 
     float sum = 0.0f;
+    float max_cphi = 0.0f;
 
     for (uint i = 0; i < kd_tree.num_verts; ++i) {
         cacc::Vec3f dir = kd_tree.verts_ptr[i].normalize();
@@ -362,16 +369,18 @@ estimate_capture_difficulty(float max_distance,
         ray.set_tmax(l);
 
         uint face_id;
-        if (!cacc::tracing::trace(bvh_tree, ray, &face_id) || face_id >= mesh_size) continue;
-
-        cacc::Vec3f rel_dir = relative_direction(dir, n);
-        float observation_angle = dot(cacc::Vec3f(0.0f, 0.0f, 1.0f), rel_dir);
-
-        sum += observation_angle;
+        /* Sample observable? */
+        if (!cacc::tracing::trace(bvh_tree, ray, &face_id) || face_id >= mesh_size) {
+            if (cphi > max_cphi) max_cphi = cphi;
+        } else {
+            sum += cphi;
+        }
     }
 
     /* Num samples on hemisphere times expectation of sample (derivation in the thesis) */
     float max = (kd_tree.num_verts / 2.0f) * 0.5f;
 
-    cloud.values_ptr[id] = sum / max;
+    float min_phi = acosf(__saturatef(max_cphi));
+    cloud.values_ptr[id] = min_phi;
+    cloud.qualities_ptr[id] = sum / max;
 }

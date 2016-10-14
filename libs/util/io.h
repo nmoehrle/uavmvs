@@ -74,6 +74,8 @@ load_point_cloud(std::string const & path)
 
     std::vector<math::Vec3f> const & vertices = mesh->get_vertices();
     std::vector<math::Vec3f> const & normals = mesh->get_vertex_normals();
+    std::vector<float> const & values = mesh->get_vertex_values();
+    std::vector<float> const & confidences = mesh->get_vertex_confidences();
 
     cacc::PointCloud<cacc::HOST>::Ptr ret;
     ret = cacc::PointCloud<cacc::HOST>::create(vertices.size());
@@ -81,13 +83,8 @@ load_point_cloud(std::string const & path)
     for (std::size_t i = 0; i < vertices.size(); ++i) {
         data.vertices_ptr[i] = cacc::Vec3f(vertices[i].begin());
         data.normals_ptr[i] = cacc::Vec3f(normals[i].begin());
-    }
-
-    if (mesh->has_vertex_values()) {
-        std::vector<float> const & values = mesh->get_vertex_values();
-        for (std::size_t i = 0; i < values.size(); ++i) {
-            data.values_ptr[i] = values[i];
-        }
+        data.values_ptr[i] = values.size() ? values[i] : 0.0f;
+        data.qualities_ptr[i] = confidences.size() ? confidences[i] : 1.0f;
     }
 
     return ret;
