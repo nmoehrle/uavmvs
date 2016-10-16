@@ -25,6 +25,7 @@ float optimize(std::vector<uint> * ids, std::vector<math::Vector<float, N> > con
     for (std::size_t i = 0; i < ids->size() - 1; ++i) {
         length += dist(i, i + 1);
     }
+
     #pragma omp parallel for
     for (int i = 0; i < iters; ++i) {
         gen.seed(i);
