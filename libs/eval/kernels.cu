@@ -229,7 +229,8 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance,
 
     if (id >= cloud.num_vertices) return;
 
-    if (recons.data_ptr[id] >= RECONSTRUCTABLE) return;
+    float recon = recons.data_ptr[id] / RECONSTRUCTABLE;
+    if (recon >= 1.0f) return;
 
     cacc::Vec3f v = cloud.vertices_ptr[id];
     cacc::Vec3f n = cloud.normals_ptr[id];
@@ -253,14 +254,14 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance,
 
     if (num_rows >= dir_hist.max_rows) return;
 
-    float contrib = cphi;
+    float contrib = cphi * capture_difficulty;
     cacc::Vec3f rel_dir = relative_direction(v2cn, n);
     if (num_rows >= 1) {
         cacc::Vec3f * rel_dirs = dir_hist.data_ptr + id;
-        contrib = heuristic(rel_dirs, stride, num_rows, rel_dir);
+        contrib = (1.0f - recon) * heuristic(rel_dirs, stride, num_rows, rel_dir);
     }
 
-    contrib = scale * capture_difficulty * contrib;
+    contrib = scale * contrib;
 
     uint idx;
     cacc::nnsearch::find_nn<3u>(kd_tree, -v2cn, &idx, nullptr);
