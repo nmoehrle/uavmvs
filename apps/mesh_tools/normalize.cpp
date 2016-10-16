@@ -179,7 +179,7 @@ int main(int argc, char **argv) {
 
     float binmax = *std::max_element(hist.begin(), hist.end());
     for (int i = 0; i < 11; ++i) {
-        std::string bar((hist[i] / binmax) * 20 + 0.5, '#');
+        std::string bar(std::ceil((hist[i] / binmax) * 20.0f), '#');
         std::cout << i / 10.0f << '\t' << bar << std::endl;
     }
 

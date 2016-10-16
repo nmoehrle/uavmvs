@@ -158,7 +158,8 @@ int main(int argc, char * argv[])
         std::vector<float> & values = mesh->get_vertex_values();
         values.resize(num_verts);
 
-        std::cout << "GPU: " << cacc::sum(drecons) / num_verts << std::endl;
+        std::cout << "Average reconstructability" << std::endl;
+        std::cout << "  GPU: " << cacc::sum(drecons) / num_verts << std::endl;
 
         cacc::Array<float, cacc::HOST> recons(*drecons);
         cacc::Array<float, cacc::HOST>::Data const & data = recons.cdata();
@@ -167,7 +168,7 @@ int main(int argc, char * argv[])
         }
 
         float sum = std::accumulate(values.begin(), values.end(), 1.0f);
-        std::cout << "CPU: " << sum / num_verts << std::endl;
+        std::cout << "  CPU: " << sum / num_verts << std::endl;
 
         mve::geom::SavePLYOptions opts;
         opts.write_vertex_values = true;
