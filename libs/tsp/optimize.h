@@ -9,44 +9,55 @@
 
 TSP_NAMESPACE_BEGIN
 
-template <int N>
-float twoopt(std::vector<uint> * ids, std::vector<math::Vector<float, N> > const & verts);
+
+float twoopt(std::vector<uint> * ids, std::vector<float> const & sqdists);
 
 template <int N>
 float optimize(std::vector<uint> * ids, std::vector<math::Vector<float, N> > const & verts,
     int iters = 1000)
 {
-    auto dist = [&ids, &verts] (std::size_t i, std::size_t j) {
-        return (verts[ids->at(j)] - verts[ids->at(i)]).norm();
-    };
-    std::mt19937 gen;
-
-    float length = dist(ids->size() - 1, 0);
-    for (std::size_t i = 0; i < ids->size() - 1; ++i) {
-        length += dist(i, i + 1);
+    std::vector<float> sqdists((ids->size() - 1) * ids->size() / 2);
+    for (std::size_t idx = 0, i = 1; i < ids->size(); ++i) {
+        for (std::size_t j = 0; j < i; ++j) {
+            sqdists[idx++] = (verts[j] - verts[i]).square_norm();
+        }
     }
 
-    #pragma omp parallel for
-    for (int i = 0; i < iters; ++i) {
-        gen.seed(i);
+    auto sqdist = [&ids, &sqdists] (std::size_t i, std::size_t j) {
+        std::tie(j, i) = std::minmax(ids->at(i), ids->at(j));
+        return sqdists[((i - 1) * i) / 2 + j];
+    };
+
+    float length = std::sqrt(sqdist(ids->size() - 1, 0));
+    for (std::size_t i = 0; i < ids->size() - 1; ++i) {
+        length += std::sqrt(sqdist(i, i + 1));
+    }
+
+    #pragma omp parallel
+    {
+        std::mt19937 gen;
         std::vector<uint> nids(ids->size());
-        std::iota(nids.begin(), nids.end(), 0);
-        std::shuffle(nids.begin(), nids.end(), gen);
-        float nlength = twoopt(&nids, verts);
-        #pragma omp critical
-        if (nlength < length) {
-            std::swap(*ids, nids);
-            length = nlength;
+        #pragma omp for
+        for (int i = 0; i < iters; ++i) {
+            gen.seed(i);
+            std::iota(nids.begin(), nids.end(), 0);
+            std::shuffle(nids.begin(), nids.end(), gen);
+            float nlength = twoopt(&nids, sqdists);
+            #pragma omp critical
+            if (nlength < length) {
+                std::swap(*ids, nids);
+                length = nlength;
+            }
         }
     }
 
     return length;
 }
 
-template <int N>
-float twoopt(std::vector<uint> * ids, std::vector<math::Vector<float, N> > const & verts) {
-    auto sqdist = [&ids, &verts] (std::size_t i, std::size_t j) {
-        return (verts[ids->at(j)] - verts[ids->at(i)]).square_norm();
+float twoopt(std::vector<uint> * ids, std::vector<float> const & sqdists) {
+    auto sqdist = [&ids, &sqdists] (std::size_t i, std::size_t j) {
+        std::tie(j, i) = std::minmax(ids->at(i), ids->at(j));
+        return sqdists[((i - 1) * i) / 2 + j];
     };
 
     while (true) {
