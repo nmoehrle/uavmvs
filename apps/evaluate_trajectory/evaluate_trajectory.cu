@@ -24,6 +24,8 @@
 
 #include "eval/kernels.h"
 
+#include "utp/bspline.h"
+
 typedef unsigned char uchar;
 
 struct Arguments {
@@ -102,6 +104,7 @@ int main(int argc, char * argv[])
 
     std::vector<mve::CameraInfo> trajectory;
     load_scene_as_trajectory(args.scene, &trajectory);
+    std::cout << '\n';
 
     int width = 1920;
     int height = 1080;
@@ -111,6 +114,7 @@ int main(int argc, char * argv[])
 
     std::chrono::time_point<std::chrono::high_resolution_clock> start, end;
 
+    std::cout << "Computing reconstuctability" << std::endl;
     start = std::chrono::high_resolution_clock::now();
     {
         cudaStream_t stream;
@@ -135,7 +139,7 @@ int main(int argc, char * argv[])
     }
     end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> diff = end - start;
-    std::cout << "GPU: " << diff.count() << std::endl;
+    std::cout << "  GPU: " << diff.count() << 's' << std::endl;
 
 #if 0
     {
@@ -146,6 +150,37 @@ int main(int argc, char * argv[])
     }
 #endif
 
+    std::vector<float> values(num_verts);
+
+    cacc::Array<float, cacc::HOST> recons(*drecons);
+    cacc::Array<float, cacc::HOST>::Data const & data = recons.cdata();
+    for (std::size_t i = 0; i < num_verts; ++i) {
+        values[i] = data.data_ptr[i];
+    }
+
+    std::cout << "Average reconstructability" << std::endl;
+    std::cout << "  GPU: " << cacc::sum(drecons) / num_verts << std::endl;
+    float sum = std::accumulate(values.begin(), values.end(), 1.0f);
+    std::cout << "  CPU: " << sum / num_verts << std::endl;
+
+    std::vector<math::Vec3f> positions(trajectory.size());
+    for (std::size_t i = 0; i < trajectory.size(); ++i) {
+        trajectory[i].fill_camera_pos(positions[i].begin());
+    }
+
+    utp::BSpline<float, 3u, 3u> spline;
+    spline.fit(positions);
+
+    float length = 0.0f;
+
+    math::Vec3f last = spline.eval(0.0f);
+    for (std::size_t i = 1; i < trajectory.size() * 1000; ++i) {
+        math::Vec3f curr = spline.eval(i / (trajectory.size() * 1000.0f - 1.0f));
+        length += (curr - last).norm();
+        last = curr;
+    }
+    std::cout << "Length: " << length << '\n' << std::endl;
+
     if (!args.export_cloud.empty()) {
         mve::TriangleMesh::Ptr mesh;
         try {
@@ -155,20 +190,8 @@ int main(int argc, char * argv[])
             std::exit(EXIT_FAILURE);
         }
 
-        std::vector<float> & values = mesh->get_vertex_values();
-        values.resize(num_verts);
-
-        std::cout << "Average reconstructability" << std::endl;
-        std::cout << "  GPU: " << cacc::sum(drecons) / num_verts << std::endl;
-
-        cacc::Array<float, cacc::HOST> recons(*drecons);
-        cacc::Array<float, cacc::HOST>::Data const & data = recons.cdata();
-        for (std::size_t i = 0; i < num_verts; ++i) {
-            values[i] = data.data_ptr[i];
-        }
-
-        float sum = std::accumulate(values.begin(), values.end(), 1.0f);
-        std::cout << "  CPU: " << sum / num_verts << std::endl;
+        std::vector<float> & ovalues = mesh->get_vertex_values();
+        ovalues.insert(ovalues.end(), values.begin(), values.end());
 
         mve::geom::SavePLYOptions opts;
         opts.write_vertex_values = true;

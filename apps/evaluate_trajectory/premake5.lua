@@ -8,6 +8,7 @@ project "evaluate_trajectory"
     flags { "RelocatableDeviceCode" }
     defines { "_MWAITXINTRIN_H_INCLUDED", "_FORCE_INLINES" }
     buildoptions { "-Xcompiler -fopenmp" }
+    sysincludedirs { "/usr/include/eigen3" }
 
     files {
         "evaluate_trajectory.cu",
