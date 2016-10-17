@@ -9,7 +9,6 @@
 
 TSP_NAMESPACE_BEGIN
 
-
 float twoopt(std::vector<uint> * ids, std::vector<float> const & sqdists);
 
 template <int N>

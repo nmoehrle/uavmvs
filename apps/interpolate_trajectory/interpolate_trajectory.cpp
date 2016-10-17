@@ -54,11 +54,14 @@ int main(int argc, char **argv) {
     std::iota(ids.begin(), ids.end(), 0);
     tsp::optimize(&ids, pos, 24);
     {
-        std::vector<math::Vec3f> tmp(trajectory.size());
+        std::vector<mve::CameraInfo> tmp(trajectory.size());
         for (std::size_t i = 0; i < trajectory.size(); ++i) {
-            tmp[i] = pos[ids[i]];
+            tmp[i] = trajectory[ids[i]];
         }
-        std::swap(tmp, pos);
+        std::swap(tmp, trajectory);
+    }
+    for (std::size_t i = 0; i < trajectory.size(); ++i) {
+        trajectory[i].fill_camera_pos(pos[i].begin());
     }
 
     utp::BSpline<float, 3u, 3u> spline;
@@ -74,7 +77,7 @@ int main(int argc, char **argv) {
     }
     std::cout << "Length: " <<length << std::endl;
 
-    //utp::save_trajectory(trajectory, args.out_trajectory);
+    utp::save_trajectory(trajectory, args.out_trajectory);
 
     return EXIT_SUCCESS;
 }

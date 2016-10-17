@@ -50,6 +50,7 @@ workspace "uavmvs"
     include("apps/generate_proxy_cloud")
     include("apps/generate_grid_trajectory")
     include("apps/generate_guidance_volume")
+    include("apps/generate_initial_trajectory")
 
     include("apps/simulator")
     include("apps/visualizer")

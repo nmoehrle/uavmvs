@@ -40,12 +40,19 @@ public:
     IdxType depth(void) const { return dim[2]; }
     math::Vector<IdxType, 3> dimension() const { return dim; }
 
-    math::Vec3f position(math::Vector<IdxType, 3> pos) {
+    math::Vec3f position(math::Vector<IdxType, 3> pos) const {
         return min + resolution.cw_mult(math::Vec3f(pos));
     }
 
-    math::Vec3f position(IdxType x, IdxType y, IdxType z) {
+    math::Vec3f position(IdxType x, IdxType y, IdxType z) const {
         return min + resolution.cw_mult(math::Vec3f(x, y, z));
+    }
+
+    math::Vec3f position(IdxType idx) const {
+        IdxType x = idx % width();
+        IdxType y = (idx / width()) % height();
+        IdxType z = idx / (width() * height());
+        return position(x, y, z);
     }
 
     IdxType num_positions(void) const {
