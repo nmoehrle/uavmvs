@@ -45,17 +45,18 @@ float optimize(std::vector<uint> * ids, std::vector<math::Vector<float, N> > con
 
 template <int N>
 float twoopt(std::vector<uint> * ids, std::vector<math::Vector<float, N> > const & verts) {
-    auto dist = [&ids, &verts] (std::size_t i, std::size_t j) {
-        return (verts[ids->at(j)] - verts[ids->at(i)]).norm();
+    auto sqdist = [&ids, &verts] (std::size_t i, std::size_t j) {
+        return (verts[ids->at(j)] - verts[ids->at(i)]).square_norm();
     };
 
     while (true) {
         float best = 0.0f;
         std::pair<uint, uint> move;
         for (std::size_t i = 0; i < ids->size() - 2; ++i) {
+            float sdii1 = sqdist(i, i + 1);
             for (std::size_t j = i + 2; j < ids->size() - 1; ++j) {
-                float change = dist(i, j) + dist(i + 1, j + 1)
-                    - dist(i, i + 1) - dist(j, j + 1);
+                float change = sqdist(i, j) + sqdist(i + 1, j + 1)
+                    - sdii1 - sqdist(j, j + 1);
                 if (change < best) {
                     best = change;
                     move = std::make_pair(i, j);
@@ -65,8 +66,8 @@ float twoopt(std::vector<uint> * ids, std::vector<math::Vector<float, N> > const
             /* Unrolled wraparound */
             {
                 std::size_t j = ids->size() - 1;
-                float change = dist(i, j) + dist(i + 1, 0)
-                    - dist(i, i + 1) - dist(j, 0);
+                float change = sqdist(i, j) + sqdist(i + 1, 0)
+                    - sdii1 - sqdist(j, 0);
                 if (change < best) {
                     best = change;
                     move = std::make_pair(i, j);
@@ -81,9 +82,9 @@ float twoopt(std::vector<uint> * ids, std::vector<math::Vector<float, N> > const
         }
     }
 
-    float length = dist(ids->size() - 1, 0);
+    float length = std::sqrt(sqdist(ids->size() - 1, 0));
     for (std::size_t i = 0; i < ids->size() - 1; ++i) {
-        length += dist(i, i + 1);
+        length += std::sqrt(sqdist(i, i + 1));
     }
     return length;
 }
