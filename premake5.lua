@@ -30,6 +30,7 @@ workspace "uavmvs"
     premake.path = premake.path .. ";" .. path.getabsolute("elibs")
 
     include("libs/sim")
+    include("libs/utp")
     include("libs/fmt")
 
     include("apps/template")

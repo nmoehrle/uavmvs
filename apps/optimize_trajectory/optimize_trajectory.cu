@@ -333,10 +333,11 @@ int main(int argc, char **argv) {
                     }
                 }
 
-                float avg_recon = cacc::sum(drecons) / num_verts;
-                std::cout << i << "(" << oindices.size() << ") " << avg_recon << std::endl;
-            }
+                float length = utp::length(trajectory);
 
+                float avg_recon = cacc::sum(drecons) / num_verts;
+                std::cout << i << "(" << oindices.size() << ") " << avg_recon << " " << length << std::endl;
+            }
         }
         cudaStreamDestroy(stream);
     }

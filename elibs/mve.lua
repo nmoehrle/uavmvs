@@ -45,10 +45,9 @@ function m.use(libs)
             libdirs { m.basedir .. "/libs/" .. lib }
             links { "mve_" .. lib }
         end
-    end
-
-    if table.contains(libs, "fssr") then
-        links { "gomp" }
+        if table.contains(libs, "fssr") then
+            links { "gomp" }
+        end
     end
 
     links { "jpeg", "png", "tiff" }

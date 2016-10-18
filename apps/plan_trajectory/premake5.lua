@@ -20,4 +20,4 @@ project "plan_trajectory"
 
     mve.use({ "util" })
 
-    links { "fmt", "gomp" }
+    links { "fmt", "gomp", "utp" }

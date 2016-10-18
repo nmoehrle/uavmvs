@@ -7,4 +7,4 @@ project "visualizer"
 
     mve.use({ "util", "ogl" })
 
-    links { "GL", "glfw", "sim" }
+    links { "GL", "glfw", "sim", "utp" }

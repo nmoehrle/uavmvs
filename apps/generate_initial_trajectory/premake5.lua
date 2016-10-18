@@ -6,3 +6,5 @@ project "generate_initial_trajectory"
     files { "generate_initial_trajectory.cpp" }
 
     mve.use({ "util" })
+
+    links { "utp" }

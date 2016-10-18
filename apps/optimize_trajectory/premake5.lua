@@ -20,4 +20,4 @@ project "optimize_trajectory"
 
     mve.use({ "util" })
 
-    links { "gomp" }
+    links { "gomp", "utp" }

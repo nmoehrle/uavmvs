@@ -25,8 +25,8 @@
 
 #include "eval/kernels.h"
 
+#include "utp/trajectory.h"
 #include "utp/trajectory_io.h"
-#include "utp/bspline.h"
 
 typedef unsigned char uchar;
 
@@ -173,23 +173,7 @@ int main(int argc, char * argv[])
     float sum = std::accumulate(values.begin(), values.end(), 1.0f);
     std::cout << "  CPU: " << sum / num_verts << std::endl;
 
-    std::vector<math::Vec3f> positions(trajectory.size());
-    for (std::size_t i = 0; i < trajectory.size(); ++i) {
-        trajectory[i].fill_camera_pos(positions[i].begin());
-    }
-
-    utp::BSpline<float, 3u, 3u> spline;
-    spline.fit(positions);
-
-    float length = 0.0f;
-
-    math::Vec3f last = spline.eval(0.0f);
-    for (std::size_t i = 1; i < trajectory.size() * 1000; ++i) {
-        math::Vec3f curr = spline.eval(i / (trajectory.size() * 1000.0f - 1.0f));
-        length += (curr - last).norm();
-        last = curr;
-    }
-    std::cout << "Length: " << length << '\n' << std::endl;
+    std::cout << "Length: " << utp::length(trajectory) << '\n' << std::endl;
 
     if (!args.export_cloud.empty()) {
         mve::TriangleMesh::Ptr mesh;

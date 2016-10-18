@@ -6,3 +6,5 @@ project "generate_grid_trajectory"
     files { "generate_grid_trajectory.cpp" }
 
     mve.use({ "util" })
+
+    links { "utp" }
