@@ -1,4 +1,5 @@
 local mve = require "mve"
+
 project "plan_trajectory"
     kind "ConsoleApp"
     language "C++"
@@ -6,18 +7,8 @@ project "plan_trajectory"
 
     buildoptions { "-Xcompiler -fopenmp" }
 
-    flags { "RelocatableDeviceCode" }
-    defines { "_MWAITXINTRIN_H_INCLUDED", "_FORCE_INLINES" }
-
-    files {
-        "plan_trajectory.cu",
-        "../../libs/cacc/kd_tree.cu",
-        "../../libs/cacc/nnsearch.cu",
-        "../../libs/cacc/bvh_tree.cu",
-        "../../libs/cacc/tracing.cu",
-        "../../libs/eval/kernels.cu",
-    }
+    files { "plan_trajectory.cu" }
 
     mve.use({ "util" })
 
-    links { "fmt", "gomp", "utp" }
+    links { "gomp", "fmt", "utp", "eval" }

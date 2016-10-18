@@ -1,4 +1,5 @@
 local mve = require "mve"
+
 project "convert-mesh"
     kind "ConsoleApp"
     language "C++"

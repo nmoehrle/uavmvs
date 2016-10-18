@@ -1,4 +1,5 @@
 local mve = require "mve"
+
 project "visualizer"
     kind "ConsoleApp"
     language "C++"

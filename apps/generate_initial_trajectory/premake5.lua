@@ -1,4 +1,5 @@
 local mve = require "mve"
+
 project "generate_initial_trajectory"
     kind "ConsoleApp"
     language "C++"

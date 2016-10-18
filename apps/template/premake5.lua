@@ -1,4 +1,5 @@
 local mve = require "mve"
+
 project "template"
     kind "ConsoleApp"
     language "C++"

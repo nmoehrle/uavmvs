@@ -1,4 +1,5 @@
 local mve = require "mve"
+
 project "generate_sphere"
     kind "ConsoleApp"
     language "C++"

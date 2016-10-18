@@ -1,4 +1,5 @@
 local mve = require "mve"
+
 project "generate_grid_trajectory"
     kind "ConsoleApp"
     language "C++"

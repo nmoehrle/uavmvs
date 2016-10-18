@@ -5,8 +5,9 @@ project "generate_proxy_cloud"
     language "C++"
 
     buildoptions { "-fopenmp" }
-    links { "gomp" }
 
     files { "generate_proxy_cloud.cpp" }
 
     mve.use({ "util" })
+
+    links { "gomp" }

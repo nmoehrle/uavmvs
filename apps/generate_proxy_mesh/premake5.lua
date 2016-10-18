@@ -1,4 +1,5 @@
 local mve = require "mve"
+
 project "generate_proxy_mesh"
     kind "ConsoleApp"
     language "C++"
@@ -6,6 +7,7 @@ project "generate_proxy_mesh"
     buildoptions { "-fopenmp" }
 
     files { "generate_proxy_mesh.cpp" }
-    links { "fmt", "gomp" }
 
     mve.use({ "util", "fssr" })
+
+    links { "fmt", "gomp" }

@@ -13,8 +13,8 @@ workspace "uavmvs"
         linkoptions "-pthread"
 
     filter { "toolset:nvcc" }
-        buildoptions { "--gpu-architecture compute_35", "-Xcompiler -Wno-unknown-pragmas" }
-        linkoptions "--gpu-architecture compute_35"
+        gpuarchitecture "Maxwell"
+        buildoptions { "-Xcompiler -Wno-unknown-pragmas" }
 
     configuration "release"
         targetdir "build/release"
@@ -29,9 +29,10 @@ workspace "uavmvs"
 
     premake.path = premake.path .. ";" .. path.getabsolute("elibs")
 
+    include("libs/fmt")
     include("libs/sim")
     include("libs/utp")
-    include("libs/fmt")
+    include("libs/eval")
 
     include("apps/template")
 

@@ -5,18 +5,10 @@ project "evaluate_trajectory"
     language "C++"
     toolset "nvcc"
 
-    flags { "RelocatableDeviceCode" }
-    defines { "_MWAITXINTRIN_H_INCLUDED", "_FORCE_INLINES" }
     buildoptions { "-Xcompiler -fopenmp" }
 
-    files {
-        "evaluate_trajectory.cu",
-        "../../libs/eval/kernels.cu",
-        "../../libs/cacc/bvh_tree.cu",
-        "../../libs/cacc/tracing.cu",
-        "../../libs/cacc/nnsearch.cu",
-    }
+    files { "evaluate_trajectory.cu" }
 
     mve.use({ "util" })
 
-    links { "gomp", "utp" }
+    links { "gomp", "utp", "eval" }

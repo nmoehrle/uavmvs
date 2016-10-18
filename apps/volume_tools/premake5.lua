@@ -1,4 +1,5 @@
 local mve = require "mve"
+
 project "convert-volume"
     kind "ConsoleApp"
     language "C++"
@@ -8,7 +9,7 @@ project "convert-volume"
 
     mve.use({ "util" })
 
-    links { "fmt", "gomp" }
+    links { "gomp", "fmt" }
 
 project "normalize-volume"
     kind "ConsoleApp"
