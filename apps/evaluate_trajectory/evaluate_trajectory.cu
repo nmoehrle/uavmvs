@@ -5,6 +5,7 @@
 #include <cuda_runtime.h>
 
 #include "util/arguments.h"
+#include "util/file_system.h"
 
 #include "util/io.h"
 
@@ -24,12 +25,13 @@
 
 #include "eval/kernels.h"
 
+#include "utp/trajectory_io.h"
 #include "utp/bspline.h"
 
 typedef unsigned char uchar;
 
 struct Arguments {
-    std::string scene;
+    std::string trajectory;
     std::string proxy_mesh;
     std::string proxy_cloud;
     std::string export_cloud;
@@ -41,14 +43,14 @@ Arguments parse_args(int argc, char **argv) {
     args.set_exit_on_error(true);
     args.set_nonopt_maxnum(3);
     args.set_nonopt_minnum(3);
-    args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] SCENE PROXY_MESH PROXY_CLOUD");
+    args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] TRAJECTORY/SCENE PROXY_MESH PROXY_CLOUD");
     args.add_option('e', "export", true, "export per surface point reconstructability as point cloud");
     args.add_option('\0', "max-distance", true, "maximum distance to surface [80.0]");
     args.set_description("Evaluate trajectory");
     args.parse(argc, argv);
 
     Arguments conf;
-    conf.scene = args.get_nth_nonopt(0);
+    conf.trajectory = args.get_nth_nonopt(0);
     conf.proxy_mesh = args.get_nth_nonopt(1);
     conf.proxy_cloud = args.get_nth_nonopt(2);
     conf.max_distance = 80.0f;
@@ -80,6 +82,16 @@ int main(int argc, char * argv[])
 
     cacc::select_cuda_device(3, 5);
 
+    std::vector<mve::CameraInfo> trajectory;
+    if (util::fs::dir_exists(args.trajectory.c_str())) {
+        load_scene_as_trajectory(args.trajectory, &trajectory);
+    } else if (util::fs::file_exists(args.trajectory.c_str())) {
+        utp::load_trajectory(args.trajectory, &trajectory);
+    } else {
+        std::cerr << "Could not load trajectory" << std::endl;
+        return EXIT_FAILURE;
+    }
+
     cacc::BVHTree<cacc::DEVICE>::Ptr dbvh_tree;
     {
         acc::BVHTree<uint, math::Vec3f>::Ptr bvh_tree;
@@ -102,8 +114,6 @@ int main(int argc, char * argv[])
     drecons = cacc::Array<float, cacc::DEVICE>::create(num_verts);
     drecons->null();
 
-    std::vector<mve::CameraInfo> trajectory;
-    load_scene_as_trajectory(args.scene, &trajectory);
     std::cout << '\n';
 
     int width = 1920;
@@ -191,7 +201,7 @@ int main(int argc, char * argv[])
         }
 
         std::vector<float> & ovalues = mesh->get_vertex_values();
-        ovalues.insert(ovalues.end(), values.begin(), values.end());
+        ovalues.assign(values.begin(), values.end());
 
         mve::geom::SavePLYOptions opts;
         opts.write_vertex_values = true;
