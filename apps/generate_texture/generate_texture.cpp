@@ -248,8 +248,7 @@ int main(int argc, char **argv) {
 
         math::Vec3f normal = face_normals[segment[0]];
         math::Vec3f n0 = orthogonal(normal).normalize();
-        //TODO fix coordinate system (right-handed)
-        math::Vec3f n1 = n0.cross(normal).normalize();
+        math::Vec3f n1 = normal.cross(n0).normalize();
         math::Vec3f v0 = vertices[faces[segment[0] * 3]];
 
         std::vector<math::Vec3f> ps_3d(3 * segment.size());
@@ -292,8 +291,8 @@ int main(int argc, char **argv) {
         n0 = ab.normalized();
         n1 = ad.normalized();
 
-        int w = std::ceil(ab.norm() * args.resolution);
-        int h = std::ceil(ad.norm() * args.resolution);
+        int w = std::ceil(nab * args.resolution);
+        int h = std::ceil(nad * args.resolution);
 
         for (std::size_t j = 0; j < 3 * segment.size(); ++j) {
             math::Vec3f const & p_3d = ps_3d[j];
