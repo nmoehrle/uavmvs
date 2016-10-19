@@ -188,7 +188,7 @@ determine_transform(std::vector<Correspondence> const & correspondences)
     for (uint i = 0; i < ransac_iterations; ++i) {
         std::vector<uint> samples = choose_random(3, 0, ccorrespondences.size() - 1);
         futures.push_back(std::async(std::launch::async,
-                determine_robust_rotation, ccorrespondences, samples
+                determine_robust_rotation, std::cref(ccorrespondences), samples
             )
         );
     }
@@ -205,7 +205,7 @@ determine_transform(std::vector<Correspondence> const & correspondences)
             max_inliers = num_inliers;
             math::Vec3f t = -R * centroid1 + scale * centroid2;
             math::Vec4f u4(0.0f, 0.0f, 0.0f, 1.0f);
-            T = (R / scale).hstack(t / scale).vstack(math::Matrix<float, 1, 4>(u4.begin()));
+            T = (R / scale).hstack(t / scale).vstack(u4);
         }
     }
 
