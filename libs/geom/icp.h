@@ -12,6 +12,8 @@
 #include "math/matrix_tools.h"
 #include "math/matrix_svd.h"
 
+#include "acc/bvh_tree.h"
+
 #include "transform.h"
 
 constexpr float eps = std::numeric_limits<float>::epsilon();

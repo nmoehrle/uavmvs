@@ -23,3 +23,14 @@ project "colorize-mesh"
     files { "colorize.cpp" }
 
     mve.use({ "util" })
+
+project "estimate_transform-mesh"
+    kind "ConsoleApp"
+    language "C++"
+
+    buildoptions { "-fopenmp" }
+    files { "estimate_transform.cpp" }
+
+    mve.use({ "util" })
+
+    links { "gomp" }

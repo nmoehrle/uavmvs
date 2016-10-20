@@ -1,12 +1,12 @@
 local mve = require "mve"
 
-project "determine_transform"
+project "estimate_transform-scene"
     kind "ConsoleApp"
     language "C++"
 
     buildoptions { "-fopenmp" }
 
-    files { "determine_transform.cpp" }
+    files { "estimate_transform.cpp" }
 
     mve.use({ "util" })
 

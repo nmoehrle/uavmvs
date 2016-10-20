@@ -2,7 +2,6 @@
 
 #include "util/system.h"
 #include "util/arguments.h"
-#include "util/choices.h"
 
 #include "util/matrix_io.h"
 
@@ -27,7 +26,7 @@ Arguments parse_args(int argc, char **argv) {
     args.set_nonopt_minnum(3);
     args.set_nonopt_maxnum(3);
     args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] BUNDLE SCENE MESH");
-    args.set_description("Determine transform of bundle to scene and mesh by "
+    args.set_description("Estimate transform of bundle to scene and mesh by "
         "intersecting rays through the 2D feature projections with the mesh "
         "leveraging camera correspondences.");
     args.add_option('t', "transform", true, "save transform to matrix file");
