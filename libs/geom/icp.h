@@ -50,7 +50,6 @@ determine_rotation(std::vector<Correspondence> const & ccorrespondences)
 {
     math::Matrix3d cov(0.0f);
 
-    /* Calculate covariance matrix. */
     for (std::size_t i = 0; i < ccorrespondences.size(); ++i) {
         math::Vec3f f, c;
         std::tie(f, c) = ccorrespondences[i];
@@ -116,12 +115,10 @@ estimate_rotation(std::vector<Correspondence> const & ccorrespondences,
     return std::make_pair(R, inliers.size());
 }
 
-math::Matrix4f
-estimate_transform(std::vector<Correspondence> const & correspondences, float threshold)
-{
-    uint max_scale_samples = 10000;
+float
+estimate_scale(std::vector<Correspondence> const & correspondences) {
     std::vector<uint> samples;
-    samples = choose_random(max_scale_samples, 0, correspondences.size() - 1);
+    samples = choose_random(10000ul, 0, correspondences.size() - 1);
 
     /* Calculate scales based on pairwise distances. */
     std::vector<double> scales;
@@ -140,35 +137,51 @@ estimate_transform(std::vector<Correspondence> const & correspondences, float th
     /* Calculate scale as mean from "inlier" values. */
     std::sort(scales.begin(), scales.end());
     std::size_t n = std::floor(scales.size() * 0.05f);
-    float scale = std::accumulate(scales.begin() + n, scales.end() - n, 0.0)
-         / (scales.size() - 2 * n);
+    float sum = std::accumulate(scales.begin() + n, scales.end() - n, 0.0);
+    return sum / (scales.size() - 2 * n);
+}
 
-    /* Calculate centroids. */
-    math::Vec3f centroid1(0.0f), centroid2(0.0f);
-    for (std::size_t i = 0; i < samples.size(); ++i) {
+std::pair<math::Vec3f, math::Vec3f>
+center(std::vector<Correspondence> * correspondences, float scale) {
+    math::Vec3f c0(0.0f), c1(0.0f);
+    for (std::size_t i = 0; i < correspondences->size(); ++i) {
         math::Vec3f f, c;
-        std::tie(f, c) = correspondences[samples[i]];
-        centroid1 += f;
-        centroid2 += c;
+        std::tie(f, c) = correspondences->at(i);
+        c0 += f;
+        c1 += c;
     }
-    centroid1 /= samples.size();
-    centroid2 /= samples.size();
+    c0 /= correspondences->size();
+    c1 /= correspondences->size();
 
-    std::vector<Correspondence> ccorrespondences(correspondences.size());
-    for (std::size_t i = 0; i < correspondences.size(); ++i) {
+    for (std::size_t i = 0; i < correspondences->size(); ++i) {
         math::Vec3f f, c;
-        std::tie(f, c) = correspondences[i];
-        ccorrespondences[i].first = f - centroid1;
-        ccorrespondences[i].second = scale * (c - centroid2);
+        std::tie(f, c) = correspondences->at(i);
+        correspondences->at(i).first = f - c0;
+        correspondences->at(i).second = scale * (c - c1);
     }
 
-    uint ransac_iterations = 1000;
+    return std::make_pair(c0, c1);
+}
+
+inline
+math::Matrix4f
+assemble_transform(math::Matrix3f R, math::Vec3f t, float scale) {
+    return (R / scale).hstack(t / scale).vstack(math::Vec4f(0.0f, 0.0f, 0.0f, 1.0f));
+}
+
+math::Matrix4f
+estimate_transform(std::vector<Correspondence> correspondences, float threshold)
+{
+    float scale = estimate_scale(correspondences);
+
+    math::Vec3f c0, c1;
+    std::tie(c0, c1) = center(&correspondences, scale);
 
     std::vector<std::future<std::pair<math::Matrix3f, uint> > > futures;
-    for (uint i = 0; i < ransac_iterations; ++i) {
-        std::vector<uint> samples = choose_random(3, 0, ccorrespondences.size() - 1);
+    for (int i = 0; i < 1000; ++i) {
+        std::vector<uint> samples = choose_random(3, 0, correspondences.size() - 1);
         futures.push_back(std::async(std::launch::async,
-                estimate_rotation, std::cref(ccorrespondences), samples, threshold
+                estimate_rotation, std::cref(correspondences), samples, threshold
             )
         );
     }
@@ -183,44 +196,25 @@ estimate_transform(std::vector<Correspondence> const & correspondences, float th
 
         if (num_inliers > max_inliers) {
             max_inliers = num_inliers;
-            math::Vec3f t = -R * centroid1 + scale * centroid2;
-            math::Vec4f u4(0.0f, 0.0f, 0.0f, 1.0f);
-            T = (R / scale).hstack(t / scale).vstack(u4);
+            math::Vec3f t = -R * c0 + scale * c1;
+            T = assemble_transform(R, t, scale);
         }
     }
-
-    float inliers = max_inliers / static_cast<float>(ccorrespondences.size());
 
     return T;
 }
 
 math::Matrix4f
-estimate_transform(std::vector<Correspondence> const & correspondences)
+estimate_transform(std::vector<Correspondence> correspondences)
 {
-    float scale = 1.0f;
+    float scale = estimate_scale(correspondences);
 
-    math::Vec3f centroid1(0.0f), centroid2(0.0f);
-    for (std::size_t i = 0; i < correspondences.size(); ++i) {
-        math::Vec3f f, c;
-        std::tie(f, c) = correspondences[i];
-        centroid1 += f;
-        centroid2 += c;
-    }
-    centroid1 /= correspondences.size();
-    centroid2 /= correspondences.size();
+    math::Vec3f c0, c1;
+    std::tie(c0, c1) = center(&correspondences, scale);
 
-    std::vector<Correspondence> ccorrespondences(correspondences.size());
-    for (std::size_t i = 0; i < correspondences.size(); ++i) {
-        math::Vec3f f, c;
-        std::tie(f, c) = correspondences[i];
-        ccorrespondences[i].first = f - centroid1;
-        ccorrespondences[i].second = scale * (c - centroid2);
-    }
-
-    math::Matrix3f R = determine_rotation(ccorrespondences);
-    math::Vec3f t = -R * centroid1 + scale * centroid2;
-    math::Vec4f u4(0.0f, 0.0f, 0.0f, 1.0f);
-    return (R / scale).hstack(t / scale).vstack(u4);
+    math::Matrix3f R = determine_rotation(correspondences);
+    math::Vec3f t = -R * c0 + scale * c1;
+    return assemble_transform(R, t, scale);
 }
 
 math::Matrix4f

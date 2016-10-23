@@ -190,12 +190,14 @@ int main(int argc, char **argv) {
 
     std::cout << "  Average distance to surface: " << avg_dist  << std::endl;
 
+    double prev_avg_dist = std::numeric_limits<double>::max();
     std::cout << "Refining transform based on closest points." << std::endl;
-    for (int i = 0; i < 10; ++i) {
-        float threshold = avg_dist / 2.0f;
-        T = estimate_transform(correspondences, threshold) * T;
+    for (int i = 0; i < 100; ++i) {
+        T = estimate_transform(correspondences) * T;
 
+        prev_avg_dist = avg_dist;
         avg_dist = 0.0;
+
         #pragma omp parallel for reduction(+:avg_dist)
         for (std::size_t i = 0; i < features.size(); ++i) {
             math::Vec3f feature = math::Vec3f(features[i].pos);
@@ -209,8 +211,10 @@ int main(int argc, char **argv) {
         }
         avg_dist /= features.size();
 
-        std::cout << "  Average distance to surface: " << avg_dist << std::endl;
+        double improvement = prev_avg_dist - avg_dist;
+        if (improvement < 1e-5f) break;
     }
+    std::cout << "  Average distance to surface: " << avg_dist << std::endl;
 
     if (!args.transform.empty()) {
         save_matrix_to_file(T, args.transform);
