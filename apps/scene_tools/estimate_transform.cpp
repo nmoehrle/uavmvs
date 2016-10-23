@@ -201,11 +201,11 @@ int main(int argc, char **argv) {
             math::Vec3f feature = math::Vec3f(features[i].pos);
             math::Vec3f vertex = T.mult(feature, 1.0f);
 
-            math::Vec3f projection = bvh_tree.closest_point(vertex);
+            math::Vec3f cp = bvh_tree.closest_point(vertex);
 
-            correspondences[i] = std::make_pair(vertex, projection);
+            correspondences[i] = std::make_pair(vertex, cp);
 
-            avg_dist += (vertex - projection).norm();
+            avg_dist += (vertex - cp).norm();
         }
         avg_dist /= features.size();
 

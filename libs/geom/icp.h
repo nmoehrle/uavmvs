@@ -25,10 +25,41 @@ std::vector<uint> choose_random(std::size_t n, std::size_t from, std::size_t to)
     static std::mt19937 gen;
     std::uniform_int_distribution<uint> dis(from, to);
     std::unordered_set<uint> samples;
-    while(samples.size() < n) {
+    while(samples.size() < std::min(n, to - from)) {
         samples.insert(dis(gen));
     }
     return std::vector<uint>(samples.begin(), samples.end());
+}
+
+math::Matrix3f determine_rotation(math::Matrix3d const & cov) {
+    math::Matrix3d U, S, V;
+    math::matrix_svd(cov, &U, &S, &V);
+    math::Matrix3d VUt = V * U.transposed();
+    double det = math::matrix_determinant(VUt);
+    if (det > 0.0) {
+        return VUt;
+    } else {
+        math::Matrix3d F(0.0);
+        F(0, 0) = 1.0; F(1, 1) = 1.0; F(2, 2) = det;
+        return V * F * U.transposed();
+    }
+}
+
+math::Matrix3f
+determine_rotation(std::vector<Correspondence> const & ccorrespondences)
+{
+    math::Matrix3d cov(0.0f);
+
+    /* Calculate covariance matrix. */
+    for (std::size_t i = 0; i < ccorrespondences.size(); ++i) {
+        math::Vec3f f, c;
+        std::tie(f, c) = ccorrespondences[i];
+        cov += math::Matrix<float, 3, 1>(f.begin()) *
+            math::Matrix<float, 1, 3>(c.begin());
+    }
+    cov /= ccorrespondences.size();
+
+    return determine_rotation(cov);
 }
 
 math::Matrix3f
@@ -37,7 +68,6 @@ determine_rotation(std::vector<Correspondence> const & ccorrespondences,
 {
     math::Matrix3d cov(0.0f);
 
-    /* Calculate covariance matrix. */
     for (std::size_t j = 0; j < samples.size(); ++j) {
         math::Vec3f f, c;
         std::tie(f, c) = ccorrespondences[samples[j]];
@@ -46,15 +76,7 @@ determine_rotation(std::vector<Correspondence> const & ccorrespondences,
     }
     cov /= samples.size();
 
-    /* Estimate rotation and translation */
-    math::Matrix3d U, S, V;
-    math::matrix_svd(cov, &U, &S, &V);
-    math::Matrix3d VUt = V * U.transposed();
-    math::Matrix3d F(0.0f);
-    F(0, 0) = 1.0f; F(1, 1) = 1.0f; F(2, 2) = math::matrix_determinant(VUt);
-    math::Matrix3f R = V * F * U.transposed();
-
-    return R;
+    return determine_rotation(cov);
 }
 
 math::Matrix3f
@@ -121,8 +143,6 @@ estimate_transform(std::vector<Correspondence> const & correspondences, float th
     float scale = std::accumulate(scales.begin() + n, scales.end() - n, 0.0)
          / (scales.size() - 2 * n);
 
-    std::cout << "  Scale: " << scale << std::endl;
-
     /* Calculate centroids. */
     math::Vec3f centroid1(0.0f), centroid2(0.0f);
     for (std::size_t i = 0; i < samples.size(); ++i) {
@@ -170,9 +190,37 @@ estimate_transform(std::vector<Correspondence> const & correspondences, float th
     }
 
     float inliers = max_inliers / static_cast<float>(ccorrespondences.size());
-    std::cout << "  RANSAC inliers: " << 100.0f * inliers << "%" << std::endl;
 
     return T;
+}
+
+math::Matrix4f
+estimate_transform(std::vector<Correspondence> const & correspondences)
+{
+    float scale = 1.0f;
+
+    math::Vec3f centroid1(0.0f), centroid2(0.0f);
+    for (std::size_t i = 0; i < correspondences.size(); ++i) {
+        math::Vec3f f, c;
+        std::tie(f, c) = correspondences[i];
+        centroid1 += f;
+        centroid2 += c;
+    }
+    centroid1 /= correspondences.size();
+    centroid2 /= correspondences.size();
+
+    std::vector<Correspondence> ccorrespondences(correspondences.size());
+    for (std::size_t i = 0; i < correspondences.size(); ++i) {
+        math::Vec3f f, c;
+        std::tie(f, c) = correspondences[i];
+        ccorrespondences[i].first = f - centroid1;
+        ccorrespondences[i].second = scale * (c - centroid2);
+    }
+
+    math::Matrix3f R = determine_rotation(ccorrespondences);
+    math::Vec3f t = -R * centroid1 + scale * centroid2;
+    math::Vec4f u4(0.0f, 0.0f, 0.0f, 1.0f);
+    return (R / scale).hstack(t / scale).vstack(u4);
 }
 
 math::Matrix4f
@@ -193,39 +241,40 @@ estimate_transform(mve::TriangleMesh::ConstPtr mesh,
 
     math::Matrix4f T(0.0f);
     T(0, 0) = T(1, 1) = T(2, 2) = T(3, 3) = 1.0f;
-    double avg_dist;
+    double prev_avg_dist, avg_dist = std::numeric_limits<double>::max();
 
     Correspondences correspondences(verts.size() + rverts.size());
     for (uint i = 0; i < num_iters + 1; ++i) {
         math::Matrix4f Ti = inverse_transform(T);
 
+        prev_avg_dist = avg_dist;
         avg_dist = 0.0;
 
         /* Find correspondences */
         #pragma omp parallel for reduction(+:avg_dist)
-        for (std::size_t i = 0; i < verts.size(); ++i) {
-            math::Vec3f vertex = T.mult(verts[i], 1.0f);
+        for (std::size_t j = 0; j < verts.size(); ++j) {
+            math::Vec3f vertex = Ti.mult(verts[j], 1.0f);
             math::Vec3f cp = rbvh_tree.closest_point(vertex);
 
             avg_dist += (vertex - cp).norm();
-            correspondences[i] = std::make_pair(vertex, cp);
+            correspondences[j] = std::make_pair(vertex, cp);
         }
 
         #pragma omp parallel for reduction(+:avg_dist)
-        for (std::size_t i = 0; i < rverts.size(); ++i) {
-            math::Vec3f vertex = Ti.mult(rverts[i], 1.0f);
+        for (std::size_t j = 0; j < rverts.size(); ++j) {
+            math::Vec3f vertex = T.mult(rverts[j], 1.0f);
             math::Vec3f cp = bvh_tree.closest_point(vertex);
 
             avg_dist += (vertex - cp).norm();
-            correspondences[verts.size() + i] = std::make_pair(vertex, cp);
+            correspondences[verts.size() + j] = std::make_pair(vertex, cp);
         }
 
         avg_dist /= (verts.size() + rverts.size());
+        double improvement = prev_avg_dist - avg_dist;
 
-        if (i == 0) break;
+        if (improvement < 1e-5f || i == num_iters) break;
 
-        float threshold = avg_dist / 2.0f;
-        T = estimate_transform(correspondences, threshold) * T;
+        T = estimate_transform(correspondences) * T;
     }
 
     if (avg_dist_ptr != nullptr) *avg_dist_ptr = avg_dist;
