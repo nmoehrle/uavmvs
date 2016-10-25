@@ -90,8 +90,8 @@ int main(int argc, char **argv) {
         int x = i % image->width();
         int y = i / image->width();
 
-        float theta = (x / (float) image->width()) * 2.0f * pi;
-        float phi = (0.5f + (y / (float) image->height()) / 2.0f) * pi;
+        float theta = (0.5f + (y / (float) image->height()) / 2.0f) * pi;
+        float phi = (x / (float) image->width()) * 2.0f * pi;
 
         math::Matrix3f rot = utp::rotation_from_spherical(theta, phi);
 

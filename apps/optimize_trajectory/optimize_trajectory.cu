@@ -293,9 +293,8 @@ int main(int argc, char **argv) {
                             float v = data.data_ptr[y * data.pitch / sizeof(float) + x];
                             if (v > max) {
                                 max = v;
-                                theta = (x / (float) data.width) * 2.0f * pi;
-                                //float theta = (y / (float) data.height) * pi;
-                                phi = (0.5f + (y / (float) data.height) / 2.0f) * pi;
+                                theta = (0.5f + (y / (float) data.height) / 2.0f) * pi;
+                                phi = (x / (float) data.width) * 2.0f * pi;
                             }
                         }
                     }

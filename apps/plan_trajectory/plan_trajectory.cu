@@ -173,13 +173,13 @@ int main(int argc, char **argv) {
         for (int y = 0; y < 3; ++y) {
             for (int x = 0; x < 3; ++x) {
                 float r = 1.0f + (z - 1) * 0.25f;
-                float theta = (y - 1) * (pi / 8.0f);
-                float phi = pi / 2 + (x - 1) * (pi / 8.0f);
+                float phi = (y - 1) * (pi / 8.0f);
+                float theta = pi / 2 + (x - 1) * (pi / 8.0f);
 
                 int idx = (z * 3 + y) * 3 + x;
-                offsets[idx][0] = r * std::cos(theta) * sin(phi);
-                offsets[idx][1] = r * std::sin(theta) * sin(phi);
-                offsets[idx][2] = r * cos(phi);
+                offsets[idx][0] = r * std::sin(theta) * std::cos(phi);
+                offsets[idx][1] = r * std::sin(theta) * std::sin(phi);
+                offsets[idx][2] = r * std::cos(theta);
 
                 oweights[idx] = 1.0f - (math::Vec3f(1.0f, 0.0f, 0.0f) - offsets[idx]).norm() / 10.0f;
             }

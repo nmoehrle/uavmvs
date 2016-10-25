@@ -9,7 +9,7 @@ math::Matrix3f rotation_from_spherical(float theta, float phi) {;
     float stheta = std::sin(theta);
     float cphi = std::cos(phi);
     float sphi = std::sin(phi);
-    math::Vec3f view_dir(ctheta * sphi, stheta * sphi, cphi);
+    math::Vec3f view_dir(stheta * cphi, stheta * sphi, ctheta);
     view_dir.normalize();
 
     math::Vec3f rz = view_dir;
@@ -38,8 +38,8 @@ std::pair<float, float> spherical_from_rotation(math::Matrix3f const & rot) {
 
     view_dir.normalize();
 
-    float theta = std::atan2(view_dir[1], view_dir[0]);
-    float phi = std::acos(view_dir[2]);
+    float theta = std::acos(view_dir[2]);
+    float phi = std::atan2(view_dir[1], view_dir[0]);
 
     return std::make_pair(theta, phi);
 }

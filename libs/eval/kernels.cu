@@ -104,9 +104,9 @@ populate_direction_histogram(cacc::Vec3f view_pos, float max_distance,
     float l = norm(v2c);
     cacc::Vec3f v2cn = v2c / l;
 
-    float cphi = dot(v2cn, n);
+    float ctheta = dot(v2cn, n);
     // 0.087f ~ cos(85.0f / 180.0f * pi)
-    if (cphi < 0.087f) return;
+    if (ctheta < 0.087f) return;
 
     if (l > max_distance) return;
     cacc::Vec2f p = project(mult(w2c, v, 1.0f), calib);
@@ -187,9 +187,9 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance,
     float scale = 1.0f - l / max_distance;
     if (scale <= 0.0f) return;
 
-    float cphi = dot(v2cn, n);
+    float ctheta = dot(v2cn, n);
     // 0.087f ~ cos(85.0f / 180.0f * pi)
-    if (cphi <= 0.087f) return;
+    if (ctheta <= 0.087f) return;
 
     if (!visible(v, v2cn, l, bvh_tree)) return;
 
@@ -197,15 +197,15 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance,
 
 #if 1
     // 1.484f ~ 85.0f / 180.0f * pi
-    float min_phi = min(cloud.values_ptr[id], 1.484f);
+    float min_theta = min(cloud.values_ptr[id], 1.484f);
 
-    float scaling = (pi / 2.0f) / ((pi / 2.0f) - min_phi);
+    float scaling = (pi / 2.0f) / ((pi / 2.0f) - min_theta);
 
-    float phi = acosf(__saturatef(cphi));
-    float rel_phi = max(phi - min_phi, 0.0f) * scaling;
-    float score = scale * capture_difficulty * cosf(rel_phi);
+    float theta = acosf(__saturatef(ctheta));
+    float rel_theta = max(theta - min_theta, 0.0f) * scaling;
+    float score = scale * capture_difficulty * cosf(rel_theta);
 #else
-    float score = scale * capture_difficulty * cphi;
+    float score = scale * capture_difficulty * ctheta;
 #endif
 
     uint idx;
@@ -241,9 +241,9 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance,
     float scale = 1.0f - l / max_distance;
     if (scale <= 0.0f) return;
 
-    float cphi = dot(v2cn, n);
+    float ctheta = dot(v2cn, n);
     // 0.087f ~ cos(85.0f / 180.0f * pi)
-    if (cphi < 0.087f) return;
+    if (ctheta < 0.087f) return;
 
     if (!visible(v, v2cn, l, bvh_tree)) return;
 
@@ -254,7 +254,7 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance,
 
     if (num_rows >= dir_hist.max_rows) return;
 
-    float contrib = cphi * capture_difficulty;
+    float contrib = ctheta * capture_difficulty;
     cacc::Vec3f rel_dir = relative_direction(v2cn, n);
     if (num_rows >= 1) {
         cacc::Vec3f * rel_dirs = dir_hist.data_ptr + id;
@@ -301,18 +301,18 @@ evaluate_histogram(cacc::Mat3f calib, int width, int height,
 
     if (x >= hist.width || y >= hist.height) return;
 
-    float theta = (x / (float) hist.width) * 2.0f * pi;
+    float phi = (x / (float) hist.width) * 2.0f * pi;
     //float theta = (y / (float) hist.height) * pi;
-    float phi = (0.5f + (y / (float) hist.height) / 2.0f) * pi;
-    float sphi = sinf(phi);
-    cacc::Vec3f view_dir(cosf(theta) * sphi, sinf(theta) * sphi, cosf(phi));
+    float theta = (0.5f + (y / (float) hist.height) / 2.0f) * pi;
+    float stheta = sinf(theta);
+    cacc::Vec3f view_dir(stheta * cosf(phi), stheta * sinf(phi), cosf(theta));
     view_dir.normalize();
 
     cacc::Vec3f rz = -view_dir;
 
     cacc::Vec3f up = cacc::Vec3f(0.0f, 0.0f, 1.0f);
     bool stable = abs(dot(up, rz)) < 0.99f;
-    up = stable ? up : cacc::Vec3f(cosf(theta), sinf(theta), 0.0f);
+    up = stable ? up : cacc::Vec3f(cosf(phi), sinf(phi), 0.0f);
 
     cacc::Vec3f rx = cross(up, rz).normalize();
     cacc::Vec3f ry = cross(rz, rx).normalize();
@@ -355,12 +355,12 @@ estimate_capture_difficulty(float max_distance,
     float l = max_distance;
 
     float sum = 0.0f;
-    float max_cphi = 0.0f;
+    float max_ctheta = 0.0f;
 
     for (uint i = 0; i < kd_tree.num_verts; ++i) {
         cacc::Vec3f dir = kd_tree.verts_ptr[i].normalize();
-        float cphi = dot(dir, n);
-        if (cphi < 0.087f) continue;
+        float ctheta = dot(dir, n);
+        if (ctheta < 0.087f) continue;
 
         cacc::Ray ray;
         ray.origin = v;
@@ -371,16 +371,16 @@ estimate_capture_difficulty(float max_distance,
         uint face_id;
         /* Sample observable? */
         if (!cacc::tracing::trace(bvh_tree, ray, &face_id) || face_id >= mesh_size) {
-            if (cphi > max_cphi) max_cphi = cphi;
+            if (ctheta > max_ctheta) max_ctheta = ctheta;
         } else {
-            sum += cphi;
+            sum += ctheta;
         }
     }
 
     /* Num samples on hemisphere times expectation of sample (derivation in the thesis) */
     float max = (kd_tree.num_verts / 2.0f) * 0.5f;
 
-    float min_phi = acosf(__saturatef(max_cphi));
-    cloud.values_ptr[id] = min_phi;
+    float min_theta = acosf(__saturatef(max_ctheta));
+    cloud.values_ptr[id] = min_theta;
     cloud.qualities_ptr[id] = sum / max;
 }

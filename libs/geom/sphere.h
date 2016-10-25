@@ -129,9 +129,9 @@ void parameterize_spherical(mve::TriangleMesh::Ptr sphere) {
 
     for (std::size_t i = 0; i < verts.size(); ++i) {
         math::Vec3f const & vert = verts[i];
-        float theta = std::atan2(vert[1], vert[0]);
-        float phi = std::acos(vert[2] / vert.norm());
-        texcoords[i] = math::Vec2f(theta / (2 * pi), phi / pi);
+        float theta = std::acos(vert[2] / vert.norm());
+        float phi = std::atan2(vert[1], vert[0]);
+        texcoords[i] = math::Vec2f(phi / (2 * pi), theta / pi);
     }
 
     uint num_faces = faces.size() / 3;
