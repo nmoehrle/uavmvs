@@ -39,6 +39,7 @@ workspace "uavmvs"
     include("apps/mesh_tools")
     include("apps/image_tools")
     include("apps/scene_tools")
+    include("apps/cloud_tools")
     include("apps/volume_tools")
 
     include("apps/create_bundle")
