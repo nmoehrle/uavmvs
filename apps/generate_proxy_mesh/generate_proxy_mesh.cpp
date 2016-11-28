@@ -116,7 +116,8 @@ void filter_3x3_nth_lowest(mve::FloatImage::Ptr hmap, int idx, float boundary) {
         }
     }
 
-    std::swap(*hmap, *tmp);
+    //std::swap(*hmap, *tmp);
+    hmap->swap(*tmp);
 }
 
 int main(int argc, char **argv) {
@@ -155,9 +156,9 @@ int main(int argc, char **argv) {
     hmap->fill(lowest);
     for (std::size_t i = 0; i < verts.size(); ++i) {
         math::Vec3f vertex = verts[i];
-        int x = (vertex[0] - aabb.min[0]) / args.resolution + args.resolution / 2.0f;
+        int x = (vertex[0] - aabb.min[0]) / args.resolution;
         assert(0 <= x && x < width);
-        int y = (vertex[1] - aabb.min[1]) / args.resolution + args.resolution / 2.0f;
+        int y = (vertex[1] - aabb.min[1]) / args.resolution;
         assert(0 <= y && y < height);
         float height = vertex[2];
         float z = hmap->at(x, y, 0);
@@ -206,7 +207,8 @@ int main(int argc, char **argv) {
             }
         }
 
-        hmap.swap(tmp);
+        //std::swap(*hmap, *tmp);
+        hmap->swap(*tmp);
     }
 
     /* Estimate ground level and normalize height map */
@@ -239,7 +241,7 @@ int main(int argc, char **argv) {
                 if (cz2 > 0.0f) {
                     kernel->at(x, y, 0) = std::sqrt(cz2);
                 } else {
-                    kernel->at(x, y, 0) = std::numeric_limits<float>::lowest();
+                    kernel->at(x, y, 0) = lowest;
                 }
             }
         }
@@ -254,7 +256,7 @@ int main(int argc, char **argv) {
                     for (int kx = 0; kx < kernel_size; ++kx) {
                         int cx = x + kx - kernel_size / 2;
                         int cy = y + ky - kernel_size / 2;
-                        if (cx < 0 || width <= cx || cy < 0 || height <= cx) continue;
+                        if (cx < 0 || width <= cx || cy < 0 || height <= cy) continue;
 
                         float v = kernel->at(kx, ky, 0) + hmap->at(cx, cy, 0);
                         max = std::max(max, v);
@@ -305,8 +307,8 @@ int main(int argc, char **argv) {
                 -heights[2][0] + heights[2][2];
 
             math::Vec3f normal(-gx, -gy, 0.0f); normal.normalize();
-            float px = (x - args.resolution / 2.0f) * args.resolution + aabb.min[0];
-            float py = (y - args.resolution / 2.0f) * args.resolution + aabb.min[1];
+            float px = x * args.resolution + args.resolution / 2 + aabb.min[0];
+            float py = y * args.resolution + args.resolution / 2 + aabb.min[1];
 
             if (m <= args.resolution) {
                 if (!args.fuse) {
