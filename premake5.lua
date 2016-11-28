@@ -13,8 +13,8 @@ workspace "uavmvs"
         linkoptions "-pthread"
 
     filter { "toolset:nvcc" }
-        gpuarchitecture "Maxwell"
-        buildoptions { "-Xcompiler -Wno-unknown-pragmas" }
+        buildoptions { "--gpu-architecture sm_52", "-Xcompiler -Wno-unknown-pragmas" }
+        linkoptions "--gpu-architecture sm_52"
 
     configuration "release"
         targetdir "build/release"
