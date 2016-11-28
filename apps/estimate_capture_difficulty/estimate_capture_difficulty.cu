@@ -6,6 +6,7 @@
 
 #include "mve/mesh_io_ply.h"
 
+#include "cacc/util.h"
 #include "cacc/math.h"
 #include "cacc/tracing.h"
 #include "cacc/kd_tree.h"
@@ -69,6 +70,8 @@ int main(int argc, char **argv) {
     util::system::print_build_timestamp(argv[0]);
 
     Arguments args = parse_args(argc, argv);
+
+    cacc::select_cuda_device(3, 5);
 
     mve::TriangleMesh::Ptr cloud;
     try {
@@ -140,7 +143,7 @@ int main(int argc, char **argv) {
     }
 
     {
-        dim3 grid(vertices.size());
+        dim3 grid(cacc::divup(vertices.size(), KERNEL_BLOCK_SIZE));
         dim3 block(KERNEL_BLOCK_SIZE);
         estimate_capture_difficulty<<<grid, block>>>(args.max_distance,
             dbvh_tree->cdata(), num_faces, dkd_tree->cdata(), dcloud->cdata());
