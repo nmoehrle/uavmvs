@@ -155,7 +155,7 @@ int main(int argc, char * argv[])
     {
         dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
         dim3 block(KERNEL_BLOCK_SIZE);
-        evaluate_histogram<<<grid, block>>>(ddir_hist->cdata());
+        evaluate_direction_histogram<<<grid, block>>>(ddir_hist->cdata(), drecons->cdata());
         CHECK(cudaDeviceSynchronize());
     }
 #endif
