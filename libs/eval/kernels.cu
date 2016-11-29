@@ -69,15 +69,20 @@ __forceinline__ __device__
 float
 heuristic(cacc::Vec3f const * rel_dirs, uint stride, uint n, cacc::Vec3f new_rel_dir)
 {
-    float theta = pi;
+    float min_alpha = pi;
+    float sum = 0.0f;
     for (uint i = 0; i < n; ++i) {
         cacc::Vec3f rel_dir = rel_dirs[i * stride];
-        theta = min(theta, acosf(dot(new_rel_dir, rel_dir)));
+        float alpha = acosf(dot(new_rel_dir, rel_dir));
+        min_alpha = min(min_alpha, alpha);
+        cacc::Vec3f mean = (rel_dir + new_rel_dir).normalize();
+        //float quality = dot(cacc::Vec3f(0.0f, 0.0f, 1.0f), half);
+        float quality = mean[2]; //TODO scale
+        float matchability = 1.0f - sigmoid(alpha, pi / 4.0f, 16.0f);
+        sum += matchability * quality;
     }
-    float quality = dot(cacc::Vec3f(0.0f, 0.0f, 1.0f), new_rel_dir);
-    float novelty = sigmoid(theta, pi / 8.0f, 16.0f);
-    float matchability = 1.0f - sigmoid(theta, pi / 4.0f, 16.0f);
-    return novelty * matchability * quality;
+    float novelty = sigmoid(min_alpha, pi / 8.0f, 16.0f);
+    return novelty * sum;
 }
 
 __global__
@@ -193,7 +198,7 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance,
 
     float capture_difficulty = max(cloud.qualities_ptr[id], 0.0f);
 
-#if 1
+#if 0
     // 1.484f ~ 85.0f / 180.0f * pi
     float min_theta = min(cloud.values_ptr[id], 1.484f);
 
