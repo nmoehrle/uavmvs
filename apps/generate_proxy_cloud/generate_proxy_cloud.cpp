@@ -109,9 +109,10 @@ int main(int argc, char **argv) {
 
             float area = math::geom::triangle_area(v0, v1, v2);
 
-            uint num_face_samples = area * args.samples;
+            float face_samples = area * args.samples;
+            uint num_face_samples = face_samples;
 
-            if (num_face_samples == 0 && dist(gen) < area * args.samples) {
+            if (dist(gen) < (face_samples - static_cast<float>(num_face_samples))) {
                 num_face_samples += 1;
             }
 
