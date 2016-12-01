@@ -24,7 +24,7 @@ nelder_mead(Simplex<N> * simplex, std::function<float(math::Vector<float, N>)> c
     std::array<float, N + 1> values;
 
     std::array<math::Vector<float, N>, N + 1> & verts = simplex->verts;
-    for (int k = 0; k < values.size(); ++k) {
+    for (std::size_t k = 0; k < values.size(); ++k) {
         values[k] = func(verts[k]);
     }
 
@@ -45,7 +45,7 @@ nelder_mead(Simplex<N> * simplex, std::function<float(math::Vector<float, N>)> c
     float worst_value = values[worst_idx];
 
     math::Vector<float, N> hpc(0.0f);
-    for (int k = 0; k < ranks.size() - 1; ++k) {
+    for (std::size_t k = 0; k < ranks.size() - 1; ++k) {
         hpc += verts[ranks[k]];
     }
     hpc /= N;
@@ -53,7 +53,6 @@ nelder_mead(Simplex<N> * simplex, std::function<float(math::Vector<float, N>)> c
     math::Vector<float, N> refl = hpc + (hpc - verts[worst_idx]);
 
     float refl_value = func(refl);
-    float value = 0;
 
     if (refl_value < best_value) {
         /* Expansion */
@@ -87,7 +86,6 @@ nelder_mead(Simplex<N> * simplex, std::function<float(math::Vector<float, N>)> c
                 } else {
                     /* Shrink */
                     shrink(simplex, verts[best_idx]);
-                    value = best_value;
                     return {best_idx, best_value};
                 }
             }

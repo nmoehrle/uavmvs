@@ -70,7 +70,6 @@ void evaluate_position(uint pid, float max_distance,
     cacc::PointCloud<cacc::DEVICE>::Data volume);
 
 //TODO Homogenize naming scheme (vertices vs. verts)
-//TODO Introduce eval namespace
-//TODO Actually create a lib
+//TODO Introduce namespace
 
 #endif /* KERNELS_HEADER */
