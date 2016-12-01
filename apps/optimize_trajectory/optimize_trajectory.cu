@@ -7,6 +7,7 @@
 #include "util/file_system.h"
 
 #include "mve/camera.h"
+#include "mve/image_io.h"
 #include "mve/mesh_io_ply.h"
 
 #include "math/bspline.h"
@@ -26,6 +27,8 @@
 
 #include "eval/kernels.h"
 
+#include "opti/nelder_mead.h"
+
 struct Arguments {
     std::string in_trajectory;
     std::string proxy_mesh;
@@ -43,9 +46,9 @@ Arguments parse_args(int argc, char **argv) {
     args.set_nonopt_minnum(4);
     args.set_nonopt_maxnum(4);
     args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] IN_TRAJECTORY PROXY_MESH PROXY_CLOUD OUT_TRAJECTORY");
-    args.set_description("Template app");
-    args.add_option('\0', "min-distance", true, "minimum distance to surface [0.0]");
-    args.add_option('\0', "max-distance", true, "maximum distance to surface [80.0]");
+    args.set_description("Optimize position and orientation of trajectory views.");
+    args.add_option('\0', "min-distance", true, "minimum distance to surface [2.5]");
+    args.add_option('\0', "max-distance", true, "maximum distance to surface [50.0]");
     args.add_option('\0', "focal-length", true, "camera focal length [0.86]");
     args.add_option('m', "max-iters", true, "maximum iterations [100]");
     args.parse(argc, argv);
@@ -56,8 +59,8 @@ Arguments parse_args(int argc, char **argv) {
     conf.proxy_cloud = args.get_nth_nonopt(2);
     conf.out_trajectory = args.get_nth_nonopt(3);
     conf.max_iters = 100;
-    conf.min_distance = 0.0f;
-    conf.max_distance = 80.0f;
+    conf.max_distance = 50.0f;
+    conf.min_distance = 2.5f;
     conf.focal_length = 0.86f;
 
     for (util::ArgResult const* i = args.next_option();
@@ -82,9 +85,10 @@ Arguments parse_args(int argc, char **argv) {
         }
     }
 
+    assert(conf.min_distance >= 0.0f);
+
     return conf;
 }
-
 float const pi = std::acos(-1.0f);
 
 int main(int argc, char **argv) {
@@ -137,19 +141,6 @@ int main(int argc, char **argv) {
     int height = 1080;
     cam.fill_calibration(calib.begin(), width, height);
 
-    std::array<math::Vec3f, 27> offsets;
-    for (int z = 0; z < 3; ++z) {
-        for (int y = 0; y < 3; ++y) {
-            for (int x = 0; x < 3; ++x) {
-                int idx = (z * 3 + y) * 3 + x;
-                offsets[idx][0] = (x - 1) * 1.0f;
-                offsets[idx][1] = (y - 1) * 1.0f;
-                offsets[idx][2] = (z - 1) * 1.0f;
-            }
-        }
-    }
-    float scale = args.max_distance / 25.0f;
-
     std::vector<mve::CameraInfo> trajectory;
     utp::load_trajectory(args.in_trajectory, &trajectory);
 
@@ -157,7 +148,30 @@ int main(int argc, char **argv) {
     std::vector<std::size_t> indices(trajectory.size());
     std::iota(indices.begin(), indices.end(), 0);
 
+
+    std::vector<Simplex<3> > simplices(trajectory.size());
+
+    std::vector<std::vector<float> > contribss(trajectory.size());
+
     float min_sq_distance = args.max_distance * args.max_distance;
+
+    {
+        std::normal_distribution<> pos_dist(0.0f, args.min_distance);
+        std::normal_distribution<> angle_dist(0.0f, pi / 8.0f);
+        for (std::size_t i = 0; i < trajectory.size(); ++i) {
+            mve::CameraInfo const & cam = trajectory[i];
+            math::Vec3f pos;
+            cam.fill_camera_pos(pos.begin());
+
+            std::array<math::Vector<float, 3>, 4> & verts = simplices[i].verts;
+            for (std::size_t j = 0; j < verts.size(); ++j) {
+                for (int k = 0; k < 3; ++k) {
+                    verts[j][k] = pos[k] + pos_dist(gen);
+                }
+            }
+        }
+    }
+
 
     std::vector<std::size_t> oindices;
     #pragma omp parallel
@@ -227,37 +241,13 @@ int main(int argc, char **argv) {
             for (std::size_t j = 0; j < oindices.size(); ++j) {
                 std::size_t idx = oindices[j];
                 mve::CameraInfo & cam = trajectory[idx];
-                math::Vec3f cpos;
-                cam.fill_camera_pos(cpos.begin());
 
                 float vmax = 0.0f;
+                float theta = 0.0f;
+                float phi = 0.0f;
 
-                for (int k = 0; k < 27; ++k) {
-                    math::Vec3f pos = cpos + scale * offsets[k] * (1.0f - i / (args.max_iters / 2.0f));
-
-                    #if 0
-                    if (i > args.max_iters / 2) {
-                        math::BSpline<math::Vec3f> spline;
-                        for (std::size_t h = 0; h < 3; ++h) {
-                            mve::CameraInfo & cam = trajectory[std::max(0ul, idx - h)];
-                            math::Vec3f pos;
-                            cam.fill_camera_pos(pos.begin());
-                            spline.add_point(pos);
-                        }
-                        spline.add_point(pos);
-                        for (std::size_t h = 0; h < 3; ++h) {
-                            mve::CameraInfo & cam = trajectory[std::min(idx + h, trajectory.size() - 1)];
-                            math::Vec3f pos;
-                            cam.fill_camera_pos(pos.begin());
-                            spline.add_point(pos);
-                        }
-                        spline.uniform_knots(0.0, 1.0f);
-
-                        pos = spline.evaluate(0.5f);
-                    }
-                    #endif
-
-                    if (kd_tree->find_nn(pos, nullptr, args.min_distance)) continue;
+                std::function<float(math::Vec3f)> func = [&] (math::Vec3f const & pos) {
+                    if (kd_tree->find_nn(pos, nullptr, args.min_distance)) return 0.0f;
 
                     dcon_hist->null();
                     {
@@ -284,30 +274,38 @@ int main(int argc, char **argv) {
                     //TODO write a kernel to select best viewing direction
 
                     float max = 0.0f;
-                    float theta = 0.0f;
-                    float phi = 0.0f;
                     for (int y = 0; y < data.height; ++y) {
                         for (int x = 0; x < data.width; ++x) {
                             float v = data.data_ptr[y * data.pitch / sizeof(float) + x];
                             if (v > max) {
                                 max = v;
-                                theta = (0.5f + (y / (float) data.height) / 2.0f) * pi;
-                                phi = (x / (float) data.width) * 2.0f * pi;
+                                if (max > vmax) {
+                                    vmax = max;
+                                    theta = (0.5f + (y / (float) data.height) / 2.0f) * pi;
+                                    phi = (x / (float) data.width) * 2.0f * pi;
+                                }
                             }
                         }
                     }
 
-                    if (max < vmax) continue;
+                    return -max;
+                };
 
-                    vmax = max;
+                Simplex<3> & simplex  = simplices[idx];
 
-                    math::Matrix3f rot = utp::rotation_from_spherical(theta, phi);
+                float value;
+                std::size_t vid;
+                std::tie(vid, value) = nelder_mead(&simplex, func);
 
-                    math::Vec3f trans = -rot * pos;
+                contribss[idx].push_back(-value);
 
-                    std::copy(trans.begin(), trans.end(), cam.trans);
-                    std::copy(rot.begin(), rot.end(), cam.rot);
-                }
+                math::Vec3f pos = simplex.verts[vid];
+
+                math::Matrix3f rot = utp::rotation_from_spherical(theta, phi);
+                math::Vec3f trans = -rot * pos;
+
+                std::copy(trans.begin(), trans.end(), cam.trans);
+                std::copy(rot.begin(), rot.end(), cam.rot);
             }
 
             #pragma omp single
@@ -330,16 +328,36 @@ int main(int argc, char **argv) {
                     }
                 }
 
-                float length = utp::length(trajectory);
+                //float length = utp::length(trajectory);
 
                 float avg_recon = cacc::sum(drecons) / num_verts;
-                std::cout << i << "(" << oindices.size() << ") " << avg_recon << " " << length << std::endl;
+                //std::cout << i << "(" << oindices.size() << ") " << avg_recon << " " << length << std::endl;
+                std::cout << i << "(" << oindices.size() << ") " << avg_recon << std::endl;
             }
         }
         cudaStreamDestroy(stream);
     }
 
     utp::save_trajectory(trajectory, args.out_trajectory);
+
+    {
+        int width = 0;
+        for (std::size_t i = 0; i < contribss.size(); ++i) {
+            width = std::max(width, (int) contribss[i].size());
+        }
+        int height = contribss.size();
+
+        mve::FloatImage::Ptr image = mve::FloatImage::create(width, height, 1);
+        image->fill(-1.0f);
+        for (std::size_t i = 0; i < contribss.size(); ++i) {
+            std::vector<float> const & contribs = contribss[i];
+            for (std::size_t j = 0; j < contribs.size(); ++j) {
+                image->at(j, i, 0) = contribs[j];
+            }
+        }
+
+        mve::image::save_pfm_file(image, "/tmp/test.pfm");
+    }
 
     return EXIT_SUCCESS;
 }
