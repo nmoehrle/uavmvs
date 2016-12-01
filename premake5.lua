@@ -36,6 +36,8 @@ workspace "uavmvs"
 
     include("apps/template")
 
+    include("apps/testing")
+
     include("apps/mesh_tools")
     include("apps/image_tools")
     include("apps/scene_tools")
