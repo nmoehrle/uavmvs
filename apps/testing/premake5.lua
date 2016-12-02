@@ -5,8 +5,15 @@ project "interop"
     toolset "nvcc"
     language "C++"
 
-    files { "interop.cu" }
+    flags { "RelocatableDeviceCode" }
+    buildoptions { "-Xcompiler -fopenmp" }
+
+    files {
+        "interop.cu",
+        "../../libs/cacc/bvh_tree.cu",
+        "../../libs/cacc/tracing.cu",
+    }
 
     mve.use({ "util", "ogl" })
 
-    links { "GL", "glfw", "sim" }
+    links { "gomp", "GL", "glfw", "sim" }

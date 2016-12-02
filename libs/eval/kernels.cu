@@ -2,9 +2,7 @@
 
 #include "cacc/math.h"
 
-#define TRACING_SSTACK_SIZE 12
 #include "cacc/tracing.h"
-#define NNSEARCH_SSTACK_SIZE 12
 #include "cacc/nnsearch.h"
 
 #include "kernels.h"

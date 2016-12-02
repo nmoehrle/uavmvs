@@ -1,3 +1,4 @@
+#include <chrono>
 #include <iostream>
 
 #include "util/system.h"
@@ -18,7 +19,11 @@
 
 #include "acc/bvh_tree.h"
 
-#include "cacc/defines.h"
+#include "cacc/util.h"
+#include "cacc/image.h"
+#include "cacc/matrix.h"
+#include "cacc/bvh_tree.h"
+#include "cacc/tracing.h"
 
 #include <cuda_gl_interop.h>
 
@@ -143,19 +148,19 @@ void setup_fbo(GLuint *fbo, GLuint *rbo, GLuint * dbo, int width, int height)
     ogl::check_gl_error();
     glBindRenderbuffer(GL_RENDERBUFFER, 0);
 
-	glGenFramebuffers(1, fbo);
-	glBindFramebuffer(GL_FRAMEBUFFER, *fbo);
+    glGenFramebuffers(1, fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, *fbo);
     glFramebufferRenderbuffer(
         GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, *rbo);
     glFramebufferRenderbuffer(
         GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, *dbo);
     ogl::check_gl_error();
 
-	if(GL_FRAMEBUFFER_COMPLETE != glCheckFramebufferStatus(GL_FRAMEBUFFER)) {
-		std::cerr << "Could not initialize framebuffer" << std::endl;
+    if(GL_FRAMEBUFFER_COMPLETE != glCheckFramebufferStatus(GL_FRAMEBUFFER)) {
+        std::cerr << "Could not initialize framebuffer" << std::endl;
         std::exit(EXIT_FAILURE);
-	}
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
 
@@ -178,6 +183,45 @@ convert_depths(int width, int height, float znear, float zfar) {
     float depth = tex2D(depths, x, y);
 }
 
+__global__
+void
+raycast(cacc::Vec3f origin, cacc::Mat3f invcalib, cacc::Mat3f c2w_rot,
+    cacc::BVHTree<cacc::DEVICE>::Data const bvh_tree,
+    cacc::Image<float, cacc::DEVICE>::Data image)
+{
+    int const bx = blockIdx.x;
+    int const tx = threadIdx.x;
+
+    int const by = blockIdx.y;
+    int const ty = threadIdx.y;
+
+    int const x = bx * blockDim.x + tx;
+    int const y = by * blockDim.y + ty;
+
+    if (x >= image.width || y >= image.height) return;
+
+    int const stride = image.pitch / sizeof(float);
+
+    cacc::Ray ray;
+    ray.origin = origin;
+    cacc::Vec3f v = invcalib * cacc::Vec3f((float)x + 0.5f, (float)y + 0.5f, 1.0f);
+    ray.dir = (c2w_rot * v.normalize()).normalize();
+    ray.set_tmin(0.001f);
+    ray.set_tmax(1000.0f);
+
+
+    uint hit_face_id;
+    if (cacc::tracing::trace(bvh_tree, ray, &hit_face_id)) {
+        //face_id != tri_id
+        cacc::Tri tri = bvh_tree.tris_ptr[hit_face_id];
+        image.data_ptr[y * stride + x] = 1000.0f;
+        //cacc::intersect(ray, tri, image.data_ptr + y * stride + x);
+    } else {
+        image.data_ptr[y * stride + x] = 0.0f;
+    }
+}
+
+
 int main(int argc, char **argv) {
     util::system::register_segfault_handler();
     util::system::print_build_timestamp(argv[0]);
@@ -199,7 +243,7 @@ int main(int argc, char **argv) {
     }
     std::vector<uint> const & faces = mesh->get_faces();
     std::vector<math::Vec3f> const & vertices = mesh->get_vertices();
-    BVHTree bvhtree(faces, vertices);
+    BVHTree::Ptr bvh_tree = BVHTree::create(faces, vertices);
 
     ogl::ShaderProgram::Ptr sp = ogl::ShaderProgram::create();
     sp->load_vert_code(vertex_shader);
@@ -229,11 +273,20 @@ int main(int argc, char **argv) {
     mve::View::Ptr view = scene->get_view_by_id(27);
 
     mve::CameraInfo const & camera = view->get_camera();
+    math::Vec3f origin;
+    camera.fill_camera_pos(origin.begin());
+    math::Matrix3f invcalib;
+    camera.fill_inverse_calibration(invcalib.begin(), width, height);
+    math::Matrix3f c2w_rot;
+    camera.fill_cam_to_world_rot(c2w_rot.begin());
 
     fill_ogl_camera(camera, width, height, znear, zfar, &ogl_cam);
 
+    std::chrono::time_point<std::chrono::system_clock> start, end;
+
+    start = std::chrono::system_clock::now();
     glEnable(GL_DEPTH_TEST);
-	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
     glViewport(0, 0, width, height);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     sp->bind();
@@ -245,7 +298,11 @@ int main(int argc, char **argv) {
     mr->draw();
     glFlush();
     ogl::check_gl_error();
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    end = std::chrono::system_clock::now();
+    std::cout << "Rasterization: "
+        << std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()
+        << "us" << std::endl;
 
     struct cudaGraphicsResource *res;
     CHECK(cudaGraphicsGLRegisterImage(&res, rbo, GL_RENDERBUFFER, cudaGraphicsRegisterFlagsNone));
@@ -255,30 +312,25 @@ int main(int argc, char **argv) {
     CHECK(cudaGraphicsSubResourceGetMappedArray(&array, res, 0, 0));
 
     cudaChannelFormatDesc cdesc = cudaCreateChannelDesc(32, 0, 0, 0, cudaChannelFormatKindFloat);
-    cudaBindTextureToArray(depths, array, cdesc);
+    //cudaBindTextureToArray(depths, array, cdesc);
     {
         dim3 block(16, 16);
         dim3 grid((width + 15) / 16, (height + 15) / 16);
-        convert_depths<<<grid, block>>>(width, height, znear, zfar);
+        //convert_depths<<<grid, block>>>(width, height, znear, zfar);
         CHECK(cudaDeviceSynchronize());
     }
 
     mve::FloatImage::Ptr depth = mve::FloatImage::create(width, height, 1);
     CHECK(cudaMemcpyFromArray(depth->begin(), array, 0, 0, width * height * 4, cudaMemcpyDeviceToHost));
     mve::image::flip<float>(depth, mve::image::FLIP_VERTICAL);
+    mve::image::depthmap_convert_conventions<float>(depth, invcalib, true);
 
     CHECK(cudaGraphicsUnmapResources(1, &res));
     CHECK(cudaGraphicsUnregisterResource(res));
 
-    math::Vec3f origin;
-    camera.fill_camera_pos(origin.begin());
-    math::Matrix3f invcalib;
-    camera.fill_inverse_calibration(invcalib.begin(), width, height);
-    math::Matrix3f c2w_rot;
-    camera.fill_cam_to_world_rot(c2w_rot.begin());
-
     mve::FloatImage::Ptr rdepth = mve::FloatImage::create(width, height, 1);
 
+    start = std::chrono::system_clock::now();
     #pragma omp parallel for
     for (int y = 0; y < rdepth->height(); ++y) {
         for (int x = 0; x < rdepth->width(); ++x) {
@@ -290,16 +342,52 @@ int main(int argc, char **argv) {
             ray.tmax = std::numeric_limits<float>::infinity();
 
             BVHTree::Hit hit;
-            if (!bvhtree.intersect(ray, &hit)) continue;
+            if (!bvh_tree->intersect(ray, &hit)) continue;
 
             rdepth->at(x, y, 0) = (hit.t * ray.dir).norm();
         }
     }
+    end = std::chrono::system_clock::now();
+    std::cout << "CPU tracing: "
+        << std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()
+        << "us" << std::endl;
     mve::image::depthmap_convert_conventions<float>(rdepth, invcalib, false);
+
+    cacc::select_cuda_device(3, 5);
+    cacc::BVHTree<cacc::DEVICE>::Ptr dbvh_tree;
+    dbvh_tree = cacc::BVHTree<cacc::DEVICE>::create<uint, math::Vec3f>(bvh_tree);
+    cacc::tracing::bind_textures(dbvh_tree->cdata());
+    cacc::Image<float, cacc::DEVICE>::Ptr dimage;
+    dimage = cacc::Image<float, cacc::DEVICE>::create(width, height);
+    cacc::Image<float, cacc::HOST>::Ptr image;
+    image = cacc::Image<float, cacc::HOST>::create(width, height);
+    start = std::chrono::system_clock::now();
+    {
+        dim3 block(16, 8);
+        dim3 grid((width + 15) / 16, (height + 7) / 8);
+        raycast<<<grid, block>>>(cacc::Vec3f(origin.begin()),
+            cacc::Mat3f(invcalib.begin()), cacc::Mat3f(c2w_rot.begin()),
+            dbvh_tree->cdata(), dimage->cdata());
+        CHECK(cudaDeviceSynchronize());
+    }
+    end = std::chrono::system_clock::now();
+    std::cout << "GPU tracing: "
+        << std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()
+        << "us" << std::endl;
+    *image = *dimage;
+    CHECK(cudaDeviceSynchronize());
+
+    mve::FloatImage::Ptr ddepth = mve::FloatImage::create(width, height, 1);
+    cacc::Image<float, cacc::HOST>::Data data = image->cdata();
+    for (int y = 0; y < data.height; ++y) {
+        for (int x = 0; x < data.width; ++x) {
+            ddepth->at(x, y, 0) = data.data_ptr[y * (data.pitch / sizeof(float)) + x];
+        }
+    }
 
     mve::FloatImage::Ptr error = mve::FloatImage::create(width, height, 1);
     for (int i = 0; i < depth->get_value_amount(); ++i) {
-        error->at(i) = std::abs(depth->at(i) - rdepth->at(i));
+        error->at(i) = std::abs(ddepth->at(i) - depth->at(i));
     }
 
     mve::image::save_pfm_file(error, "/tmp/error.pfm");

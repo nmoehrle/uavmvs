@@ -14,7 +14,7 @@ workspace "uavmvs"
 
     filter { "toolset:nvcc" }
         buildoptions { "--gpu-architecture sm_52", "-Xcompiler -Wno-unknown-pragmas" }
-        linkoptions "--gpu-architecture sm_52"
+        linkoptions { "--gpu-architecture sm_52" }
 
     configuration "release"
         targetdir "build/release"
@@ -22,6 +22,7 @@ workspace "uavmvs"
 
     configuration "debug"
         targetdir "build/debug"
+        buildoptions { "--generate-line-info" }
         symbols "On"
 
     os.execute("git submodule init")
