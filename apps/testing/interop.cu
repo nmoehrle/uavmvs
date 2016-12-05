@@ -24,6 +24,8 @@
 #include "cacc/matrix.h"
 #include "cacc/bvh_tree.h"
 #include "cacc/tracing.h"
+#include "cacc/array_texture.h"
+#include "cacc/graphics_resource.h"
 
 #include <cuda_gl_interop.h>
 
@@ -163,12 +165,11 @@ void setup_fbo(GLuint *fbo, GLuint *rbo, GLuint * dbo, int width, int height)
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
-
-texture <float, cudaTextureType2D, cudaReadModeElementType> depths;
-
 __global__
 void
-convert_depths(int width, int height, float znear, float zfar) {
+copy(cacc::ArrayTexture<float>::Accessor tex,
+    cacc::Image<float, cacc::DEVICE>::Data image)
+{
     int const bx = blockIdx.x;
     int const tx = threadIdx.x;
 
@@ -178,9 +179,11 @@ convert_depths(int width, int height, float znear, float zfar) {
     int const x = bx * blockDim.x + tx;
     int const y = by * blockDim.y + ty;
 
-    if (x >= width || y >= height) return;
+    if (x >= image.width || y >= image.height) return;
 
-    float depth = tex2D(depths, x, y);
+    int const stride = image.pitch / sizeof(float);
+
+    image.data_ptr[y * stride + x] = tex[x][y];
 }
 
 __global__
@@ -230,10 +233,9 @@ int main(int argc, char **argv) {
 
     Window window("", 640, 480);
 
-    int device;
-    uint num_devices;
-    CHECK(cudaGLGetDevices(&num_devices, &device, 1u, cudaGLDeviceListCurrentFrame));
-    CHECK(cudaGLSetGLDevice(device));
+    int device = cacc::get_cuda_device(3, 5);
+    cacc::set_cuda_device(device);
+    cacc::set_cuda_gl_device(device);
 
     mve::TriangleMesh::Ptr mesh;
     try {
@@ -304,29 +306,31 @@ int main(int argc, char **argv) {
         << std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()
         << "us" << std::endl;
 
-    struct cudaGraphicsResource *res;
-    CHECK(cudaGraphicsGLRegisterImage(&res, rbo, GL_RENDERBUFFER, cudaGraphicsRegisterFlagsNone));
-
-    CHECK(cudaGraphicsMapResources(1, &res));
-    cudaArray *array;
-    CHECK(cudaGraphicsSubResourceGetMappedArray(&array, res, 0, 0));
-
-    cudaChannelFormatDesc cdesc = cudaCreateChannelDesc(32, 0, 0, 0, cudaChannelFormatKindFloat);
-    //cudaBindTextureToArray(depths, array, cdesc);
+    mve::FloatImage::Ptr depth = mve::FloatImage::create(width, height, 1);
     {
+        cacc::GraphicsResource res;
+        CHECK(cudaGraphicsGLRegisterImage(&res.ptr(), rbo,
+            GL_RENDERBUFFER, cudaGraphicsRegisterFlagsNone));
+        cacc::MappedArrayTexture<float> tex(&res);
+        cacc::Image<float, cacc::DEVICE>::Ptr dimage;
+        dimage = cacc::Image<float, cacc::DEVICE>::create(width, height);
+        cacc::Image<float, cacc::HOST>::Ptr image;
+        image = cacc::Image<float, cacc::HOST>::create(width, height);
         dim3 block(16, 16);
         dim3 grid((width + 15) / 16, (height + 15) / 16);
-        //convert_depths<<<grid, block>>>(width, height, znear, zfar);
-        CHECK(cudaDeviceSynchronize());
+        copy<<<grid, block>>>(tex.accessor(), dimage->cdata());
+        *image = *dimage;
+        cacc::Image<float, cacc::HOST>::Data data = image->cdata();
+        for (int y = 0; y < data.height; ++y) {
+            for (int x = 0; x < data.width; ++x) {
+                depth->at(x, data.height - y - 1, 0) =
+                    data.data_ptr[y * (data.pitch / sizeof(float)) + x];
+            }
+        }
     }
 
-    mve::FloatImage::Ptr depth = mve::FloatImage::create(width, height, 1);
-    CHECK(cudaMemcpyFromArray(depth->begin(), array, 0, 0, width * height * 4, cudaMemcpyDeviceToHost));
     mve::image::flip<float>(depth, mve::image::FLIP_VERTICAL);
     mve::image::depthmap_convert_conventions<float>(depth, invcalib, true);
-
-    CHECK(cudaGraphicsUnmapResources(1, &res));
-    CHECK(cudaGraphicsUnregisterResource(res));
 
     mve::FloatImage::Ptr rdepth = mve::FloatImage::create(width, height, 1);
 
@@ -391,6 +395,7 @@ int main(int argc, char **argv) {
     }
 
     mve::image::save_pfm_file(error, "/tmp/error.pfm");
+    mve::image::save_pfm_file(depth, "/tmp/depth.pfm");
 
     return EXIT_SUCCESS;
 }
