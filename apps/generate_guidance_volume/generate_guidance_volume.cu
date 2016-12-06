@@ -17,7 +17,6 @@
 #include "cacc/math.h"
 #include "cacc/util.h"
 #include "cacc/bvh_tree.h"
-#include "cacc/tracing.h"
 #include "cacc/nnsearch.h"
 #include "cacc/point_cloud.h"
 
@@ -105,7 +104,6 @@ int main(int argc, char **argv) {
         bvh_tree = load_mesh_as_bvh_tree(args.proxy_mesh);
         dbvh_tree = cacc::BVHTree<cacc::DEVICE>::create<uint, math::Vec3f>(bvh_tree);
     }
-    cacc::tracing::bind_textures(dbvh_tree->cdata());
 
     mve::TriangleMesh::Ptr mesh;
     try {
@@ -240,7 +238,7 @@ int main(int argc, char **argv) {
                 dim3 block(KERNEL_BLOCK_SIZE);
                 populate_histogram<<<grid, block, 0, stream>>>(
                     cacc::Vec3f(volume->position(sample_positions[i]).begin()),
-                    args.max_distance, dbvh_tree->cdata(), dcloud->cdata(), dkd_tree->cdata(),
+                    args.max_distance, dbvh_tree->accessor(), dcloud->cdata(), dkd_tree->cdata(),
                     dobs_hist->cdata());
             }
 

@@ -17,13 +17,15 @@
 
 #include "sim/window.h"
 
+#define BVHTREE_NUM_BINS 0
 #include "acc/bvh_tree.h"
 
+#include "cacc/math.h"
 #include "cacc/util.h"
 #include "cacc/image.h"
 #include "cacc/matrix.h"
-#include "cacc/bvh_tree.h"
 #include "cacc/tracing.h"
+#include "cacc/bvh_tree.h"
 #include "cacc/array_texture.h"
 #include "cacc/graphics_resource.h"
 
@@ -189,7 +191,7 @@ copy(cacc::ArrayTexture<float>::Accessor tex,
 __global__
 void
 raycast(cacc::Vec3f origin, cacc::Mat3f invcalib, cacc::Mat3f c2w_rot,
-    cacc::BVHTree<cacc::DEVICE>::Data const bvh_tree,
+    cacc::BVHTree<cacc::DEVICE>::Accessor const bvh_tree,
     cacc::Image<float, cacc::DEVICE>::Data image)
 {
     int const bx = blockIdx.x;
@@ -215,10 +217,10 @@ raycast(cacc::Vec3f origin, cacc::Mat3f invcalib, cacc::Mat3f c2w_rot,
 
     uint hit_face_id;
     if (cacc::tracing::trace(bvh_tree, ray, &hit_face_id)) {
-        //face_id != tri_id
-        cacc::Tri tri = bvh_tree.tris_ptr[hit_face_id];
+        //ERROR face_id != tri_id
+        cacc::Tri tri = bvh_tree.load_tri(hit_face_id);
         image.data_ptr[y * stride + x] = 1000.0f;
-        //cacc::intersect(ray, tri, image.data_ptr + y * stride + x);
+        cacc::intersect(ray, tri, image.data_ptr + y * stride + x);
     } else {
         image.data_ptr[y * stride + x] = 0.0f;
     }
@@ -323,8 +325,7 @@ int main(int argc, char **argv) {
         cacc::Image<float, cacc::HOST>::Data data = image->cdata();
         for (int y = 0; y < data.height; ++y) {
             for (int x = 0; x < data.width; ++x) {
-                depth->at(x, data.height - y - 1, 0) =
-                    data.data_ptr[y * (data.pitch / sizeof(float)) + x];
+                depth->at(x, y, 0) = data.data_ptr[y * (data.pitch / sizeof(float)) + x];
             }
         }
     }
@@ -360,7 +361,6 @@ int main(int argc, char **argv) {
     cacc::select_cuda_device(3, 5);
     cacc::BVHTree<cacc::DEVICE>::Ptr dbvh_tree;
     dbvh_tree = cacc::BVHTree<cacc::DEVICE>::create<uint, math::Vec3f>(bvh_tree);
-    cacc::tracing::bind_textures(dbvh_tree->cdata());
     cacc::Image<float, cacc::DEVICE>::Ptr dimage;
     dimage = cacc::Image<float, cacc::DEVICE>::create(width, height);
     cacc::Image<float, cacc::HOST>::Ptr image;
@@ -368,10 +368,10 @@ int main(int argc, char **argv) {
     start = std::chrono::system_clock::now();
     {
         dim3 block(16, 8);
-        dim3 grid((width + 15) / 16, (height + 7) / 8);
+        dim3 grid(cacc::divup(width, block.x), cacc::divup(height, block.y));
         raycast<<<grid, block>>>(cacc::Vec3f(origin.begin()),
             cacc::Mat3f(invcalib.begin()), cacc::Mat3f(c2w_rot.begin()),
-            dbvh_tree->cdata(), dimage->cdata());
+            dbvh_tree->accessor(), dimage->cdata());
         CHECK(cudaDeviceSynchronize());
     }
     end = std::chrono::system_clock::now();
@@ -395,7 +395,7 @@ int main(int argc, char **argv) {
     }
 
     mve::image::save_pfm_file(error, "/tmp/error.pfm");
-    mve::image::save_pfm_file(depth, "/tmp/depth.pfm");
+    mve::image::save_pfm_file(ddepth, "/tmp/depth.pfm");
 
     return EXIT_SUCCESS;
 }

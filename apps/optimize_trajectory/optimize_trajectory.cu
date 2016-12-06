@@ -13,7 +13,6 @@
 
 #include "cacc/util.h"
 #include "cacc/math.h"
-#include "cacc/tracing.h"
 #include "cacc/nnsearch.h"
 #include "cacc/reduction.h"
 
@@ -102,7 +101,6 @@ int main(int argc, char **argv) {
         bvh_tree = load_mesh_as_bvh_tree(args.proxy_mesh);
         dbvh_tree = cacc::BVHTree<cacc::DEVICE>::create<uint, math::Vec3f>(bvh_tree);
     }
-    cacc::tracing::bind_textures(dbvh_tree->cdata());
 
     uint num_sverts;
     cacc::KDTree<3u, cacc::DEVICE>::Ptr dkd_tree;
@@ -218,7 +216,7 @@ int main(int argc, char **argv) {
                     populate_direction_histogram<<<grid, block, 0, stream>>>(
                         cacc::Vec3f(pos.begin()), args.max_distance,
                         cacc::Mat4f(w2c.begin()), cacc::Mat3f(calib.begin()), width, height,
-                        dbvh_tree->cdata(), dcloud->cdata(), drecons->cdata(), ddir_hist->cdata()
+                        dbvh_tree->accessor(), dcloud->cdata(), drecons->cdata(), ddir_hist->cdata()
                     );
                 }
 
@@ -267,7 +265,7 @@ int main(int argc, char **argv) {
                         dim3 block(KERNEL_BLOCK_SIZE);
                         populate_histogram<<<grid, block, 0, stream>>>(
                             cacc::Vec3f(pos.begin()),
-                            args.max_distance, dbvh_tree->cdata(), dcloud->cdata(), dkd_tree->cdata(),
+                            args.max_distance, dbvh_tree->accessor(), dcloud->cdata(), dkd_tree->cdata(),
                             ddir_hist->cdata(), drecons->cdata(), dcon_hist->cdata());
                     }
 
@@ -327,7 +325,7 @@ int main(int argc, char **argv) {
                         populate_direction_histogram<<<grid, block, 0, stream>>>(
                             cacc::Vec3f(pos.begin()), args.max_distance,
                             cacc::Mat4f(w2c.begin()), cacc::Mat3f(calib.begin()), width, height,
-                            dbvh_tree->cdata(), dcloud->cdata(), drecons->cdata(), ddir_hist->cdata()
+                            dbvh_tree->accessor(), dcloud->cdata(), drecons->cdata(), ddir_hist->cdata()
                         );
                     }
                 }

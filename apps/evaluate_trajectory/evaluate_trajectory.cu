@@ -18,7 +18,6 @@
 #include "cacc/util.h"
 #include "cacc/math.h"
 #include "cacc/matrix.h"
-#include "cacc/tracing.h"
 #include "cacc/reduction.h"
 
 #include "col/mpl_viridis.h"
@@ -98,7 +97,6 @@ int main(int argc, char * argv[])
         bvh_tree = load_mesh_as_bvh_tree(args.proxy_mesh);
         dbvh_tree = cacc::BVHTree<cacc::DEVICE>::create<uint, math::Vec3f>(bvh_tree);
     }
-    cacc::tracing::bind_textures(dbvh_tree->cdata());
 
     cacc::PointCloud<cacc::HOST>::Ptr cloud;
     cloud = load_point_cloud(args.proxy_cloud);
@@ -140,7 +138,7 @@ int main(int argc, char * argv[])
             populate_direction_histogram<<<grid, block, 0, stream>>>(
                 cacc::Vec3f(view_pos.begin()), args.max_distance,
                 cacc::Mat4f(w2c.begin()), cacc::Mat3f(calib.begin()), width, height,
-                dbvh_tree->cdata(), dcloud->cdata(), drecons->cdata(), ddir_hist->cdata()
+                dbvh_tree->accessor(), dcloud->cdata(), drecons->cdata(), ddir_hist->cdata()
             );
         }
 

@@ -8,7 +8,6 @@
 
 #include "cacc/util.h"
 #include "cacc/math.h"
-#include "cacc/tracing.h"
 #include "cacc/kd_tree.h"
 #include "cacc/bvh_tree.h"
 #include "cacc/point_cloud.h"
@@ -131,7 +130,6 @@ int main(int argc, char **argv) {
         acc::BVHTree<uint, math::Vec3f>::Ptr bvh_tree;
         bvh_tree = acc::BVHTree<uint, math::Vec3f>::create(faces, vertices);
         dbvh_tree = cacc::BVHTree<cacc::DEVICE>::create<uint, math::Vec3f>(bvh_tree);
-        cacc::tracing::bind_textures(dbvh_tree->cdata());
     }
 
     cacc::KDTree<3u, cacc::DEVICE>::Ptr dkd_tree;
@@ -146,7 +144,7 @@ int main(int argc, char **argv) {
         dim3 grid(cacc::divup(vertices.size(), KERNEL_BLOCK_SIZE));
         dim3 block(KERNEL_BLOCK_SIZE);
         estimate_capture_difficulty<<<grid, block>>>(args.max_distance,
-            dbvh_tree->cdata(), num_faces, dkd_tree->cdata(), dcloud->cdata());
+            dbvh_tree->accessor(), num_faces, dkd_tree->cdata(), dcloud->cdata());
         CHECK(cudaDeviceSynchronize());
     }
 

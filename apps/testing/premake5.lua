@@ -11,7 +11,6 @@ project "interop"
     files {
         "interop.cu",
         "../../libs/cacc/bvh_tree.cu",
-        "../../libs/cacc/tracing.cu",
     }
 
     mve.use({ "util", "ogl" })

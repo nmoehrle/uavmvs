@@ -31,7 +31,7 @@ orthogonal(cacc::Vec3f const & vec)
 __forceinline__ __device__
 bool
 visible(cacc::Vec3f const & v, cacc::Vec3f const & v2cn, float l,
-    cacc::BVHTree<cacc::DEVICE>::Data const & bvh_tree)
+    cacc::BVHTree<cacc::DEVICE>::Accessor const & bvh_tree)
 {
     cacc::Ray ray;
     ray.origin = v;
@@ -84,7 +84,7 @@ __global__
 void
 populate_direction_histogram(cacc::Vec3f view_pos, float max_distance,
     cacc::Mat4f w2c, cacc::Mat3f calib, int width, int height,
-    cacc::BVHTree<cacc::DEVICE>::Data bvh_tree,
+    cacc::BVHTree<cacc::DEVICE>::Accessor const bvh_tree,
     cacc::PointCloud<cacc::DEVICE>::Data cloud,
     cacc::Array<float, cacc::DEVICE>::Data recons,
     cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data dir_hist)
@@ -164,7 +164,7 @@ evaluate_direction_histogram(
 
 __global__
 void populate_histogram(cacc::Vec3f view_pos, float max_distance,
-    cacc::BVHTree<cacc::DEVICE>::Data bvh_tree,
+    cacc::BVHTree<cacc::DEVICE>::Accessor const bvh_tree,
     cacc::PointCloud<cacc::DEVICE>::Data cloud,
     cacc::KDTree<3, cacc::DEVICE>::Data kd_tree,
     cacc::VectorArray<float, cacc::DEVICE>::Data obs_hist)
@@ -213,7 +213,7 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance,
 
 __global__
 void populate_histogram(cacc::Vec3f view_pos, float max_distance,
-    cacc::BVHTree<cacc::DEVICE>::Data bvh_tree,
+    cacc::BVHTree<cacc::DEVICE>::Accessor const bvh_tree,
     cacc::PointCloud<cacc::DEVICE>::Data cloud,
     cacc::KDTree<3, cacc::DEVICE>::Data kd_tree,
     cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data dir_hist,
@@ -338,7 +338,7 @@ evaluate_histogram(cacc::Mat3f calib, int width, int height,
 
 __global__ void
 estimate_capture_difficulty(float max_distance,
-    cacc::BVHTree<cacc::DEVICE>::Data const bvh_tree, uint mesh_size,
+    cacc::BVHTree<cacc::DEVICE>::Accessor const bvh_tree, uint mesh_size,
     cacc::KDTree<3, cacc::DEVICE>::Data const kd_tree,
     cacc::PointCloud<cacc::DEVICE>::Data const cloud)
 {
