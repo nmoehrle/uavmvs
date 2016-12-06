@@ -189,7 +189,7 @@ copy(cacc::ArrayTexture<float>::Accessor tex,
 }
 
 __global__
-void
+void __launch_bounds__(TRACING_BLOCK_SIZE)
 raycast(cacc::Vec3f origin, cacc::Mat3f invcalib, cacc::Mat3f c2w_rot,
     cacc::BVHTree<cacc::DEVICE>::Accessor const bvh_tree,
     cacc::Image<float, cacc::DEVICE>::Data image)

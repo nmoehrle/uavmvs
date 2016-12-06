@@ -13,7 +13,14 @@ workspace "uavmvs"
         linkoptions "-pthread"
 
     filter { "toolset:nvcc" }
-        buildoptions { "--gpu-architecture sm_52", "-Xcompiler -Wno-unknown-pragmas" }
+        buildoptions {
+            "--gpu-architecture sm_52",
+            "-Xcompiler -Wno-unknown-pragmas",
+            "--ftz=true",
+            "--prec-div=false",
+            "--prec-sqrt=false",
+            "--resource-usage",
+        }
         linkoptions { "--gpu-architecture sm_52" }
 
     configuration "release"

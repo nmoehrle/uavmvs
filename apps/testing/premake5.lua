@@ -5,7 +5,6 @@ project "interop"
     toolset "nvcc"
     language "C++"
 
-    flags { "RelocatableDeviceCode" }
     buildoptions { "-Xcompiler -fopenmp" }
 
     files {
