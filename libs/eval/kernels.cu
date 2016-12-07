@@ -264,7 +264,7 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance, float avg_reco
         rel_dir[3] = scale;
         cacc::Vec3f * rel_dirs = dir_hist.data_ptr + id;
         float rel_recon = avg_recon - recons.data_ptr[id];
-        float weight = __logf(1.0f + __expf(rel_recon - 2.0f)) - 0.1f;
+        float weight = __logf(1.0f + __expf(rel_recon - 2.0f));
         contrib = weight * heuristic(rel_dirs, stride, num_rows, rel_dir);
     } else {
         float min_theta = min(cloud.values_ptr[id], 1.484f);

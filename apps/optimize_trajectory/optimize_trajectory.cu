@@ -143,11 +143,9 @@ int main(int argc, char **argv) {
 
     std::vector<mve::CameraInfo> trajectory;
     utp::load_trajectory(args.in_trajectory, &trajectory);
+    std::vector<std::size_t> iters(trajectory.size(), args.max_iters);
 
     std::mt19937 gen(12345);
-    std::vector<std::size_t> indices(trajectory.size());
-    std::iota(indices.begin(), indices.end(), 0);
-
 
     std::vector<Simplex<3> > simplices(trajectory.size());
 
@@ -197,14 +195,17 @@ int main(int argc, char **argv) {
             std::unordered_set<std::size_t> idxset;
             #pragma omp single
             {
-                std::shuffle(indices.begin(), indices.end(), gen);
-                drecons->null();
+                //drecons->null();
                 ddir_hist->clear();
+
+                std::discrete_distribution<> d(iters.begin(), iters.end());
 
                 oindices.clear();
                 {
                     std::vector<math::Vec3f> poss;
-                    for (std::size_t idx : indices) {
+                    for (std::size_t j = 0; j < trajectory.size(); ++j) {
+                        std::size_t idx = d(gen);
+
                         math::Vec3f pos;
                         trajectory[idx].fill_camera_pos(pos.begin());
 
@@ -216,6 +217,7 @@ int main(int argc, char **argv) {
                         if (!too_close) {
                             oindices.push_back(idx);
                             poss.push_back(pos);
+                            iters[idx] -= 1;
                         }
                     }
                 }
@@ -266,6 +268,7 @@ int main(int argc, char **argv) {
                 float vphi = 0.0f;
 
                 std::function<float(math::Vec3f)> func = [&] (math::Vec3f const & pos) -> float {
+                    if (pos[2] < args.min_distance) return 0.0f;
                     if (kd_tree->find_nn(pos, nullptr, args.min_distance)) return 0.0f;
 
                     dcon_hist->null();
