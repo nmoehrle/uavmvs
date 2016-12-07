@@ -21,6 +21,13 @@ void populate_direction_histogram(cacc::Vec3f view_pos, float max_distance,
     cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data dir_hist);
 
 __global__
+void populate_direction_histogram(cacc::Vec3f view_pos, float max_distance,
+    cacc::Mat4f w2c, cacc::Mat3f calib, int width, int height,
+    cacc::BVHTree<cacc::DEVICE>::Accessor const bvh_tree,
+    cacc::PointCloud<cacc::DEVICE>::Data const cloud,
+    cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data dir_hist);
+
+__global__
 void evaluate_direction_histogram(
     cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data hist,
     cacc::Array<float, cacc::DEVICE>::Data recons);
@@ -33,7 +40,7 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance,
     cacc::VectorArray<float, cacc::DEVICE>::Data obs_hist);
 
 __global__
-void populate_histogram(cacc::Vec3f view_pos, float max_distance,
+void populate_histogram(cacc::Vec3f view_pos, float max_distance, float avg_recon,
     cacc::BVHTree<cacc::DEVICE>::Accessor const bvh_tree,
     cacc::PointCloud<cacc::DEVICE>::Data const cloud,
     cacc::KDTree<3, cacc::DEVICE>::Data const kd_tree,

@@ -210,6 +210,8 @@ int main(int argc, char **argv) {
         cacc::Image<float, cacc::HOST>::Ptr hist;
         hist = cacc::Image<float, cacc::HOST>::create(128, 45, stream);
 
+        float avg_recon = 1.0f;
+
         for (uint i = 0; i < args.num_views; ++i) {
             #pragma omp for schedule(dynamic)
             for (int j = 0; j < 27; ++j) {
@@ -257,7 +259,7 @@ int main(int argc, char **argv) {
                     dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
                     dim3 block(KERNEL_BLOCK_SIZE);
                     populate_histogram<<<grid, block, 0, stream>>>(
-                        cacc::Vec3f(pos.begin()),
+                        cacc::Vec3f(pos.begin()), avg_recon,
                         args.max_distance, dbvh_tree->accessor(), dcloud->cdata(), dkd_tree->cdata(),
                         ddir_hist->cdata(), drecons->cdata(), dcon_hist->cdata());
                 }
@@ -323,12 +325,15 @@ int main(int argc, char **argv) {
                     populate_direction_histogram<<<grid, block, 0, stream>>>(
                         cacc::Vec3f(state.pos.begin()), args.max_distance,
                         cacc::Mat4f(w2c.begin()), cacc::Mat3f(calib.begin()), width, height,
-                        dbvh_tree->accessor(), dcloud->cdata(), drecons->cdata(), ddir_hist->cdata()
+                        dbvh_tree->accessor(), dcloud->cdata(), ddir_hist->cdata()
+                    );
+                    evaluate_direction_histogram<<<grid, block, 0, stream>>>(
+                        ddir_hist->cdata(), drecons->cdata()
                     );
                 }
                 cudaStreamSynchronize(stream);
 
-                float avg_recon = cacc::sum(drecons) / num_verts;
+                avg_recon = cacc::sum(drecons) / num_verts;
                 std::cout << i << " " << avg_recon << std::endl;
 
                 trajectory.push_back(cam);

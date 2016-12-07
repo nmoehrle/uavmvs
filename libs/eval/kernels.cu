@@ -2,6 +2,7 @@
 
 #include "cacc/math.h"
 
+#define TRACING_SSTACK_SIZE 8
 #include "cacc/tracing.h"
 #include "cacc/nnsearch.h"
 
@@ -33,12 +34,19 @@ bool
 visible(cacc::Vec3f const & v, cacc::Vec3f const & v2cn, float l,
     cacc::BVHTree<cacc::DEVICE>::Accessor const & bvh_tree)
 {
+#if UNSAFE
+    cacc::Ray ray;
+    ray.origin = v + v2cn * l;
+    ray.dir = -v2cn;
+    ray.set_tmin(0.0f);
+    ray.set_tmax(l * 0.999f);
+#else
     cacc::Ray ray;
     ray.origin = v;
     ray.dir = v2cn;
     ray.set_tmin(l * 0.001f);
     ray.set_tmax(l);
-
+#endif
     return !cacc::tracing::trace(bvh_tree, ray);
 }
 
@@ -75,13 +83,15 @@ heuristic(cacc::Vec3f const * rel_dirs, uint stride, uint n, cacc::Vec3f new_rel
         cacc::Vec3f rel_dir = rel_dirs[i * stride];
         float alpha = acosf(dot(new_rel_dir, rel_dir));
         min_alpha = min(min_alpha, alpha);
-        cacc::Vec3f mean = (rel_dir + new_rel_dir).normalize();
+        cacc::Vec3f half = (rel_dir + new_rel_dir).normalize();
+        float scale = (rel_dir[3] + new_rel_dir[3]) / 2.0f;
         //float quality = dot(cacc::Vec3f(0.0f, 0.0f, 1.0f), half);
-        float quality = mean[2]; //TODO scale
+        float quality = half[2] * scale;
         float matchability = 1.0f - sigmoid(alpha, pi / 4.0f, 16.0f);
         sum += matchability * quality;
     }
-    float novelty = sigmoid(min_alpha, pi / 8.0f, 16.0f);
+    //float novelty = sigmoid(min_alpha, pi / 8.0f, 16.0f);
+    float novelty = min(min_alpha / (pi / 16), 1.0f);
     return novelty * sum;
 }
 
@@ -91,7 +101,6 @@ populate_direction_histogram(cacc::Vec3f view_pos, float max_distance,
     cacc::Mat4f w2c, cacc::Mat3f calib, int width, int height,
     cacc::BVHTree<cacc::DEVICE>::Accessor const bvh_tree,
     cacc::PointCloud<cacc::DEVICE>::Data cloud,
-    cacc::Array<float, cacc::DEVICE>::Data recons,
     cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data dir_hist)
 {
     int const bx = blockIdx.x;
@@ -118,23 +127,18 @@ populate_direction_histogram(cacc::Vec3f view_pos, float max_distance,
 
     if (!visible(v, v2cn, l, bvh_tree)) return;
 
-    uint num_rows = dir_hist.num_rows_ptr[id];
+    uint num_rows = atomicAdd(dir_hist.num_rows_ptr + id, 1u);
+
+    //TODO handle overflow
 
     if (num_rows >= dir_hist.max_rows) return;
 
     cacc::Vec3f rel_dir = relative_direction(v2cn, n);
+    float scale = 1.0f - (l / max_distance);
+    rel_dir[3] = scale;
+
     cacc::Vec3f * rel_dirs = dir_hist.data_ptr + id;
     rel_dirs[num_rows * stride] = rel_dir;
-    dir_hist.num_rows_ptr[id] += 1;
-
-    float recon = 0.0f;
-    if (num_rows >= 1) {
-        float recon_before = recons.data_ptr[id];
-        recon = recon_before + heuristic(rel_dirs, stride, num_rows, rel_dir);
-    }
-
-    //recons.data_ptr[id] = recon;
-    recons.data_ptr[id] = min(recon, RECONSTRUCTABLE);
 }
 
 __global__
@@ -151,7 +155,7 @@ evaluate_direction_histogram(
     if (id >= dir_hist.num_cols) return;
 
     int const stride = dir_hist.pitch / sizeof(cacc::Vec3f);
-    uint num_rows = dir_hist.num_rows_ptr[id];
+    uint num_rows = min(dir_hist.num_rows_ptr[id], dir_hist.max_rows);
 
     cacc::Vec3f * rel_dirs = dir_hist.data_ptr + id;
 
@@ -185,11 +189,11 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance,
     cacc::Vec3f n = cloud.normals_ptr[id];
     cacc::Vec3f v2c = view_pos - v;
     float l = norm(v2c);
-    cacc::Vec3f v2cn = v2c / l;
 
-    float scale = 1.0f - l / max_distance;
+    float scale = 1.0f - (l / max_distance);
     if (scale <= 0.0f) return;
 
+    cacc::Vec3f v2cn = v2c / l;
     float ctheta = dot(v2cn, n);
     // 0.087f ~ cos(85.0f / 180.0f * pi)
     if (ctheta <= 0.087f) return;
@@ -198,7 +202,7 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance,
 
     float capture_difficulty = max(cloud.qualities_ptr[id], 0.0f);
 
-#if 0
+#if 1
     // 1.484f ~ 85.0f / 180.0f * pi
     float min_theta = min(cloud.values_ptr[id], 1.484f);
 
@@ -217,7 +221,7 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance,
 }
 
 __global__
-void populate_histogram(cacc::Vec3f view_pos, float max_distance,
+void populate_histogram(cacc::Vec3f view_pos, float max_distance, float avg_recon,
     cacc::BVHTree<cacc::DEVICE>::Accessor const bvh_tree,
     cacc::PointCloud<cacc::DEVICE>::Data cloud,
     cacc::KDTree<3, cacc::DEVICE>::Data kd_tree,
@@ -232,39 +236,45 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance,
 
     if (id >= cloud.num_vertices) return;
 
-    float recon = recons.data_ptr[id] / RECONSTRUCTABLE;
-    if (recon >= 1.0f) return;
-
     cacc::Vec3f v = cloud.vertices_ptr[id];
     cacc::Vec3f n = cloud.normals_ptr[id];
     cacc::Vec3f v2c = view_pos - v;
     float l = norm(v2c);
-    cacc::Vec3f v2cn = v2c / l;
 
-    float scale = 1.0f - l / max_distance;
+    float scale = 1.0f - (l / max_distance);
     if (scale <= 0.0f) return;
 
+    cacc::Vec3f v2cn = v2c / l;
     float ctheta = dot(v2cn, n);
     // 0.087f ~ cos(85.0f / 180.0f * pi)
     if (ctheta < 0.087f) return;
 
     if (!visible(v, v2cn, l, bvh_tree)) return;
 
-    float capture_difficulty = max(cloud.qualities_ptr[id], 0.0f);
+    float capture_difficulty = max(cloud.qualities_ptr[id], 1.0f);
 
     int const stride = dir_hist.pitch / sizeof(cacc::Vec3f);
     uint num_rows = dir_hist.num_rows_ptr[id];
 
     if (num_rows >= dir_hist.max_rows) return;
 
-    float contrib = ctheta * capture_difficulty;
-    cacc::Vec3f rel_dir = relative_direction(v2cn, n);
+    float contrib = 0.0f;
     if (num_rows >= 1) {
+        cacc::Vec3f rel_dir = relative_direction(v2cn, n);
+        rel_dir[3] = scale;
         cacc::Vec3f * rel_dirs = dir_hist.data_ptr + id;
-        contrib = (1.0f - recon) * heuristic(rel_dirs, stride, num_rows, rel_dir);
-    }
+        float rel_recon = avg_recon - recons.data_ptr[id];
+        float weight = __logf(1.0f + __expf(rel_recon - 2.0f)) - 0.1f;
+        contrib = weight * heuristic(rel_dirs, stride, num_rows, rel_dir);
+    } else {
+        float min_theta = min(cloud.values_ptr[id], 1.484f);
 
-    contrib = scale * contrib;
+        float scaling = (pi / 2.0f) / ((pi / 2.0f) - min_theta);
+
+        float theta = acosf(__saturatef(ctheta));
+        float rel_theta = max(theta - min_theta, 0.0f) * scaling;
+        contrib = scale * capture_difficulty * cosf(rel_theta);
+    }
 
     uint idx;
     cacc::nnsearch::find_nn<3u>(kd_tree, -v2cn, &idx, nullptr);

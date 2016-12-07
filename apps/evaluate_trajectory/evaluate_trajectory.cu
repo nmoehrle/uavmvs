@@ -138,7 +138,7 @@ int main(int argc, char * argv[])
             populate_direction_histogram<<<grid, block, 0, stream>>>(
                 cacc::Vec3f(view_pos.begin()), args.max_distance,
                 cacc::Mat4f(w2c.begin()), cacc::Mat3f(calib.begin()), width, height,
-                dbvh_tree->accessor(), dcloud->cdata(), drecons->cdata(), ddir_hist->cdata()
+                dbvh_tree->accessor(), dcloud->cdata(), ddir_hist->cdata()
             );
         }
 
@@ -149,14 +149,12 @@ int main(int argc, char * argv[])
     std::chrono::duration<double> diff = end - start;
     std::cout << "  GPU: " << diff.count() << 's' << std::endl;
 
-#if 0
     {
         dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
         dim3 block(KERNEL_BLOCK_SIZE);
         evaluate_direction_histogram<<<grid, block>>>(ddir_hist->cdata(), drecons->cdata());
         CHECK(cudaDeviceSynchronize());
     }
-#endif
 
     std::vector<float> values(num_verts);
 

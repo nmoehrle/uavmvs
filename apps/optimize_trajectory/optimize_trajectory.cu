@@ -157,7 +157,6 @@ int main(int argc, char **argv) {
 
     {
         std::normal_distribution<> pos_dist(0.0f, args.min_distance);
-        std::normal_distribution<> angle_dist(0.0f, pi / 8.0f);
         for (std::size_t i = 0; i < trajectory.size(); ++i) {
             mve::CameraInfo const & cam = trajectory[i];
             math::Vec3f pos;
@@ -173,13 +172,18 @@ int main(int argc, char **argv) {
     }
 
 
+    float avg_recon = 1.0f;
+
     std::vector<std::size_t> oindices;
     #pragma omp parallel
     {
         cacc::set_cuda_device(device);
 
         cudaStream_t stream;
-        cudaStreamCreate(&stream);
+        CHECK(cudaStreamCreate(&stream));
+
+        cudaEvent_t event;
+        CHECK(cudaEventCreateWithFlags(&event, cudaEventDefault | cudaEventDisableTiming));
 
         cacc::VectorArray<float, cacc::DEVICE>::Ptr dcon_hist;
         dcon_hist = cacc::VectorArray<float, cacc::DEVICE>::create(num_sverts, 1, stream);
@@ -190,6 +194,7 @@ int main(int argc, char **argv) {
         hist = cacc::Image<float, cacc::HOST>::create(128, 45, stream);
 
         for (uint i = 0; i < args.max_iters; ++i) {
+            std::unordered_set<std::size_t> idxset;
             #pragma omp single
             {
                 std::shuffle(indices.begin(), indices.end(), gen);
@@ -214,27 +219,41 @@ int main(int argc, char **argv) {
                         }
                     }
                 }
+                idxset.insert(oindices.begin(), oindices.end());
+            }
 
-                std::unordered_set<std::size_t> idxset(oindices.begin(), oindices.end());
-                for (std::size_t j = 0; j < trajectory.size(); ++j) {
-                    if (idxset.count(j)) continue;
-                    mve::CameraInfo const & cam = trajectory[j];
+            #pragma omp for schedule(dynamic)
+            for (std::size_t j = 0; j < trajectory.size(); ++j) {
+                if (idxset.count(j)) continue;
+                mve::CameraInfo const & cam = trajectory[j];
 
-                    math::Vec3f pos;
-                    cam.fill_camera_pos(pos.begin());
-                    math::Matrix4f w2c;
-                    cam.fill_world_to_cam(w2c.begin());
+                math::Vec3f pos;
+                cam.fill_camera_pos(pos.begin());
+                math::Matrix4f w2c;
+                cam.fill_world_to_cam(w2c.begin());
 
-                    dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
-                    dim3 block(KERNEL_BLOCK_SIZE);
-                    populate_direction_histogram<<<grid, block, 0, stream>>>(
-                        cacc::Vec3f(pos.begin()), args.max_distance,
-                        cacc::Mat4f(w2c.begin()), cacc::Mat3f(calib.begin()), width, height,
-                        dbvh_tree->accessor(), dcloud->cdata(), drecons->cdata(), ddir_hist->cdata()
-                    );
-                }
+                dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
+                dim3 block(KERNEL_BLOCK_SIZE);
+                populate_direction_histogram<<<grid, block, 0, stream>>>(
+                    cacc::Vec3f(pos.begin()), args.max_distance,
+                    cacc::Mat4f(w2c.begin()), cacc::Mat3f(calib.begin()),
+                    width, height,
+                    dbvh_tree->accessor(),
+                    dcloud->cdata(), ddir_hist->cdata()
+                );
 
-                cudaStreamSynchronize(stream);
+                cacc::sync(stream, event, std::chrono::microseconds(100));
+            }
+            ((void)0);
+
+            #pragma omp single
+            {
+                dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
+                dim3 block(KERNEL_BLOCK_SIZE);
+                evaluate_direction_histogram<<<grid, block, 0, stream>>>(
+                    ddir_hist->cdata(), drecons->cdata());
+
+                cacc::sync(stream, event, std::chrono::microseconds(100));
             }
 
             #pragma omp for schedule(dynamic)
@@ -243,10 +262,10 @@ int main(int argc, char **argv) {
                 mve::CameraInfo & cam = trajectory[idx];
 
                 float vmax = 0.0f;
-                float theta = 0.0f;
-                float phi = 0.0f;
+                float vtheta = 0.0f;
+                float vphi = 0.0f;
 
-                std::function<float(math::Vec3f)> func = [&] (math::Vec3f const & pos) {
+                std::function<float(math::Vec3f)> func = [&] (math::Vec3f const & pos) -> float {
                     if (kd_tree->find_nn(pos, nullptr, args.min_distance)) return 0.0f;
 
                     dcon_hist->null();
@@ -254,38 +273,43 @@ int main(int argc, char **argv) {
                         dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
                         dim3 block(KERNEL_BLOCK_SIZE);
                         populate_histogram<<<grid, block, 0, stream>>>(
-                            cacc::Vec3f(pos.begin()),
-                            args.max_distance, dbvh_tree->accessor(), dcloud->cdata(), dkd_tree->cdata(),
+                            cacc::Vec3f(pos.begin()), args.max_distance, avg_recon,
+                            dbvh_tree->accessor(), dcloud->cdata(), dkd_tree->cdata(),
                             ddir_hist->cdata(), drecons->cdata(), dcon_hist->cdata());
                     }
 
                     {
                         dim3 grid(cacc::divup(128, KERNEL_BLOCK_SIZE), 45);
                         dim3 block(KERNEL_BLOCK_SIZE);
-                        evaluate_histogram<<<grid, block, 0, stream>>>(cacc::Mat3f(calib.begin()), width, height,
+                        evaluate_histogram<<<grid, block, 0, stream>>>(
+                            cacc::Mat3f(calib.begin()), width, height,
                             dkd_tree->cdata(), dcon_hist->cdata(), dhist->cdata());
                     }
 
                     *hist = *dhist;
                     cacc::Image<float, cacc::HOST>::Data data = hist->cdata();
 
-                    hist->sync();
-
-                    //TODO write a kernel to select best viewing direction
+                    cacc::sync(stream, event, std::chrono::microseconds(100));
 
                     float max = 0.0f;
+                    float theta = 0.0f;
+                    float phi = 0.0f;
+
                     for (int y = 0; y < data.height; ++y) {
                         for (int x = 0; x < data.width; ++x) {
                             float v = data.data_ptr[y * data.pitch / sizeof(float) + x];
                             if (v > max) {
                                 max = v;
-                                if (max > vmax) {
-                                    vmax = max;
-                                    theta = (0.5f + (y / (float) data.height) / 2.0f) * pi;
-                                    phi = (x / (float) data.width) * 2.0f * pi;
-                                }
+                                theta = (0.5f + (y / (float) data.height) / 2.0f) * pi;
+                                phi = (x / (float) data.width) * 2.0f * pi;
                             }
                         }
+                    }
+
+                    if (max > vmax) {
+                        vmax = max;
+                        vtheta = theta;
+                        vphi = phi;
                     }
 
                     return -max;
@@ -301,40 +325,54 @@ int main(int argc, char **argv) {
 
                 math::Vec3f pos = simplex.verts[vid];
 
-                math::Matrix3f rot = utp::rotation_from_spherical(theta, phi);
+                math::Matrix3f rot = utp::rotation_from_spherical(vtheta, vphi);
                 math::Vec3f trans = -rot * pos;
 
                 std::copy(trans.begin(), trans.end(), cam.trans);
                 std::copy(rot.begin(), rot.end(), cam.rot);
             }
 
+
+            #pragma omp for schedule(dynamic)
+            for (std::size_t j = 0; j < oindices.size(); ++j) {
+                mve::CameraInfo & cam = trajectory[oindices[j]];
+
+                math::Vec3f pos;
+                cam.fill_camera_pos(pos.begin());
+                math::Matrix4f w2c;
+                cam.fill_world_to_cam(w2c.begin());
+
+                {
+                    dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
+                    dim3 block(KERNEL_BLOCK_SIZE);
+                    populate_direction_histogram<<<grid, block, 0, stream>>>(
+                        cacc::Vec3f(pos.begin()), args.max_distance,
+                        cacc::Mat4f(w2c.begin()), cacc::Mat3f(calib.begin()),
+                        width, height,
+                        dbvh_tree->accessor(), dcloud->cdata(),
+                        ddir_hist->cdata()
+                    );
+                }
+            }
+
             #pragma omp single
             {
-                /* Compute current reconstructability (every nth iteration?) */
-                for (std::size_t j = 0; j < oindices.size(); ++j) {
-                    mve::CameraInfo & cam = trajectory[oindices[j]];
-                    math::Vec3f pos;
-                    cam.fill_camera_pos(pos.begin());
-                    math::Matrix4f w2c;
-                    cam.fill_world_to_cam(w2c.begin());
-                    {
-                        dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
-                        dim3 block(KERNEL_BLOCK_SIZE);
-                        populate_direction_histogram<<<grid, block, 0, stream>>>(
-                            cacc::Vec3f(pos.begin()), args.max_distance,
-                            cacc::Mat4f(w2c.begin()), cacc::Mat3f(calib.begin()), width, height,
-                            dbvh_tree->accessor(), dcloud->cdata(), drecons->cdata(), ddir_hist->cdata()
-                        );
-                    }
-                }
+                dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
+                dim3 block(KERNEL_BLOCK_SIZE);
+                evaluate_direction_histogram<<<grid, block, 0, stream>>>(
+                    ddir_hist->cdata(), drecons->cdata()
+                );
 
                 //float length = utp::length(trajectory);
 
-                float avg_recon = cacc::sum(drecons) / num_verts;
+                cacc::sync(stream, event, std::chrono::microseconds(100));
+
+                avg_recon = cacc::sum(drecons) / num_verts;
                 //std::cout << i << "(" << oindices.size() << ") " << avg_recon << " " << length << std::endl;
                 std::cout << i << "(" << oindices.size() << ") " << avg_recon << std::endl;
             }
         }
+        cudaEventDestroy(event);
         cudaStreamDestroy(stream);
     }
 
