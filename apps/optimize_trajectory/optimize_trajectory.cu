@@ -127,7 +127,7 @@ int main(int argc, char **argv) {
 
     acc::KDTree<3, uint>::Ptr kd_tree(load_mesh_as_kd_tree(args.proxy_cloud));
 
-    uint max_cameras = 20;
+    uint max_cameras = 50;
 
     cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Ptr ddir_hist;
     ddir_hist = cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::create(num_verts, max_cameras);
@@ -267,7 +267,9 @@ int main(int argc, char **argv) {
                 float vtheta = 0.0f;
                 float vphi = 0.0f;
 
-                std::function<float(math::Vec3f)> func = [&] (math::Vec3f const & pos) -> float {
+                std::function<float(math::Vec3f)> func =
+                    [&] (math::Vec3f const & pos) -> float
+                {
                     if (pos[2] < args.min_distance) return 0.0f;
                     if (kd_tree->find_nn(pos, nullptr, args.min_distance)) return 0.0f;
 
@@ -324,8 +326,6 @@ int main(int argc, char **argv) {
                 std::size_t vid;
                 std::tie(vid, value) = nelder_mead(&simplex, func);
 
-                contribss[idx].push_back(-value);
-
                 math::Vec3f pos = simplex.verts[vid];
 
                 math::Matrix3f rot = utp::rotation_from_spherical(vtheta, vphi);
@@ -338,7 +338,7 @@ int main(int argc, char **argv) {
 
             #pragma omp for schedule(dynamic)
             for (std::size_t j = 0; j < oindices.size(); ++j) {
-                mve::CameraInfo & cam = trajectory[oindices[j]];
+                mve::CameraInfo const & cam = trajectory[oindices[j]];
 
                 math::Vec3f pos;
                 cam.fill_camera_pos(pos.begin());
@@ -356,6 +356,8 @@ int main(int argc, char **argv) {
                         ddir_hist->cdata()
                     );
                 }
+
+                cacc::sync(stream, event, std::chrono::microseconds(100));
             }
 
             #pragma omp single
@@ -380,25 +382,6 @@ int main(int argc, char **argv) {
     }
 
     utp::save_trajectory(trajectory, args.out_trajectory);
-
-    {
-        int width = 0;
-        for (std::size_t i = 0; i < contribss.size(); ++i) {
-            width = std::max(width, (int) contribss[i].size());
-        }
-        int height = contribss.size();
-
-        mve::FloatImage::Ptr image = mve::FloatImage::create(width, height, 1);
-        image->fill(-1.0f);
-        for (std::size_t i = 0; i < contribss.size(); ++i) {
-            std::vector<float> const & contribs = contribss[i];
-            for (std::size_t j = 0; j < contribs.size(); ++j) {
-                image->at(j, i, 0) = contribs[j];
-            }
-        }
-
-        mve::image::save_pfm_file(image, "/tmp/test.pfm");
-    }
 
     return EXIT_SUCCESS;
 }
