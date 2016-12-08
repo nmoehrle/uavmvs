@@ -85,18 +85,21 @@ Arguments parse_args(int argc, char **argv) {
     return conf;
 }
 
-inline
-void
-patch(mve::FloatImage::Ptr img, int x, int y, float (*ptr)[3][3]) {
-    for (int i = -1; i <= 1; ++i) {
-        for (int j = -1; j <= 1; ++j) {
-            (*ptr)[1 + j][1 + i] = img->at(x + j, y + i, 0);
+template <int N> inline void
+patch(mve::FloatImage::Ptr img, int x, int y, float (*ptr)[N][N]) {
+    static_assert(N % 2 == 1, "Requires odd patch size");
+    constexpr int e = N / 2;
+    for (int i = -e; i <= e; ++i) {
+        for (int j = -e; j <= e; ++j) {
+            (*ptr)[e + j][e + i] = img->at(x + j, y + i, 0);
         }
     }
 }
 
-void filter_3x3_nth_lowest(mve::FloatImage::Ptr hmap, int idx, float boundary) {
-    assert(idx < 9);
+template <int N>
+void filter_nth_lowest(mve::FloatImage::Ptr hmap, int idx, float boundary) {
+    constexpr int n = N * N;
+    assert(idx < n);
 
     int width = hmap->width();
     int height = hmap->height();
@@ -108,9 +111,10 @@ void filter_3x3_nth_lowest(mve::FloatImage::Ptr hmap, int idx, float boundary) {
             if (y == 0 || y == height - 1 || x == 0 || x == width - 1) {
                 tmp->at(x, y, 0) = boundary;
             } else {
-                float heights[9];
-                patch(hmap, x, y, (float (*)[3][3])&heights);
-                std::sort(heights, heights + 9);
+                float heights[n];
+                patch(hmap, x, y, (float (*)[N][N])&heights);
+                //std::sort(heights, heights + n);
+                std::nth_element(heights, heights + n, heights + idx);
                 tmp->at(x, y, 0) = heights[idx];
             }
         }
@@ -169,9 +173,9 @@ int main(int argc, char **argv) {
 
     if (args.min_distance == 0.0f) {
         /* Use median filter to eliminate outliers. */
-        filter_3x3_nth_lowest(hmap, 4, lowest);
+        filter_nth_lowest<3>(hmap, 4, lowest);
         /* Use biased median to revert overestimation. */
-        filter_3x3_nth_lowest(hmap, 2, lowest);
+        filter_nth_lowest<3>(hmap, 2, lowest);
     }
 
     /* Fill holes within the height map. */
