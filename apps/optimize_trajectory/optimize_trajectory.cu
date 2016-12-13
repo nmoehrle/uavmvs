@@ -250,10 +250,19 @@ int main(int argc, char **argv) {
 
             #pragma omp single
             {
-                dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
-                dim3 block(KERNEL_BLOCK_SIZE);
-                evaluate_direction_histogram<<<grid, block, 0, stream>>>(
-                    ddir_hist->cdata(), drecons->cdata());
+                {
+                    dim3 grid(cacc::divup(num_verts, 2));
+                    dim3 block(32, 2);
+                    sort_direction_histogram<<<grid, block, 0, stream>>>(
+                        ddir_hist->cdata());
+                }
+
+                {
+                    dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
+                    dim3 block(KERNEL_BLOCK_SIZE);
+                    evaluate_direction_histogram<<<grid, block, 0, stream>>>(
+                        ddir_hist->cdata(), drecons->cdata());
+                }
 
                 cacc::sync(stream, event, std::chrono::microseconds(100));
             }
@@ -335,7 +344,6 @@ int main(int argc, char **argv) {
                 std::copy(rot.begin(), rot.end(), cam.rot);
             }
 
-
             #pragma omp for schedule(dynamic)
             for (std::size_t j = 0; j < oindices.size(); ++j) {
                 mve::CameraInfo const & cam = trajectory[oindices[j]];
@@ -362,15 +370,23 @@ int main(int argc, char **argv) {
 
             #pragma omp single
             {
-                dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
-                dim3 block(KERNEL_BLOCK_SIZE);
-                evaluate_direction_histogram<<<grid, block, 0, stream>>>(
-                    ddir_hist->cdata(), drecons->cdata()
-                );
+                {
+                    dim3 grid(cacc::divup(num_verts, 2));
+                    dim3 block(32, 2);
+                    sort_direction_histogram<<<grid, block, 0, stream>>>(
+                        ddir_hist->cdata());
+                }
 
-                //float length = utp::length(trajectory);
+                {
+                    dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
+                    dim3 block(KERNEL_BLOCK_SIZE);
+                    evaluate_direction_histogram<<<grid, block, 0, stream>>>(
+                        ddir_hist->cdata(), drecons->cdata());
+                }
 
                 cacc::sync(stream, event, std::chrono::microseconds(100));
+
+                //float length = utp::length(trajectory);
 
                 avg_recon = cacc::sum(drecons) / num_verts;
                 //std::cout << i << "(" << oindices.size() << ") " << avg_recon << " " << length << std::endl;

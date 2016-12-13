@@ -145,6 +145,62 @@ populate_direction_histogram(cacc::Vec3f view_pos, float max_distance,
 
 __global__
 void
+sort_direction_histogram(
+    cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data dir_hist)
+{
+    int const bx = blockIdx.x;
+    int const tx = threadIdx.x;
+
+    //int const by = blockIdx.y;
+    int const ty = threadIdx.y;
+
+    //Use of bx intentional (limits of by)
+    uint id = bx * blockDim.y + ty;
+
+    if (id >= dir_hist.num_cols) return;
+
+    int const stride = dir_hist.pitch / sizeof(cacc::Vec3f);
+    uint num_rows = min(dir_hist.num_rows_ptr[id], dir_hist.max_rows);
+
+    cacc::Vec3f * rel_dirs = dir_hist.data_ptr + id;
+    cacc::Vec3f rel_dir;
+    int key = tx;
+    float alpha = 0.0f;
+    if (key < num_rows) {
+        rel_dir = rel_dirs[key * stride]; //16 byte non coaleced read...
+        //alpha = dot(cacc::Vec3f(0.0f, 0.0f, 1.0f), rel_dir);
+        alpha = rel_dir[2];
+    }
+
+    //Bitonic Sort
+    for (int i = 0; (1 << i) < num_rows; ++i) {
+        bool asc = (tx >> (i + 1)) % 2;
+
+        for (int stride = 1 << i; stride > 0; stride >>= 1) {
+            bool dir = (tx % (stride << 1)) < stride;
+
+            float oalpha = __shfl_xor(alpha, stride);
+            int okey = __shfl_xor(key, stride);
+
+            if (oalpha != alpha && (oalpha > alpha == (asc ^ dir))) {
+                alpha = oalpha;
+                key = okey;
+            }
+        }
+    }
+
+    #pragma unroll
+    for (int i = 0; i < 4; ++i) {
+        rel_dir[i] = __shfl(rel_dir[i], key);
+    }
+
+    if (tx < num_rows) {
+        rel_dirs[tx * stride] = rel_dir; //16 byte non coaleced write...
+    }
+}
+
+__global__
+void
 evaluate_direction_histogram(
     cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data dir_hist,
     cacc::Array<float, cacc::DEVICE>::Data recons)

@@ -28,8 +28,12 @@ void populate_direction_histogram(cacc::Vec3f view_pos, float max_distance,
     cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data dir_hist);
 
 __global__
+void sort_direction_histogram(
+    cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data dir_hist);
+
+__global__
 void evaluate_direction_histogram(
-    cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data hist,
+    cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data dir_hist,
     cacc::Array<float, cacc::DEVICE>::Data recons);
 
 __global__
