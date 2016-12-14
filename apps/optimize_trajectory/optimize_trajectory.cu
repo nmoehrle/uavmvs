@@ -404,7 +404,7 @@ int main(int argc, char **argv) {
 
                 //float length = utp::length(trajectory);
 
-                avg_recon = cacc::sum(drecons) / num_verts;
+                avg_recon = cacc::reduction::sum(drecons) / num_verts;
                 //std::cout << i << "(" << oindices.size() << ") " << avg_recon << " " << length << std::endl;
                 std::cout << i << " " << oindices.size() << " " << avg_recon << std::endl;
             }

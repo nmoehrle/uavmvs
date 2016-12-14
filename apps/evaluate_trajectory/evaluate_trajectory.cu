@@ -172,9 +172,16 @@ int main(int argc, char * argv[])
     }
 
     std::cout << "Average reconstructability" << std::endl;
-    std::cout << "  GPU: " << cacc::sum(drecons) / num_verts << std::endl;
-    float sum = std::accumulate(values.begin(), values.end(), 1.0f);
-    std::cout << "  CPU: " << sum / num_verts << std::endl;
+    std::cout << "  GPU:\n"
+        << "  " << cacc::reduction::sum(drecons) / num_verts << '\n'
+        << "  " << cacc::reduction::min(drecons) << '\n'
+        << "  " << cacc::reduction::max(drecons) << '\n'
+        << std::endl;
+    std::cout << "  CPU:\n"
+        << "  " << std::accumulate(values.begin(), values.end(), 1.0f) / num_verts << '\n'
+        << "  " << *std::min_element(values.begin(), values.end()) << '\n'
+        << "  " << *std::max_element(values.begin(), values.end()) << '\n'
+        << std::endl;
 
     std::cout << "Length: " << utp::length(trajectory) << '\n' << std::endl;
 

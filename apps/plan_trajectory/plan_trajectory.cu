@@ -333,7 +333,7 @@ int main(int argc, char **argv) {
                 }
                 cudaStreamSynchronize(stream);
 
-                avg_recon = cacc::sum(drecons) / num_verts;
+                avg_recon = cacc::reduction::sum(drecons) / num_verts;
                 std::cout << i << " " << avg_recon << std::endl;
 
                 trajectory.push_back(cam);
