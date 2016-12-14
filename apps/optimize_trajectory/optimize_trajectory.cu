@@ -173,6 +173,7 @@ int main(int argc, char **argv) {
     float avg_recon = 1.0f;
 
     std::vector<std::size_t> oindices;
+    std::unordered_set<std::size_t> oidxset;
     #pragma omp parallel
     {
         cacc::set_cuda_device(device);
@@ -192,15 +193,14 @@ int main(int argc, char **argv) {
         hist = cacc::Image<float, cacc::HOST>::create(128, 45, stream);
 
         for (uint i = 0; i < args.max_iters; ++i) {
-            std::unordered_set<std::size_t> idxset;
             #pragma omp single
             {
+                oidxset.clear();
+                oindices.clear();
                 //drecons->null();
                 ddir_hist->clear();
 
                 std::discrete_distribution<> d(iters.begin(), iters.end());
-
-                oindices.clear();
                 {
                     std::vector<math::Vec3f> poss;
                     for (std::size_t j = 0; j < trajectory.size(); ++j) {
@@ -221,12 +221,12 @@ int main(int argc, char **argv) {
                         }
                     }
                 }
-                idxset.insert(oindices.begin(), oindices.end());
+                oidxset.insert(oindices.begin(), oindices.end());
             }
 
             #pragma omp for schedule(dynamic)
             for (std::size_t j = 0; j < trajectory.size(); ++j) {
-                if (idxset.count(j)) continue;
+                if (oidxset.count(j)) continue;
                 mve::CameraInfo const & cam = trajectory[j];
 
                 math::Vec3f pos;
