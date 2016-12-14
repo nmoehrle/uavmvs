@@ -322,8 +322,8 @@ int main(int argc, char **argv) {
                 {
                     dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
                     dim3 block(KERNEL_BLOCK_SIZE);
-                    populate_direction_histogram<<<grid, block, 0, stream>>>(
-                        cacc::Vec3f(state.pos.begin()), args.max_distance,
+                    update_direction_histogram<<<grid, block, 0, stream>>>(
+                        true, cacc::Vec3f(state.pos.begin()), args.max_distance,
                         cacc::Mat4f(w2c.begin()), cacc::Mat3f(calib.begin()), width, height,
                         dbvh_tree->accessor(), dcloud->cdata(), ddir_hist->cdata()
                     );

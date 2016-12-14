@@ -99,7 +99,8 @@ heuristic(cacc::Vec3f const * rel_dirs, uint stride, uint n, cacc::Vec3f new_rel
 
 __global__
 void
-populate_direction_histogram(cacc::Vec3f view_pos, float max_distance,
+update_direction_histogram(bool populate,
+    cacc::Vec3f view_pos, float max_distance,
     cacc::Mat4f w2c, cacc::Mat3f calib, int width, int height,
     cacc::BVHTree<cacc::DEVICE>::Accessor const bvh_tree,
     cacc::PointCloud<cacc::DEVICE>::Data cloud,
@@ -129,23 +130,42 @@ populate_direction_histogram(cacc::Vec3f view_pos, float max_distance,
 
     if (!visible(v, v2cn, l, bvh_tree)) return;
 
-    uint num_rows = atomicAdd(dir_hist.num_rows_ptr + id, 1u);
-
-    //TODO handle overflow
-
-    if (num_rows >= dir_hist.max_rows) return;
-
     cacc::Vec3f rel_dir = relative_direction(v2cn, n);
     float scale = 1.0f - (l / max_distance);
     rel_dir[3] = scale;
 
-    cacc::Vec3f * rel_dirs = dir_hist.data_ptr + id;
-    rel_dirs[num_rows * stride] = rel_dir;
+    if (populate) {
+        uint num_rows = atomicAdd(dir_hist.num_rows_ptr + id, 1u);
+
+        if (num_rows >= dir_hist.max_rows) return; //TODO handle overflow
+
+        cacc::Vec3f * rel_dirs = dir_hist.data_ptr + id;
+        rel_dirs[num_rows * stride] = rel_dir;
+    } else {
+        uint num_rows = dir_hist.num_rows_ptr[id];
+
+        cacc::Vec3f * rel_dirs = dir_hist.data_ptr + id;
+        for (int i = 0; i < num_rows; ++i) {
+            cacc::Vec3f orel_dir = rel_dirs[i * stride];
+
+            bool equal = true;
+            #pragma unroll
+            for (int j = 0; j < 4; ++j) {
+                equal = equal && abs(rel_dir[j] - orel_dir[j]) < 1e-5f;
+            }
+
+            if (equal) {
+                //Mark invalid
+                rel_dirs[i * stride][3] = -1.0f;
+                return;
+            }
+        }
+    }
 }
 
 __global__
 void
-sort_direction_histogram(
+process_direction_histogram(
     cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data dir_hist)
 {
     int const bx = blockIdx.x;
@@ -165,11 +185,11 @@ sort_direction_histogram(
     cacc::Vec3f * rel_dirs = dir_hist.data_ptr + id;
     cacc::Vec3f rel_dir;
     int key = tx;
-    float alpha = 0.0f;
+    float alpha = -1.0f;
     if (key < num_rows) {
         rel_dir = rel_dirs[key * stride]; //16 byte non coaleced read...
         //alpha = dot(cacc::Vec3f(0.0f, 0.0f, 1.0f), rel_dir);
-        alpha = rel_dir[2];
+        alpha = (rel_dir[3] >= 0.0f) ? rel_dir[2] : -1.0f;
     }
 
     //Bitonic Sort
@@ -189,12 +209,18 @@ sort_direction_histogram(
         }
     }
 
+    /* Remove invalid entries */
+    uint num_valid = __popc(__ballot(alpha >= 0.0f));
+    if (num_valid < num_rows && tx == 0) {
+        dir_hist.num_rows_ptr[id] = num_valid;
+    }
+
     #pragma unroll
     for (int i = 0; i < 4; ++i) {
         rel_dir[i] = __shfl(rel_dir[i], key);
     }
 
-    if (tx < num_rows) {
+    if (tx < num_valid) {
         rel_dirs[tx * stride] = rel_dir; //16 byte non coaleced write...
     }
 }

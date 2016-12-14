@@ -173,7 +173,6 @@ int main(int argc, char **argv) {
     float avg_recon = 1.0f;
 
     std::vector<std::size_t> oindices;
-    std::unordered_set<std::size_t> oidxset;
     #pragma omp parallel
     {
         cacc::set_cuda_device(device);
@@ -192,13 +191,32 @@ int main(int argc, char **argv) {
         cacc::Image<float, cacc::HOST>::Ptr hist;
         hist = cacc::Image<float, cacc::HOST>::create(128, 45, stream);
 
+        #pragma omp for schedule(dynamic)
+        for (std::size_t j = 0; j < trajectory.size(); ++j) {
+            mve::CameraInfo const & cam = trajectory[j];
+
+            math::Vec3f pos;
+            cam.fill_camera_pos(pos.begin());
+            math::Matrix4f w2c;
+            cam.fill_world_to_cam(w2c.begin());
+
+            dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
+            dim3 block(KERNEL_BLOCK_SIZE);
+            update_direction_histogram<<<grid, block, 0, stream>>>(
+                true, cacc::Vec3f(pos.begin()), args.max_distance,
+                cacc::Mat4f(w2c.begin()), cacc::Mat3f(calib.begin()),
+                width, height,
+                dbvh_tree->accessor(),
+                dcloud->cdata(), ddir_hist->cdata()
+            );
+
+            cacc::sync(stream, event, std::chrono::microseconds(100));
+        }
+
         for (uint i = 0; i < args.max_iters; ++i) {
             #pragma omp single
             {
-                oidxset.clear();
                 oindices.clear();
-                //drecons->null();
-                ddir_hist->clear();
 
                 std::discrete_distribution<> d(iters.begin(), iters.end());
                 {
@@ -221,13 +239,11 @@ int main(int argc, char **argv) {
                         }
                     }
                 }
-                oidxset.insert(oindices.begin(), oindices.end());
             }
 
             #pragma omp for schedule(dynamic)
-            for (std::size_t j = 0; j < trajectory.size(); ++j) {
-                if (oidxset.count(j)) continue;
-                mve::CameraInfo const & cam = trajectory[j];
+            for (std::size_t j = 0; j < oindices.size(); ++j) {
+                mve::CameraInfo const & cam = trajectory[oindices[j]];
 
                 math::Vec3f pos;
                 cam.fill_camera_pos(pos.begin());
@@ -236,8 +252,8 @@ int main(int argc, char **argv) {
 
                 dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
                 dim3 block(KERNEL_BLOCK_SIZE);
-                populate_direction_histogram<<<grid, block, 0, stream>>>(
-                    cacc::Vec3f(pos.begin()), args.max_distance,
+                update_direction_histogram<<<grid, block, 0, stream>>>(
+                    false, cacc::Vec3f(pos.begin()), args.max_distance,
                     cacc::Mat4f(w2c.begin()), cacc::Mat3f(calib.begin()),
                     width, height,
                     dbvh_tree->accessor(),
@@ -253,7 +269,7 @@ int main(int argc, char **argv) {
                 {
                     dim3 grid(cacc::divup(num_verts, 2));
                     dim3 block(32, 2);
-                    sort_direction_histogram<<<grid, block, 0, stream>>>(
+                    process_direction_histogram<<<grid, block, 0, stream>>>(
                         ddir_hist->cdata());
                 }
 
@@ -356,8 +372,8 @@ int main(int argc, char **argv) {
                 {
                     dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
                     dim3 block(KERNEL_BLOCK_SIZE);
-                    populate_direction_histogram<<<grid, block, 0, stream>>>(
-                        cacc::Vec3f(pos.begin()), args.max_distance,
+                    update_direction_histogram<<<grid, block, 0, stream>>>(
+                        true, cacc::Vec3f(pos.begin()), args.max_distance,
                         cacc::Mat4f(w2c.begin()), cacc::Mat3f(calib.begin()),
                         width, height,
                         dbvh_tree->accessor(), dcloud->cdata(),
@@ -373,7 +389,7 @@ int main(int argc, char **argv) {
                 {
                     dim3 grid(cacc::divup(num_verts, 2));
                     dim3 block(32, 2);
-                    sort_direction_histogram<<<grid, block, 0, stream>>>(
+                    process_direction_histogram<<<grid, block, 0, stream>>>(
                         ddir_hist->cdata());
                 }
 
@@ -390,7 +406,7 @@ int main(int argc, char **argv) {
 
                 avg_recon = cacc::sum(drecons) / num_verts;
                 //std::cout << i << "(" << oindices.size() << ") " << avg_recon << " " << length << std::endl;
-                std::cout << i << "(" << oindices.size() << ") " << avg_recon << std::endl;
+                std::cout << i << " " << oindices.size() << " " << avg_recon << std::endl;
             }
         }
         cudaEventDestroy(event);

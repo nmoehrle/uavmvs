@@ -135,8 +135,8 @@ int main(int argc, char * argv[])
             cam.fill_world_to_cam(w2c.begin());
             cam.fill_camera_pos(view_pos.begin());
 
-            populate_direction_histogram<<<grid, block, 0, stream>>>(
-                cacc::Vec3f(view_pos.begin()), args.max_distance,
+            update_direction_histogram<<<grid, block, 0, stream>>>(
+                true, cacc::Vec3f(view_pos.begin()), args.max_distance,
                 cacc::Mat4f(w2c.begin()), cacc::Mat3f(calib.begin()), width, height,
                 dbvh_tree->accessor(), dcloud->cdata(), ddir_hist->cdata()
             );
@@ -148,6 +148,13 @@ int main(int argc, char * argv[])
     end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> diff = end - start;
     std::cout << "  GPU: " << diff.count() << 's' << std::endl;
+
+    {
+        dim3 grid(cacc::divup(num_verts, 2));
+        dim3 block(32, 2);
+        process_direction_histogram<<<grid, block>>>(
+            ddir_hist->cdata());
+    }
 
     {
         dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));

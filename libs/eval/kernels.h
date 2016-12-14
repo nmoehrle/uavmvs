@@ -13,22 +13,15 @@
 
 #define KERNEL_BLOCK_SIZE 128
 __global__
-void populate_direction_histogram(cacc::Vec3f view_pos, float max_distance,
-    cacc::Mat4f w2c, cacc::Mat3f calib, int width, int height,
-    cacc::BVHTree<cacc::DEVICE>::Accessor const bvh_tree,
-    cacc::PointCloud<cacc::DEVICE>::Data const cloud,
-    cacc::Array<float, cacc::DEVICE>::Data recons,
-    cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data dir_hist);
-
-__global__
-void populate_direction_histogram(cacc::Vec3f view_pos, float max_distance,
+void update_direction_histogram(bool populate,
+    cacc::Vec3f view_pos, float max_distance,
     cacc::Mat4f w2c, cacc::Mat3f calib, int width, int height,
     cacc::BVHTree<cacc::DEVICE>::Accessor const bvh_tree,
     cacc::PointCloud<cacc::DEVICE>::Data const cloud,
     cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data dir_hist);
 
 __global__
-void sort_direction_histogram(
+void process_direction_histogram(
     cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data dir_hist);
 
 __global__
