@@ -62,7 +62,7 @@ relative_direction(cacc::Vec3f const & v2cn, cacc::Vec3f const & n) {
     rel_dir[1] = dot(ry, v2cn);
     rel_dir[2] = dot(rz, v2cn);
 
-    return rel_dir;
+    return rel_dir.normalize();
 }
 
 constexpr float pi = 3.14159265f;
@@ -82,7 +82,8 @@ heuristic(cacc::Vec3f const * rel_dirs, uint stride, uint n, cacc::Vec3f new_rel
     for (uint i = 0; i < n; ++i) {
         cacc::Vec3f rel_dir = rel_dirs[i * stride];
 
-        float alpha = acosf(dot(new_rel_dir, rel_dir));
+        float calpha = dot(new_rel_dir, rel_dir);
+        float alpha = acosf(max(-1.0f, min(calpha, 1.0f)));
         min_alpha = min(min_alpha, alpha);
 
         cacc::Vec3f half = (rel_dir + new_rel_dir).normalize();
@@ -251,8 +252,8 @@ evaluate_direction_histogram(
         }
     }
 
-    //recons.data_ptr[id] = recon;
-    recons.data_ptr[id] = min(recon, RECONSTRUCTABLE);
+    recons.data_ptr[id] = recon;
+    //recons.data_ptr[id] = min(recon, RECONSTRUCTABLE);
 }
 
 __global__
