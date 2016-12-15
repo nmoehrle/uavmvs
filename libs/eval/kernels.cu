@@ -89,7 +89,7 @@ heuristic(cacc::Vec3f const * rel_dirs, uint stride, uint n, cacc::Vec3f new_rel
         cacc::Vec3f half = (rel_dir + new_rel_dir).normalize();
         float scale = (rel_dir[3] + new_rel_dir[3]) / 2.0f;
         //float quality = dot(cacc::Vec3f(0.0f, 0.0f, 1.0f), half) * scale;
-        float quality = half[2] * scale;
+        float quality = half[2] * scale * scale;
         float matchability = 1.0f - sigmoid(alpha, pi / 4.0f, 16.0f);
         sum += matchability * quality;
     }
@@ -343,22 +343,22 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance, float avg_reco
 
     if (num_rows >= dir_hist.max_rows) return;
 
+    float rel_recon = avg_recon - recons.data_ptr[id];
+    float weight = __powf(__logf(1.0f + __expf(rel_recon * 2.0f - 2.0f)), 2.0f);
+
     float contrib = 0.0f;
     if (num_rows >= 1) {
         cacc::Vec3f rel_dir = relative_direction(v2cn, n);
         rel_dir[3] = scale;
         cacc::Vec3f * rel_dirs = dir_hist.data_ptr + id;
-        float rel_recon = avg_recon - recons.data_ptr[id];
-        float weight = __logf(1.0f + __expf(rel_recon - 2.0f));
         contrib = weight * heuristic(rel_dirs, stride, num_rows, rel_dir);
     } else {
         float min_theta = min(cloud.values_ptr[id], 1.484f);
-
         float scaling = (pi / 2.0f) / ((pi / 2.0f) - min_theta);
-
         float theta = acosf(__saturatef(ctheta));
         float rel_theta = max(theta - min_theta, 0.0f) * scaling;
-        contrib = scale * capture_difficulty * cosf(rel_theta);
+
+        contrib = weight * cosf(rel_theta) * scale * scale;
     }
 
     uint idx;

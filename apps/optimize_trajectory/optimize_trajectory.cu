@@ -1,3 +1,4 @@
+#include <csignal>
 #include <iostream>
 #include <algorithm>
 #include <unordered_set>
@@ -11,6 +12,7 @@
 #include "mve/mesh_io_ply.h"
 
 #include "math/bspline.h"
+#include "math/geometry.h"
 
 #include "cacc/util.h"
 #include "cacc/math.h"
@@ -89,7 +91,10 @@ Arguments parse_args(int argc, char **argv) {
 
     return conf;
 }
+
 float const pi = std::acos(-1.0f);
+
+bool terminate = false;
 
 int main(int argc, char **argv) {
     util::system::register_segfault_handler();
@@ -154,23 +159,37 @@ int main(int argc, char **argv) {
     float min_sq_distance = args.max_distance * args.max_distance;
 
     {
-        std::normal_distribution<> pos_dist(0.0f, args.min_distance);
+        float tmp = 1.0f / std::sqrt(2.0f);
+        math::Vec3f tet[] = {
+            {1.0f , 0.0f, - tmp},
+            {-1.0f , 0.0f, - tmp},
+            {0.0f, 1.0f, tmp},
+            {0.0f, -1.0f, tmp}
+        };
+        float scale = 0.5f * (args.min_distance / 10.0f);
+
+        std::uniform_real_distribution<float> dist(0.0f, pi);
         for (std::size_t i = 0; i < trajectory.size(); ++i) {
             mve::CameraInfo const & cam = trajectory[i];
             math::Vec3f pos;
             cam.fill_camera_pos(pos.begin());
 
+            float theta = dist(gen);
+            float phi = 2.0f * dist(gen);
+
+            math::Matrix3f rot = utp::rotation_from_spherical(theta, phi);
+
             std::array<math::Vector<float, 3>, 4> & verts = simplices[i].verts;
             for (std::size_t j = 0; j < verts.size(); ++j) {
-                for (int k = 0; k < 3; ++k) {
-                    verts[j][k] = pos[k] + pos_dist(gen);
-                }
+                verts[j] = pos + rot * (tet[j] * scale);
             }
         }
     }
 
 
     float avg_recon = 1.0f;
+
+    std::signal(SIGINT, [] (int) -> void { terminate = true; });
 
     std::vector<std::size_t> oindices;
     #pragma omp parallel
@@ -213,7 +232,7 @@ int main(int argc, char **argv) {
             cacc::sync(stream, event, std::chrono::microseconds(100));
         }
 
-        for (uint i = 0; i < args.max_iters; ++i) {
+        for (uint i = 0; i < args.max_iters && !terminate; ++i) {
             #pragma omp single
             {
                 oindices.clear();
@@ -404,9 +423,16 @@ int main(int argc, char **argv) {
 
                 //float length = utp::length(trajectory);
 
+                float volume = 0.0f;
+                for (std::size_t j = 0; j < simplices.size(); ++j) {
+                    std::array<math::Vector<float, 3>, 4> & v = simplices[j].verts;
+                    volume += std::abs(math::geom::tetrahedron_volume(v[0], v[1], v[2], v[3]));
+                }
+
                 avg_recon = cacc::reduction::sum(drecons) / num_verts;
-                //std::cout << i << "(" << oindices.size() << ") " << avg_recon << " " << length << std::endl;
-                std::cout << i << " " << oindices.size() << " " << avg_recon << std::endl;
+                float max_recon = cacc::reduction::max(drecons);
+                std::cout << i << " " << oindices.size() << " "
+                    << avg_recon << " " << max_recon << " " << volume << std::endl;
             }
         }
         cudaEventDestroy(event);

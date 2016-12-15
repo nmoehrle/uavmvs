@@ -13,6 +13,8 @@ struct Arguments {
     bool clamp;
     std::string in_mesh;
     std::string out_mesh;
+    float min;
+    float max;
     float eps;
     float no_value;
     std::vector<std::string> meshes;
@@ -30,11 +32,15 @@ Arguments parse_args(int argc, char **argv) {
     args.add_option('i', "ignore", true, "set value to ignore [-1.0]");
     args.add_option('\0', "meshes", true, "calculate normalization based on these meshes (comma seperated list)."
         "If no mesh is given the normalization is calculate from IN_MESH");
+    args.add_option('\0', "minimum", true, "specify minimum (overrides automatic estimation)");
+    args.add_option('\0', "maximum", true, "specify maximum (overrides automatic estimation)");
     args.parse(argc, argv);
 
     Arguments conf;
     conf.in_mesh = args.get_nth_nonopt(0);
     conf.out_mesh = args.get_nth_nonopt(1);
+    conf.min = std::numeric_limits<float>::lowest();
+    conf.max = std::numeric_limits<float>::max();
     conf.eps = 0.0f;
     conf.clamp = false;
     conf.no_value = -1.0f;
@@ -56,6 +62,10 @@ Arguments parse_args(int argc, char **argv) {
                 util::Tokenizer t;
                 t.split(i->arg, ',');
                 conf.meshes = t;
+            } else if (i->opt->lopt == "minimum") {
+                conf.min = i->get_arg<float>();
+            } else if (i->opt->lopt == "maximum") {
+                conf.max = i->get_arg<float>();
             } else {
                 throw std::invalid_argument("Invalid option");
             }
@@ -139,13 +149,19 @@ int main(int argc, char **argv) {
 
     Iter nth;
 
-    nth = values.begin() + c;
-    std::nth_element(values.begin(), nth, values.end(), std::less<float>());
-    float min = *nth;
+    float min = args.min;
+    if (min == std::numeric_limits<float>::lowest()) {
+        nth = values.begin() + c;
+        std::nth_element(values.begin(), nth, values.end(), std::less<float>());
+        min = *nth;
+    }
 
-    nth = values.begin() + c;
-    std::nth_element(values.begin(), nth, values.end(), std::greater<float>());
-    float max = *nth;
+    float max = args.max;
+    if (max == std::numeric_limits<float>::max()) {
+        nth = values.begin() + c;
+        std::nth_element(values.begin(), nth, values.end(), std::greater<float>());
+        max = *nth;
+    }
 
     float delta = max - min;
     std::cout << "Minimal value: " << real_min << std::endl;
