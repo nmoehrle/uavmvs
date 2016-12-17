@@ -144,7 +144,7 @@ int main(int argc, char **argv) {
         dim3 grid(cacc::divup(vertices.size(), KERNEL_BLOCK_SIZE));
         dim3 block(KERNEL_BLOCK_SIZE);
         estimate_capture_difficulty<<<grid, block>>>(args.max_distance,
-            dbvh_tree->accessor(), num_faces, dkd_tree->cdata(), dcloud->cdata());
+            dbvh_tree->accessor(), num_faces, dkd_tree->accessor(), dcloud->cdata());
         CHECK(cudaDeviceSynchronize());
     }
 

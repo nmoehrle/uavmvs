@@ -1,7 +1,7 @@
+#include <random>
 #include <csignal>
 #include <iostream>
 #include <algorithm>
-#include <unordered_set>
 
 #include "util/system.h"
 #include "util/arguments.h"
@@ -120,7 +120,6 @@ int main(int argc, char **argv) {
         acc::KDTree<3u, uint>::Ptr kd_tree = acc::KDTree<3, uint>::create(verts);
         dkd_tree = cacc::KDTree<3u, cacc::DEVICE>::create<uint>(kd_tree);
     }
-    cacc::nnsearch::bind_textures(dkd_tree->cdata());
 
     cacc::PointCloud<cacc::DEVICE>::Ptr dcloud;
     {
@@ -323,7 +322,7 @@ int main(int argc, char **argv) {
                         dim3 block(KERNEL_BLOCK_SIZE);
                         populate_histogram<<<grid, block, 0, stream>>>(
                             cacc::Vec3f(pos.begin()), args.max_distance, avg_recon,
-                            dbvh_tree->accessor(), dcloud->cdata(), dkd_tree->cdata(),
+                            dbvh_tree->accessor(), dcloud->cdata(), dkd_tree->accessor(),
                             ddir_hist->cdata(), drecons->cdata(), dcon_hist->cdata());
                     }
 
@@ -332,7 +331,7 @@ int main(int argc, char **argv) {
                         dim3 block(KERNEL_BLOCK_SIZE);
                         evaluate_histogram<<<grid, block, 0, stream>>>(
                             cacc::Mat3f(calib.begin()), width, height,
-                            dkd_tree->cdata(), dcon_hist->cdata(), dhist->cdata());
+                            dkd_tree->accessor(), dcon_hist->cdata(), dhist->cdata());
                     }
 
                     *hist = *dhist;

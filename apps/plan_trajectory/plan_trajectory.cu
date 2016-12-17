@@ -1,3 +1,4 @@
+#include <random>
 #include <iostream>
 
 #include "util/system.h"
@@ -121,7 +122,6 @@ int main(int argc, char **argv) {
         acc::KDTree<3u, uint>::Ptr kd_tree = acc::KDTree<3, uint>::create(verts);
         dkd_tree = cacc::KDTree<3u, cacc::DEVICE>::create<uint>(kd_tree);
     }
-    cacc::nnsearch::bind_textures(dkd_tree->cdata());
 
     cacc::PointCloud<cacc::DEVICE>::Ptr dcloud;
     {
@@ -260,15 +260,17 @@ int main(int argc, char **argv) {
                     dim3 block(KERNEL_BLOCK_SIZE);
                     populate_histogram<<<grid, block, 0, stream>>>(
                         cacc::Vec3f(pos.begin()), avg_recon,
-                        args.max_distance, dbvh_tree->accessor(), dcloud->cdata(), dkd_tree->cdata(),
-                        ddir_hist->cdata(), drecons->cdata(), dcon_hist->cdata());
+                        args.max_distance, dbvh_tree->accessor(), dcloud->cdata(),
+                        dkd_tree->accessor(), ddir_hist->cdata(),
+                        drecons->cdata(), dcon_hist->cdata());
                 }
 
                 {
                     dim3 grid(cacc::divup(128, KERNEL_BLOCK_SIZE), 45);
                     dim3 block(KERNEL_BLOCK_SIZE);
-                    evaluate_histogram<<<grid, block, 0, stream>>>(cacc::Mat3f(calib.begin()), width, height,
-                        dkd_tree->cdata(), dcon_hist->cdata(), dhist->cdata());
+                    evaluate_histogram<<<grid, block, 0, stream>>>(
+                        cacc::Mat3f(calib.begin()), width, height,
+                        dkd_tree->accessor(), dcon_hist->cdata(), dhist->cdata());
                 }
 
                 *hist = *dhist;

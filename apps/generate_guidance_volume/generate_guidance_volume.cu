@@ -191,7 +191,6 @@ int main(int argc, char **argv) {
         acc::KDTree<3u, uint>::Ptr kd_tree = acc::KDTree<3, uint>::create(verts);
         dkd_tree = cacc::KDTree<3u, cacc::DEVICE>::create<uint>(kd_tree);
     }
-    cacc::nnsearch::bind_textures(dkd_tree->cdata());
 
     cacc::PointCloud<cacc::DEVICE>::Ptr dcloud;
     {
@@ -238,15 +237,16 @@ int main(int argc, char **argv) {
                 dim3 block(KERNEL_BLOCK_SIZE);
                 populate_histogram<<<grid, block, 0, stream>>>(
                     cacc::Vec3f(volume->position(sample_positions[i]).begin()),
-                    args.max_distance, dbvh_tree->accessor(), dcloud->cdata(), dkd_tree->cdata(),
-                    dobs_hist->cdata());
+                    args.max_distance, dbvh_tree->accessor(), dcloud->cdata(),
+                    dkd_tree->accessor(), dobs_hist->cdata());
             }
 
             {
                 dim3 grid(cacc::divup(128, KERNEL_BLOCK_SIZE), 45);
                 dim3 block(KERNEL_BLOCK_SIZE);
-                evaluate_histogram<<<grid, block, 0, stream>>>(cacc::Mat3f(calib.begin()), width, height,
-                    dkd_tree->cdata(), dobs_hist->cdata(), dhist->cdata());
+                evaluate_histogram<<<grid, block, 0, stream>>>(
+                    cacc::Mat3f(calib.begin()), width, height,
+                    dkd_tree->accessor(), dobs_hist->cdata(), dhist->cdata());
             }
 
             *hist = *dhist;
