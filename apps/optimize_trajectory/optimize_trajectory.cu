@@ -193,8 +193,9 @@ int main(int argc, char **argv) {
         }
     }
 
-
     std::signal(SIGINT, [] (int) -> void { terminate = true; });
+
+    float volume = 0.0f;
 
     std::vector<std::size_t> oindices;
     #pragma omp parallel
@@ -240,6 +241,7 @@ int main(int argc, char **argv) {
         for (uint i = 0; i < args.max_iters && !terminate; ++i) {
             #pragma omp single
             {
+                volume = 0.0f;
                 oindices.clear();
 
                 std::discrete_distribution<> d(iters.begin(), iters.end());
@@ -408,8 +410,16 @@ int main(int argc, char **argv) {
                 cacc::sync(stream, event, std::chrono::microseconds(100));
             }
 
+            #pragma omp for reduction(+:volume)
+            for (std::size_t j = 0; j < simplices.size(); ++j) {
+                std::array<math::Vector<float, 3>, 4> & v = simplices[j].verts;
+                volume += std::abs(math::geom::tetrahedron_volume(v[0], v[1], v[2], v[3]));
+            }
+
             #pragma omp single
             {
+                if (volume < 0.5f * initial_volume) terminate = true;
+
                 {
                     dim3 grid(cacc::divup(num_verts, 2));
                     dim3 block(32, 2);
@@ -431,25 +441,24 @@ int main(int argc, char **argv) {
 
                 //float length = utp::length(trajectory);
 
-                float volume = 0.0f;
-                for (std::size_t j = 0; j < simplices.size(); ++j) {
-                    std::array<math::Vector<float, 3>, 4> & v = simplices[j].verts;
-                    volume += std::abs(math::geom::tetrahedron_volume(v[0], v[1], v[2], v[3]));
-                }
-                if (volume < 0.5f * initial_volume) terminate = true;
-
                 float avg_wrecon = cacc::reduction::sum(dwrecons) / num_verts;
 
+#if 0
                 cacc::Array<float, cacc::HOST> recons(*drecons);
                 float *begin, *nth, *end;
                 begin = recons.cdata().data_ptr;
                 nth = begin + recons.cdata().num_values / 20;
                 end = begin + recons.cdata().num_values;
                 std::nth_element(begin, nth, end);
-
+#endif
                 float max_recon = cacc::reduction::max(drecons);
-                std::cout << i << " " << oindices.size() << " "
-                    << avg_wrecon << " " << *nth << " " << volume << std::endl;
+                std::cout << i << " "
+                    << oindices.size() << " "
+                    << avg_wrecon << " "
+#if 0
+                    << *nth << " "
+#endif
+                    << volume << std::endl;
             }
         }
         cudaEventDestroy(event);
