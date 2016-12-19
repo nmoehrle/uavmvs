@@ -73,6 +73,13 @@ sigmoid(float x, float x0, float k) {
     return 1.0f / (1.0f + __expf(-k * (x - x0)));
 }
 
+
+__forceinline__ __device__
+float
+func(float recon, float target_recon) {
+    return __powf(abs(min(recon - target_recon, 0.0f)), 2.0f);
+}
+
 __forceinline__ __device__
 float
 heuristic(cacc::Vec3f const * rel_dirs, uint stride, uint n, cacc::Vec3f new_rel_dir)
@@ -244,7 +251,7 @@ evaluate_direction_histogram(
 
     cacc::Vec3f * rel_dirs = dir_hist.data_ptr + id;
 
-    float recon = 0.0f;
+    float recon = num_rows >= 1 ? 0.0f : -1.0f;
     if (num_rows > 1) {
         for (int i = 1; i < num_rows; ++i) {
             cacc::Vec3f rel_dir = rel_dirs[i * stride];
@@ -287,7 +294,6 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance,
 
     float capture_difficulty = max(cloud.qualities_ptr[id], 0.0f);
 
-#if 1
     // 1.484f ~ 85.0f / 180.0f * pi
     float min_theta = min(cloud.values_ptr[id], 1.484f);
 
@@ -295,10 +301,7 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance,
 
     float theta = acosf(__saturatef(ctheta));
     float rel_theta = max(theta - min_theta, 0.0f) * scaling;
-    float score = scale * capture_difficulty * cosf(rel_theta);
-#else
-    float score = scale * capture_difficulty * ctheta;
-#endif
+    float score = capture_difficulty * cosf(rel_theta) * scale * scale;
 
     uint idx;
     cacc::nnsearch::find_nn<3u>(kd_tree, -v2cn, &idx, nullptr);
@@ -306,7 +309,7 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance,
 }
 
 __global__
-void populate_histogram(cacc::Vec3f view_pos, float max_distance, float avg_recon,
+void populate_histogram(cacc::Vec3f view_pos, float max_distance, float target_recon,
     cacc::BVHTree<cacc::DEVICE>::Accessor const bvh_tree,
     cacc::PointCloud<cacc::DEVICE>::Data cloud,
     cacc::KDTree<3, cacc::DEVICE>::Accessor const kd_tree,
@@ -343,27 +346,21 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance, float avg_reco
 
     if (num_rows >= dir_hist.max_rows) return;
 
-    float rel_recon = avg_recon - recons.data_ptr[id];
-    float weight = __powf(__logf(1.0f + __expf(rel_recon * 2.0f - 2.0f)), 2.0f);
+    float recon = recons.data_ptr[id];
+    float new_recon = 0.0f;
 
-    float contrib = 0.0f;
     if (num_rows >= 1) {
         cacc::Vec3f rel_dir = relative_direction(v2cn, n);
         rel_dir[3] = scale;
         cacc::Vec3f * rel_dirs = dir_hist.data_ptr + id;
-        contrib = weight * heuristic(rel_dirs, stride, num_rows, rel_dir);
-    } else {
-        float min_theta = min(cloud.values_ptr[id], 1.484f);
-        float scaling = (pi / 2.0f) / ((pi / 2.0f) - min_theta);
-        float theta = acosf(__saturatef(ctheta));
-        float rel_theta = max(theta - min_theta, 0.0f) * scaling;
-
-        contrib = weight * cosf(rel_theta) * scale * scale;
+        new_recon = recon + heuristic(rel_dirs, stride, num_rows, rel_dir);
     }
+
+    float delta = func(new_recon, target_recon) - func(recon, target_recon);
 
     uint idx;
     cacc::nnsearch::find_nn<3u>(kd_tree, -v2cn, &idx, nullptr);
-    atomicAdd(con_hist.data_ptr + idx, contrib);
+    atomicAdd(con_hist.data_ptr + idx, delta);
 }
 
 __global__
@@ -481,4 +478,20 @@ estimate_capture_difficulty(float max_distance,
     float min_theta = acosf(__saturatef(max_ctheta));
     cloud.values_ptr[id] = min_theta;
     cloud.qualities_ptr[id] = sum / max;
+}
+
+__global__ void
+calculate_func_recons(
+    cacc::Array<float, cacc::DEVICE>::Data recons,
+    float target_recon,
+    cacc::Array<float, cacc::DEVICE>::Data wrecons)
+{
+    int const bx = blockIdx.x;
+    int const tx = threadIdx.x;
+
+    uint id = bx * blockDim.x + tx;
+    if (id >= recons.num_values) return;
+
+    float recon = recons.data_ptr[id];
+    wrecons.data_ptr[id] = func(recon, target_recon);
 }

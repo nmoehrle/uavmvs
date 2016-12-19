@@ -40,6 +40,7 @@ struct Arguments {
     float min_distance;
     float max_distance;
     float focal_length;
+    float target_recon;
 };
 
 Arguments parse_args(int argc, char **argv) {
@@ -64,6 +65,7 @@ Arguments parse_args(int argc, char **argv) {
     conf.max_distance = 50.0f;
     conf.min_distance = 2.5f;
     conf.focal_length = 0.86f;
+    conf.target_recon = 3.0f;
 
     for (util::ArgResult const* i = args.next_option();
          i != 0; i = args.next_option()) {
@@ -137,6 +139,8 @@ int main(int argc, char **argv) {
     ddir_hist = cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::create(num_verts, max_cameras);
     cacc::Array<float, cacc::DEVICE>::Ptr drecons;
     drecons = cacc::Array<float, cacc::DEVICE>::create(num_verts);
+    cacc::Array<float, cacc::DEVICE>::Ptr dwrecons;
+    dwrecons = cacc::Array<float, cacc::DEVICE>::create(num_verts);
 
     mve::CameraInfo cam;
     cam.flen = args.focal_length;
@@ -157,6 +161,7 @@ int main(int argc, char **argv) {
 
     float min_sq_distance = args.max_distance * args.max_distance;
 
+    float initial_volume = 0.0f;
     {
         float tmp = 1.0f / std::sqrt(2.0f);
         math::Vec3f tet[] = {
@@ -178,15 +183,16 @@ int main(int argc, char **argv) {
 
             math::Matrix3f rot = utp::rotation_from_spherical(theta, phi);
 
-            std::array<math::Vector<float, 3>, 4> & verts = simplices[i].verts;
-            for (std::size_t j = 0; j < verts.size(); ++j) {
-                verts[j] = pos + rot * (tet[j] * scale);
+            std::array<math::Vector<float, 3>, 4> & v = simplices[i].verts;
+            for (std::size_t j = 0; j < v.size(); ++j) {
+                v[j] = pos + rot * (tet[j] * scale);
             }
+
+            float volume = math::geom::tetrahedron_volume(v[0], v[1], v[2], v[3]);
+            initial_volume += std::abs(volume);
         }
     }
 
-
-    float avg_recon = 1.0f;
 
     std::signal(SIGINT, [] (int) -> void { terminate = true; });
 
@@ -306,7 +312,7 @@ int main(int argc, char **argv) {
                 std::size_t idx = oindices[j];
                 mve::CameraInfo & cam = trajectory[idx];
 
-                float vmax = 0.0f;
+                float vmin = 0.0f;
                 float vtheta = 0.0f;
                 float vphi = 0.0f;
 
@@ -321,7 +327,7 @@ int main(int argc, char **argv) {
                         dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
                         dim3 block(KERNEL_BLOCK_SIZE);
                         populate_histogram<<<grid, block, 0, stream>>>(
-                            cacc::Vec3f(pos.begin()), args.max_distance, avg_recon,
+                            cacc::Vec3f(pos.begin()), args.max_distance, args.target_recon,
                             dbvh_tree->accessor(), dcloud->cdata(), dkd_tree->accessor(),
                             ddir_hist->cdata(), drecons->cdata(), dcon_hist->cdata());
                     }
@@ -339,28 +345,28 @@ int main(int argc, char **argv) {
 
                     cacc::sync(stream, event, std::chrono::microseconds(100));
 
-                    float max = 0.0f;
+                    float min = 0.0f; //values <= 0.0f;
                     float theta = 0.0f;
                     float phi = 0.0f;
 
                     for (int y = 0; y < data.height; ++y) {
                         for (int x = 0; x < data.width; ++x) {
                             float v = data.data_ptr[y * data.pitch / sizeof(float) + x];
-                            if (v > max) {
-                                max = v;
+                            if (v < min) {
+                                min = v;
                                 theta = (0.5f + (y / (float) data.height) / 2.0f) * pi;
                                 phi = (x / (float) data.width) * 2.0f * pi;
                             }
                         }
                     }
 
-                    if (max > vmax) {
-                        vmax = max;
+                    if (min < vmin) {
+                        vmin = min;
                         vtheta = theta;
                         vphi = phi;
                     }
 
-                    return -max;
+                    return min;
                 };
 
                 Simplex<3> & simplex  = simplices[idx];
@@ -416,6 +422,9 @@ int main(int argc, char **argv) {
                     dim3 block(KERNEL_BLOCK_SIZE);
                     evaluate_direction_histogram<<<grid, block, 0, stream>>>(
                         ddir_hist->cdata(), drecons->cdata());
+
+                    calculate_func_recons<<<grid, block, 0, stream>>>(
+                        drecons->cdata(), args.target_recon, dwrecons->cdata());
                 }
 
                 cacc::sync(stream, event, std::chrono::microseconds(100));
@@ -427,11 +436,20 @@ int main(int argc, char **argv) {
                     std::array<math::Vector<float, 3>, 4> & v = simplices[j].verts;
                     volume += std::abs(math::geom::tetrahedron_volume(v[0], v[1], v[2], v[3]));
                 }
+                if (volume < 0.5f * initial_volume) terminate = true;
 
-                avg_recon = cacc::reduction::sum(drecons) / num_verts;
+                float avg_wrecon = cacc::reduction::sum(dwrecons) / num_verts;
+
+                cacc::Array<float, cacc::HOST> recons(*drecons);
+                float *begin, *nth, *end;
+                begin = recons.cdata().data_ptr;
+                nth = begin + recons.cdata().num_values / 20;
+                end = begin + recons.cdata().num_values;
+                std::nth_element(begin, nth, end);
+
                 float max_recon = cacc::reduction::max(drecons);
                 std::cout << i << " " << oindices.size() << " "
-                    << avg_recon << " " << max_recon << " " << volume << std::endl;
+                    << avg_wrecon << " " << *nth << " " << volume << std::endl;
             }
         }
         cudaEventDestroy(event);

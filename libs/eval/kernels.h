@@ -9,8 +9,6 @@
 #include "cacc/point_cloud.h"
 #include "cacc/vector_array.h"
 
-#define RECONSTRUCTABLE 3.0f
-
 #define KERNEL_BLOCK_SIZE 128
 __global__
 void update_direction_histogram(bool populate,
@@ -37,7 +35,7 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance,
     cacc::VectorArray<float, cacc::DEVICE>::Data obs_hist);
 
 __global__
-void populate_histogram(cacc::Vec3f view_pos, float max_distance, float avg_recon,
+void populate_histogram(cacc::Vec3f view_pos, float max_distance, float target_recon,
     cacc::BVHTree<cacc::DEVICE>::Accessor const bvh_tree,
     cacc::PointCloud<cacc::DEVICE>::Data const cloud,
     cacc::KDTree<3, cacc::DEVICE>::Accessor const kd_tree,
@@ -62,6 +60,12 @@ void estimate_capture_difficulty(float max_distance,
     cacc::BVHTree<cacc::DEVICE>::Accessor const bvh_tree, uint mesh_size,
     cacc::KDTree<3, cacc::DEVICE>::Accessor const kd_tree,
     cacc::PointCloud<cacc::DEVICE>::Data const cloud);
+
+__global__
+void calculate_func_recons(
+    cacc::Array<float, cacc::DEVICE>::Data recons,
+    float traget_recon,
+    cacc::Array<float, cacc::DEVICE>::Data wrecons);
 
 //TODO Homogenize naming scheme (vertices vs. verts)
 //TODO Introduce namespace

@@ -35,6 +35,7 @@ struct Arguments {
     std::string proxy_cloud;
     std::string export_cloud;
     float max_distance;
+    float target_recon;
 };
 
 Arguments parse_args(int argc, char **argv) {
@@ -53,6 +54,7 @@ Arguments parse_args(int argc, char **argv) {
     conf.proxy_mesh = args.get_nth_nonopt(1);
     conf.proxy_cloud = args.get_nth_nonopt(2);
     conf.max_distance = 80.0f;
+    conf.target_recon = 3.0f;
 
     for (util::ArgResult const* i = args.next_option();
          i != nullptr; i = args.next_option()) {
@@ -104,13 +106,15 @@ int main(int argc, char * argv[])
     dcloud = cacc::PointCloud<cacc::DEVICE>::create<cacc::HOST>(cloud);
 
     uint num_verts = dcloud->cdata().num_vertices;
-    uint max_cameras = 20;
+    uint max_cameras = 32;
 
     cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Ptr ddir_hist;
     ddir_hist = cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::create(num_verts, max_cameras);
     cacc::Array<float, cacc::DEVICE>::Ptr drecons;
     drecons = cacc::Array<float, cacc::DEVICE>::create(num_verts);
     drecons->null();
+    cacc::Array<float, cacc::DEVICE>::Ptr dwrecons;
+    dwrecons = cacc::Array<float, cacc::DEVICE>::create(num_verts);
 
     std::cout << '\n';
 
@@ -160,22 +164,24 @@ int main(int argc, char * argv[])
         dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
         dim3 block(KERNEL_BLOCK_SIZE);
         evaluate_direction_histogram<<<grid, block>>>(ddir_hist->cdata(), drecons->cdata());
+        calculate_func_recons<<<grid, block>>>(drecons->cdata(),
+            args.target_recon, dwrecons->cdata());
         CHECK(cudaDeviceSynchronize());
     }
 
     std::vector<float> values(num_verts);
 
-    cacc::Array<float, cacc::HOST> recons(*drecons);
-    cacc::Array<float, cacc::HOST>::Data const & data = recons.cdata();
+    cacc::Array<float, cacc::HOST> wrecons(*dwrecons);
+    cacc::Array<float, cacc::HOST>::Data const & data = wrecons.cdata();
     for (std::size_t i = 0; i < num_verts; ++i) {
         values[i] = data.data_ptr[i];
     }
 
     std::cout << "Average reconstructability" << std::endl;
     std::cout << "  GPU:\n"
-        << "  " << cacc::reduction::sum(drecons) / num_verts << '\n'
-        << "  " << cacc::reduction::min(drecons) << '\n'
-        << "  " << cacc::reduction::max(drecons) << '\n'
+        << "  " << cacc::reduction::sum(dwrecons) / num_verts << '\n'
+        << "  " << cacc::reduction::min(dwrecons) << '\n'
+        << "  " << cacc::reduction::max(dwrecons) << '\n'
         << std::endl;
     std::cout << "  CPU:\n"
         << "  " << std::accumulate(values.begin(), values.end(), 1.0f) / num_verts << '\n'
@@ -186,6 +192,12 @@ int main(int argc, char * argv[])
     std::cout << "Length: " << utp::length(trajectory) << '\n' << std::endl;
 
     if (!args.export_cloud.empty()) {
+        cacc::Array<float, cacc::HOST> recons(*drecons);
+        cacc::Array<float, cacc::HOST>::Data const & data = recons.cdata();
+        for (std::size_t i = 0; i < num_verts; ++i) {
+            values[i] = data.data_ptr[i]; //Clobbering values
+        }
+
         mve::TriangleMesh::Ptr mesh;
         try {
             mesh = mve::geom::load_ply_mesh(args.proxy_cloud);
