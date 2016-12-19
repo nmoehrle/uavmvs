@@ -161,7 +161,6 @@ int main(int argc, char **argv) {
 
     float min_sq_distance = args.max_distance * args.max_distance;
 
-    float initial_volume = 0.0f;
     {
         float tmp = 1.0f / std::sqrt(2.0f);
         math::Vec3f tet[] = {
@@ -187,17 +186,16 @@ int main(int argc, char **argv) {
             for (std::size_t j = 0; j < v.size(); ++j) {
                 v[j] = pos + rot * (tet[j] * scale);
             }
-
-            float volume = math::geom::tetrahedron_volume(v[0], v[1], v[2], v[3]);
-            initial_volume += std::abs(volume);
         }
     }
 
     std::signal(SIGINT, [] (int) -> void { terminate = true; });
 
-    float volume = 0.0f;
 
+    float volume = 0.0f;
     std::vector<std::size_t> oindices;
+    std::vector<float> ovalues;
+    ovalues.reserve(args.max_iters);
     #pragma omp parallel
     {
         cacc::set_cuda_device(device);
@@ -321,7 +319,8 @@ int main(int argc, char **argv) {
                 std::function<float(math::Vec3f)> func =
                     [&] (math::Vec3f const & pos) -> float
                 {
-                    if (pos[2] < args.min_distance) return 0.0f;
+                    /* Return positive value if to close ground or surface. */
+                    if (pos[2] < args.min_distance) return args.min_distance - pos[2];
                     if (kd_tree->find_nn(pos, nullptr, args.min_distance)) return 0.0f;
 
                     dcon_hist->null();
@@ -347,7 +346,7 @@ int main(int argc, char **argv) {
 
                     cacc::sync(stream, event, std::chrono::microseconds(100));
 
-                    float min = 0.0f; //values <= 0.0f;
+                    float min = 0.0f; //all values are negative;
                     float theta = 0.0f;
                     float phi = 0.0f;
 
@@ -418,8 +417,6 @@ int main(int argc, char **argv) {
 
             #pragma omp single
             {
-                if (volume < 0.5f * initial_volume) terminate = true;
-
                 {
                     dim3 grid(cacc::divup(num_verts, 2));
                     dim3 block(32, 2);
@@ -442,6 +439,14 @@ int main(int argc, char **argv) {
                 //float length = utp::length(trajectory);
 
                 float avg_wrecon = cacc::reduction::sum(dwrecons) / num_verts;
+                ovalues.push_back(avg_wrecon);
+
+                if (i > 0) {
+                    float improvement = ovalues[std::max((int)i - 100, 0)] - avg_wrecon;
+                    if (improvement < args.target_recon * 1e-3f) {
+                        terminate = true;
+                    }
+                }
 
 #if 0
                 cacc::Array<float, cacc::HOST> recons(*drecons);
