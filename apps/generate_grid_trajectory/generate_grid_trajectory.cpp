@@ -110,14 +110,16 @@ int main(int argc, char **argv) {
     std::copy(rot.begin(), rot.end(), cam.rot);
     cam.flen = args.focal_length;
 
+    std::cout << rows << "x" << cols << std::endl;
+
     for (int i = 0; i < cols; ++i) {
-        float x = center[0] + spacing * (i - (cols / 2));
-        for (int j = 0; j < rows; ++j) {
+        float x = center[0] + spacing * (i - (cols - 1) / 2.0f);
+        for (int j = 0; j < rows - 1; ++j) {
             float y = center[1];
             if (i % 2 == 0) {
-                y += velocity * (j - (rows / 2));
+                y += velocity * (j - ((rows - 1) / 2.0f));
             } else {
-                y += velocity * ((rows / 2) - j);
+                y += velocity * (((rows - 1) / 2.0f) - j);
             }
 
             math::Vec3f pos(x, y, altitude);
@@ -126,19 +128,23 @@ int main(int argc, char **argv) {
             trajectory.push_back(cam);
         }
 
-        if (i == cols - 1) break;
 
-        float circumfence = std::acos(-1.0f) * spacing;
-        int n = std::floor((circumfence / 2.0f) / velocity);
+        float radius = std::acos(-1.0f) * (spacing / 2.0f);
+
+        int n = 1;
+        if (i != (cols - 1)) {
+            n = std::floor(radius / velocity);
+        }
+
         float angle = std::acos(-1.0f) / n;
         for (int j = 0; j < n; j++) {
-            float ry = std::sin(angle * j) * spacing / 2.0f;
-            float rx = std::cos(angle * j) * spacing / 2.0f;
+            float ry = std::sin(angle * j) * (spacing / 2.0f);
+            float rx = std::cos(angle * j) * (spacing / 2.0f);
             math::Vec3f pos(x + spacing / 2.0f - rx, center[1], altitude);
             if (i % 2 == 0) {
-                pos[1] += (rows / 2) * velocity + ry;
+                pos[1] += ((rows - 1) / 2.0f) * velocity + ry;
             } else {
-                pos[1] -= (rows / 2) * velocity + ry;
+                pos[1] -= ((rows - 1) / 2.0f) * velocity + ry;
             }
             math::Vec3f trans = -rot * pos;
             std::copy(trans.begin(), trans.end(), cam.trans);
