@@ -321,7 +321,10 @@ int main(int argc, char **argv) {
                 {
                     /* Return positive value if to close ground or surface. */
                     if (pos[2] < args.min_distance) return args.min_distance - pos[2];
-                    if (kd_tree->find_nn(pos, nullptr, args.min_distance)) return 0.0f;
+                    std::pair<uint, float> nn;
+                    if (kd_tree->find_nn(pos, &nn, args.min_distance)) {
+                        return args.min_distance - nn.second;
+                    }
 
                     dcon_hist->null();
                     {
