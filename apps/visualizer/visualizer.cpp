@@ -175,7 +175,12 @@ int main(int argc, char **argv) {
                 faces.push_back(idx + 4); faces.push_back(idx + 3);
                 faces.push_back(idx + 3); faces.push_back(idx + 1);
             }
+
+            if (!faces.empty() && faces.size() % 3 == 0) {
+                faces.push_back(0); faces.push_back(0); //TODO remove this hack
+            }
         }
+
         utp::BSpline<float, 3, 3> spline;
         spline.fit(poss);
 
