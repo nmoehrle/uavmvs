@@ -29,8 +29,7 @@ public:
     }
 
     BSpline(std::vector<math::Vector<T, N> > const & verts,
-            std::vector<T> knots) : points(verts), us(knots) {
-    }
+        std::vector<T> knots) : points(verts), us(knots) {}
 
     T fit(std::vector<math::Vector<T, N> > const & verts) {
         typedef Eigen::SparseMatrix<T> SpMat;

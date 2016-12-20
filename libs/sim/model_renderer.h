@@ -39,6 +39,9 @@ public:
         if (mesh->get_faces().empty()) {
             part.mr->set_primitive(GL_POINTS);
         }
+        if (mesh->get_faces().size() % 3 != 0) {
+            part.mr->set_primitive(GL_LINES);
+        }
     }
 
     void render(void)

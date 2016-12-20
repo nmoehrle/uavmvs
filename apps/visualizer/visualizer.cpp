@@ -12,7 +12,6 @@
 #include "mve/image_io.h"
 #include "mve/marching_cubes.h"
 #include "mve/mesh_io_ply.h"
-#include "math/bspline.h"
 
 #include "ogl/events.h"
 #include "ogl/camera.h"
@@ -27,6 +26,8 @@
 #include "sim/model_renderer.h"
 
 #include "col/mpl_viridis.h"
+
+#include "utp/bspline.h"
 
 #include "geom/sphere.h"
 #include "geom/volume_io.h"
@@ -127,35 +128,72 @@ int main(int argc, char **argv) {
         shader->set_model_matrix(eye);
         shaders.push_back(shader);
 
-        math::BSpline<math::Vec3f> spline;
+        mve::TriangleMesh::Ptr mesh = mve::TriangleMesh::create();
+        std::vector<math::Vec3f> & verts = mesh->get_vertices();
+        std::vector<uint> & faces = mesh->get_faces();
+        std::vector<math::Vec4f> & colors = mesh->get_vertex_colors();
+
+        std::vector<math::Vec3f> poss;
         float step;
         {
             std::vector<mve::CameraInfo> trajectory;
             utp::load_trajectory(args.trajectory, &trajectory);
             step = 0.1f / (trajectory.size() - 1);
+            poss.reserve(trajectory.size());
+            verts.reserve(trajectory.size() * 5);
+            colors.reserve(trajectory.size() * 5);
+            faces.reserve(trajectory.size() * 16);
+
+            float size = 0.1f;
 
             for (std::size_t i = 0; i < trajectory.size(); ++i) {
                 mve::CameraInfo const & cam = trajectory[i];
                 math::Vec3f trans(cam.trans);
                 math::Matrix3f rot(cam.rot);
                 math::Vec3f pos = -rot.transposed() * trans;
-                spline.add_point(pos);
+                poss.push_back(pos);
+
+                math::Vec3f rx(rot(0, 0), rot(0, 1), rot(0, 2));
+                math::Vec3f ry(rot(1, 0), rot(1, 1), rot(1, 2));
+                math::Vec3f rz(rot(2, 0), rot(2, 1), rot(2, 2));
+
+                /* Derived from mve/apps/umve/scene_addins/addin_frusta_base.cc */
+                std::size_t idx = verts.size();
+                verts.push_back(pos);
+                colors.emplace_back(0.5f, 0.5f, 0.5f, 1.0f);
+                for (int j = 0; j < 4; ++j)
+                {
+                    math::Vec3f corner = pos + size * rz
+                        + rx * size / (2.0f * cam.flen) * (j & 1 ? -1.0f : 1.0f)
+                        + ry * size / (2.0f * cam.flen) * (j & 2 ? -1.0f : 1.0f);
+                    verts.push_back(corner);
+                    colors.emplace_back(0.5f, 0.5f, 0.5f, 1.0f);
+                    faces.push_back(idx + 0); faces.push_back(idx + 1 + j);
+                }
+                faces.push_back(idx + 1); faces.push_back(idx + 2);
+                faces.push_back(idx + 2); faces.push_back(idx + 4);
+                faces.push_back(idx + 4); faces.push_back(idx + 3);
+                faces.push_back(idx + 3); faces.push_back(idx + 1);
             }
         }
-        spline.uniform_knots(0.0, 1.0f);
+        utp::BSpline<float, 3, 3> spline;
+        spline.fit(poss);
 
         Trajectory::Ptr trajectory(new Trajectory);
         for (float t = 0.0f; t < 1.0f; t += step) {
-            trajectory->xs.push_back(spline.evaluate(t));
+            trajectory->xs.push_back(spline.eval(t));
             trajectory->qs.emplace_back(math::Vec3f(0.0f, 0.0f, 1.0f), 0.0f);
         }
 
         Pose::Ptr pose(new Pose);
         TrajectoryRenderer::Ptr tr(new TrajectoryRenderer(trajectory, shader));
+        ModelRenderer::Ptr mr(new ModelRenderer(shader));
+		mr->add_mesh(mesh, nullptr);
         Entity::Ptr ret(new Entity);
         ret->add_component(pose);
         ret->add_component(trajectory);
         ret->add_component(tr);
+        ret->add_component(mr);
         engine->add_entity(ret);
     }
 

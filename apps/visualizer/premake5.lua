@@ -4,6 +4,7 @@ project "visualizer"
     kind "ConsoleApp"
     language "C++"
 
+    sysincludedirs { "/usr/include/eigen3" }
     files { "visualizer.cpp" }
 
     mve.use({ "util", "ogl" })
