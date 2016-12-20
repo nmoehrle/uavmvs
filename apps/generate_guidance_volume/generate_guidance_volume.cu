@@ -131,9 +131,9 @@ int main(int argc, char **argv) {
     hmap->fill(lowest);
     for (std::size_t i = 0; i < verts.size(); ++i) {
         math::Vec3f vertex = verts[i];
-        int x = (vertex[0] - aabb.min[0]) / args.resolution + args.resolution / 2.0f;
+        int x = (vertex[0] - aabb.min[0]) / args.resolution;
         assert(0 <= x && x < width);
-        int y = (vertex[1] - aabb.min[1]) / args.resolution + args.resolution / 2.0f;
+        int y = (vertex[1] - aabb.min[1]) / args.resolution;
         assert(0 <= y && y < height);
         float height = vertex[2];
         float z = hmap->at(x, y, 0);
