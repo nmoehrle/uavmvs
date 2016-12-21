@@ -51,6 +51,17 @@ Arguments parse_args(int argc, char **argv) {
     return conf;
 }
 
+template <typename T>
+void remove_invalid(std::vector<T> * vec, std::vector<std::uint8_t> const & valid) {
+    std::size_t num_valid = 0;
+    for (std::size_t i = 0; i < vec->size(); ++i) {
+        if (valid[i] == 0) continue;
+
+        (*vec)[num_valid++] = (*vec)[i];
+    }
+    vec->resize(num_valid);
+}
+
 int main(int argc, char **argv) {
     util::system::register_segfault_handler();
     util::system::print_build_timestamp(argv[0]);
@@ -122,6 +133,7 @@ int main(int argc, char **argv) {
     }
 
     std::vector<Correspondence> correspondences(features.size());
+    std::vector<std::uint8_t> valid(features.size(), 0);
 
     #pragma omp parallel for
     for (std::size_t i = 0; i < features.size(); ++i) {
@@ -155,7 +167,6 @@ int main(int argc, char **argv) {
         }
 
         if (projections.size() < 3) continue;
-        //TODO delete correspondences...
 
         for (int j = 0; j < 3; ++j) {
             std::stable_sort(projections.begin(), projections.end(),
@@ -167,12 +178,16 @@ int main(int argc, char **argv) {
         math::Vec3f projection = projections[projections.size() / 2];
 
         correspondences[i] = std::make_pair(feature, projection);
+        valid[i] = 255;
     }
 
     math::Matrix4f T;
+    std::cout << "Estimating transform based on " << correspondences.size()
+        << " feature correspondences." << std::endl;
 
-    std::cout << "Estimating transform based on feature correspondences." << std::endl;
+    remove_invalid(&correspondences, valid);
     T = estimate_transform(correspondences, 0.01f);
+    correspondences.resize(features.size());
 
     double avg_dist = 0.0;
     #pragma omp parallel for reduction(+:avg_dist)
@@ -180,11 +195,12 @@ int main(int argc, char **argv) {
         math::Vec3f feature = math::Vec3f(features[i].pos);
         math::Vec3f vertex = T.mult(feature, 1.0f);
 
-        math::Vec3f projection = bvh_tree.closest_point(vertex);
+        math::Vec3f cp = bvh_tree.closest_point(vertex);
+        float dist = (vertex - cp).norm();
 
-        correspondences[i] = std::make_pair(vertex, projection);
+        correspondences[i] = std::make_pair(vertex, cp);
 
-        avg_dist += (vertex - projection).norm();
+        avg_dist += dist;
     }
     avg_dist /= features.size();
 
@@ -192,7 +208,7 @@ int main(int argc, char **argv) {
 
     double prev_avg_dist = std::numeric_limits<double>::max();
     std::cout << "Refining transform based on closest points." << std::endl;
-    for (int i = 0; i < 100; ++i) {
+    for (int i = 0; i < 1000; ++i) {
         T = estimate_transform(correspondences) * T;
 
         prev_avg_dist = avg_dist;
@@ -204,15 +220,16 @@ int main(int argc, char **argv) {
             math::Vec3f vertex = T.mult(feature, 1.0f);
 
             math::Vec3f cp = bvh_tree.closest_point(vertex);
+            float dist = (vertex - cp).norm();
 
             correspondences[i] = std::make_pair(vertex, cp);
 
-            avg_dist += (vertex - cp).norm();
+            avg_dist += dist;
         }
         avg_dist /= features.size();
 
         double improvement = prev_avg_dist - avg_dist;
-        if (improvement < 1e-5f) break;
+        if (improvement < 1e-5) break;
     }
     std::cout << "  Average distance to surface: " << avg_dist << std::endl;
 
