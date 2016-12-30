@@ -116,9 +116,9 @@ public:
     }
 
     math::Vector<T, N> eval(T u) {
-        auto it = std::upper_bound(us.begin(), us.end(), u);
         if (u <= 0.0f) return points.front();
         if (u >= 1.0f) return points.back();
+        auto it = std::upper_bound(us.begin(), us.end(), u);
 
         std::size_t k = std::distance(us.begin(), it) - 1;
         std::array<math::Vector<T, N>, p + 1> ps;
