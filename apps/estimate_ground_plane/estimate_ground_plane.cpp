@@ -164,6 +164,7 @@ estimate_ground_plane(mve::TriangleMesh::ConstPtr cloud, acc::AABB<math::Vec3f> 
         plane = plane.invert();
     }
 
+    return plane;
 }
 
 math::Plane3f
