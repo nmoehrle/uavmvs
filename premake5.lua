@@ -29,7 +29,6 @@ workspace "uavmvs"
 
     configuration "debug"
         targetdir "build/debug"
-        buildoptions { "--generate-line-info" }
         symbols "On"
 
     os.execute("git submodule init")
