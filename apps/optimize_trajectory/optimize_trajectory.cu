@@ -36,6 +36,7 @@ struct Arguments {
     std::string proxy_mesh;
     std::string proxy_cloud;
     std::string out_trajectory;
+    std::uint32_t seed;
     uint max_iters;
     float min_distance;
     float max_distance;
@@ -50,6 +51,7 @@ Arguments parse_args(int argc, char **argv) {
     args.set_nonopt_maxnum(4);
     args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] IN_TRAJECTORY PROXY_MESH PROXY_CLOUD OUT_TRAJECTORY");
     args.set_description("Optimize position and orientation of trajectory views.");
+    args.add_option('\0', "seed", true, "seed for RNG [0]");
     args.add_option('\0', "min-distance", true, "minimum distance to surface [2.5]");
     args.add_option('\0', "max-distance", true, "maximum distance to surface [50.0]");
     args.add_option('\0', "focal-length", true, "camera focal length [0.86]");
@@ -61,6 +63,7 @@ Arguments parse_args(int argc, char **argv) {
     conf.proxy_mesh = args.get_nth_nonopt(1);
     conf.proxy_cloud = args.get_nth_nonopt(2);
     conf.out_trajectory = args.get_nth_nonopt(3);
+    conf.seed = 0u;
     conf.max_iters = 100;
     conf.max_distance = 50.0f;
     conf.min_distance = 2.5f;
@@ -74,7 +77,9 @@ Arguments parse_args(int argc, char **argv) {
             conf.max_iters = i->get_arg<uint>();
         break;
         case '\0':
-            if (i->opt->lopt == "focal-length") {
+            if (i->opt->lopt == "seed") {
+                conf.seed = i->get_arg<std::uint32_t>();
+            } else if (i->opt->lopt == "focal-length") {
                 conf.focal_length = i->get_arg<float>();
             } else if (i->opt->lopt == "min-distance") {
                 conf.min_distance = i->get_arg<float>();
@@ -153,7 +158,7 @@ int main(int argc, char **argv) {
     utp::load_trajectory(args.in_trajectory, &trajectory);
     std::vector<std::size_t> iters(trajectory.size(), args.max_iters);
 
-    std::mt19937 gen(12345);
+    std::mt19937 gen(args.seed);
 
     std::vector<Simplex<3> > simplices(trajectory.size());
 
