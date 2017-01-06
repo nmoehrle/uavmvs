@@ -39,7 +39,9 @@ Arguments parse_args(int argc, char **argv) {
     args.set_nonopt_minnum(2);
     args.set_nonopt_maxnum(2);
     args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] CLOUD OUT_MESH");
-    args.set_description("TODO");
+    args.set_description("Generates a proxy geometry of the scene by interperting "
+        "the point cloud as height map and extracting a 2.5D surface from it."
+        "WARNING: Assumes that the z axis corresponds to height.");
     args.add_option('r', "resolution", true, "height map resolution [-1.0]");
     args.add_option('h', "height-map", true, "save height map as pfm file");
     args.add_option('s', "sample-cloud", true, "save sample mesh as ply file");
@@ -89,18 +91,21 @@ Arguments parse_args(int argc, char **argv) {
     return conf;
 }
 
-inline
-void
-patch(mve::FloatImage::Ptr img, int x, int y, float (*ptr)[3][3]) {
-    for (int i = -1; i <= 1; ++i) {
-        for (int j = -1; j <= 1; ++j) {
-            (*ptr)[1 + j][1 + i] = img->at(x + j, y + i, 0);
+template <int N> inline void
+patch(mve::FloatImage::Ptr img, int x, int y, float (*ptr)[N][N]) {
+    static_assert(N % 2 == 1, "Requires odd patch size");
+    constexpr int e = N / 2;
+    for (int i = -e; i <= e; ++i) {
+        for (int j = -e; j <= e; ++j) {
+            (*ptr)[e + j][e + i] = img->at(x + j, y + i, 0);
         }
     }
 }
 
-void filter_3x3_nth_lowest(mve::FloatImage::Ptr hmap, int idx, float boundary) {
-    assert(idx < 9);
+template <int N>
+void filter_nth_lowest(mve::FloatImage::Ptr hmap, int idx, float boundary) {
+    constexpr int n = N * N;
+    assert(idx < n);
 
     int width = hmap->width();
     int height = hmap->height();
@@ -112,9 +117,10 @@ void filter_3x3_nth_lowest(mve::FloatImage::Ptr hmap, int idx, float boundary) {
             if (y == 0 || y == height - 1 || x == 0 || x == width - 1) {
                 tmp->at(x, y, 0) = boundary;
             } else {
-                float heights[9];
-                patch(hmap, x, y, (float (*)[3][3])&heights);
-                std::sort(heights, heights + 9);
+                float heights[n];
+                patch(hmap, x, y, (float (*)[N][N])&heights);
+                //std::sort(heights, heights + n);
+                std::nth_element(heights, heights + idx, heights + n);
                 tmp->at(x, y, 0) = heights[idx];
             }
         }
@@ -203,9 +209,9 @@ int main(int argc, char **argv) {
 
     if (args.min_distance == 0.0f) {
         /* Use median filter to eliminate outliers. */
-        filter_3x3_nth_lowest(hmap, 4, lowest);
+        filter_nth_lowest<3>(hmap, 4, lowest);
         /* Use biased median to revert overestimation. */
-        filter_3x3_nth_lowest(hmap, 2, lowest);
+        filter_nth_lowest<3>(hmap, 2, lowest);
     }
 
     /* Fill holes within the height map. */
