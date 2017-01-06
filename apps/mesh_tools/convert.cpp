@@ -36,7 +36,7 @@ Arguments parse_args(int argc, char **argv) {
     args.set_description("Conversion app for meshes a la image magicks convert");
     args.add_option('t', "transform", true, "transform vertices with matrix file");
     args.add_option('i', "invert", false, "invert transform");
-    args.add_option('s', "show-info", false, "show info");
+    args.add_option('\0', "show-info", false, "show info");
     args.add_option('f', "flip-normals", false, "flip vertex normals");
     args.add_option('\0', "ascii", false, "write out ascii file");
     args.add_option('\0', "delete-faces", false, "delete faces");
@@ -71,15 +71,14 @@ Arguments parse_args(int argc, char **argv) {
         case 'i':
             conf.invert = true;
         break;
-        case 's':
-            conf.show_info = true;
-        break;
         case 'f':
             conf.flip_normals = true;
         break;
         case '\0':
             if (i->opt->lopt == "ascii") {
                 conf.opts.format_binary = false;
+            } else if (i->opt->lopt == "show-info") {
+                conf.show_info = true;
             } else if (i->opt->lopt == "delete-faces") {
                 conf.delete_faces = true;
             } else if (i->opt->lopt == "delete-vnormals") {
