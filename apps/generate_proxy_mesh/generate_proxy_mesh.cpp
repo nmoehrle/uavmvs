@@ -2,6 +2,9 @@
 #include <cassert>
 #include <algorithm>
 
+//#include <fstream>
+//#include <iterator>
+
 #include <fmt/format.h>
 
 #include "util/system.h"
@@ -37,7 +40,7 @@ Arguments parse_args(int argc, char **argv) {
     args.set_nonopt_maxnum(2);
     args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] CLOUD OUT_MESH");
     args.set_description("TODO");
-    args.add_option('r', "resolution", true, "height map resolution [1.0]");
+    args.add_option('r', "resolution", true, "height map resolution [-1.0]");
     args.add_option('h', "height-map", true, "save height map as pfm file");
     args.add_option('s', "sample-cloud", true, "save sample mesh as ply file");
     args.add_option('f', "fuse-samples", false, "use original and artificial samples");
@@ -48,7 +51,7 @@ Arguments parse_args(int argc, char **argv) {
     conf.cloud = args.get_nth_nonopt(0);
     conf.mesh = args.get_nth_nonopt(1);
     conf.fuse = false;
-    conf.resolution = 1.0f;
+    conf.resolution = -1.0f;
     conf.min_distance = 0.0f;
 
     for (util::ArgResult const* i = args.next_option();
@@ -79,7 +82,8 @@ Arguments parse_args(int argc, char **argv) {
     }
 
     if (conf.min_distance > 0.0f && conf.fuse) {
-        throw std::invalid_argument("Cannot fuse samples if minimum distance is larger than zero.");
+        throw std::invalid_argument("Cannot fuse samples if "
+            "minimum distance is larger than zero.");
     }
 
     return conf;
@@ -120,6 +124,29 @@ void filter_3x3_nth_lowest(mve::FloatImage::Ptr hmap, int idx, float boundary) {
     hmap->swap(*tmp);
 }
 
+float
+median_distance_of_nth_nn(std::vector<math::Vec3f> const & verts,
+    acc::KDTree<3, unsigned> const & kd_tree, std::size_t n)
+{
+    assert(verts.size() > n);
+
+    std::vector<float> dists(verts.size());
+    #pragma omp parallel for
+    for (std::size_t i = 0; i < verts.size(); ++i) {
+        std::vector<std::pair<unsigned, float> > nns;
+        kd_tree.find_nns(verts[i], n, &nns);
+        dists[i] = nns[n - 1].second;
+    }
+
+    //std::ofstream out("/tmp/dists");
+    //std::copy(dists.begin(), dists.end(), std::ostream_iterator<float>(out, "\n"));
+    //out.close();
+
+    std::vector<float>::iterator nth = dists.begin() + dists.size() / 2;
+    std::nth_element(dists.begin(), nth, dists.end());
+    return *nth;
+}
+
 int main(int argc, char **argv) {
     util::system::register_segfault_handler();
     util::system::print_build_timestamp(argv[0]);
@@ -145,6 +172,13 @@ int main(int argc, char **argv) {
     acc::AABB<math::Vec3f> aabb = acc::calculate_aabb(verts);
 
     assert(acc::valid(aabb) && acc::volume(aabb) > 0.0f);
+
+    acc::KDTree<3, unsigned> kd_tree(verts);
+    if (args.resolution <= 0.0f) {
+        std::cout << "Estimating point cloud density... " << std::flush;
+        args.resolution = 2.0f * median_distance_of_nth_nn(verts, kd_tree, 5);
+        std::cout << "done." << std::endl;
+    }
 
     int width = (aabb.max[0] - aabb.min[0]) / args.resolution + 1.0f;
     int height = (aabb.max[1] - aabb.min[1]) / args.resolution + 1.0f;
@@ -273,7 +307,6 @@ int main(int argc, char **argv) {
         mve::image::save_pfm_file(hmap, args.hmap);
     }
 
-    acc::KDTree<3, unsigned> kd_tree(verts);
     fssr::IsoOctree octree;
 
     mve::TriangleMesh::Ptr scloud = mve::TriangleMesh::create();
