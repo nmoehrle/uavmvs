@@ -45,6 +45,8 @@ workspace "uavmvs"
 
     include("apps/testing")
 
+    include("apps/mesh_utils")
+
     include("apps/mesh_tools")
     include("apps/image_tools")
     include("apps/scene_tools")
@@ -56,7 +58,6 @@ workspace "uavmvs"
 
     include("apps/estimate_ground_plane")
 
-    include("apps/generate_sphere")
     include("apps/generate_texture")
     include("apps/generate_proxy_mesh")
     include("apps/generate_proxy_cloud")
