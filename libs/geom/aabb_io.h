@@ -14,7 +14,7 @@ save_aabb_to_file(acc::AABB<math::Vec3f> aabb, std::string const & filename) {
         throw std::runtime_error("Could not open AABB file");
     }
 
-    out << aabb.min << '\n' << aabb.max;
+    out << aabb.min << ' ' << aabb.max;
 
     out.close();
 }

@@ -1,7 +1,35 @@
 #ifndef GEOM_AABB_HEADER
 #define GEOM_AABB_HEADER
 
+#include "acc/primitives.h"
+
 #include "mve/mesh.h"
+
+acc::AABB<math::Vec3f>
+estimate_aabb(std::vector<math::Vec3f> verts, float epsilon) {
+    acc::AABB<math::Vec3f> aabb;
+
+    for (int i = 0; i < 3; ++i) {
+        std::vector<math::Vec3f>::iterator nth;
+        nth = verts.begin() + verts.size() * epsilon;
+        std::nth_element(verts.begin(), nth, verts.end(),
+            [i] (math::Vec3f const & l, math::Vec3f const & r) -> bool {
+                return l[i] < r[i];
+            }
+        );
+        aabb.min[i] = (*nth)[i];
+
+        nth = verts.begin() + verts.size() * epsilon;
+        std::nth_element(verts.begin(), nth, verts.end(),
+            [i] (math::Vec3f const & l, math::Vec3f const & r) -> bool {
+                return l[i] > r[i];
+            }
+        );
+        aabb.max[i] = (*nth)[i];
+    }
+
+    return aabb;
+}
 
 mve::TriangleMesh::Ptr
 generate_aabb_mesh(math::Vec3f const & aabb_min, math::Vec3f const & aabb_max) {
