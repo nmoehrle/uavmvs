@@ -273,7 +273,7 @@ int main(int argc, char **argv) {
 
     ogl::MouseEvent event;
 
-    window.register_key_callback(326, [volume, &poses, hist, &textures, &pos] (int action) {
+    window.register_key_callback(326, [volume, &poses, hist, &textures, &pos] (int action, int) {
         if (action) {
             if (pos[0] >= volume->width() - 2) return;
             pos[0] += 1;
@@ -292,7 +292,7 @@ int main(int argc, char **argv) {
             }
         }
     });
-    window.register_key_callback(324, [volume, &poses, hist, &textures, &pos] (int action) {
+    window.register_key_callback(324, [volume, &poses, hist, &textures, &pos] (int action, int) {
         if (action) {
             if (pos[0] <= 1) return;
             pos[0] -= 1;
@@ -311,7 +311,7 @@ int main(int argc, char **argv) {
             }
         }
     });
-    window.register_key_callback(328, [volume, &poses, hist, &textures, &pos] (int action) {
+    window.register_key_callback(328, [volume, &poses, hist, &textures, &pos] (int action, int) {
         if (action) {
             if (pos[1] >= volume->height() - 2) return;
             pos[1] += 1;
@@ -329,7 +329,7 @@ int main(int argc, char **argv) {
             }
         }
     });
-    window.register_key_callback(322, [volume, &poses, hist, &textures, &pos] (int action) {
+    window.register_key_callback(322, [volume, &poses, hist, &textures, &pos] (int action, int) {
         if (action) {
             if (pos[1] <= 1) return;
             pos[1] -= 1;
@@ -347,7 +347,7 @@ int main(int argc, char **argv) {
             }
         }
     });
-    window.register_key_callback(329, [volume, poses, hist, textures, &pos] (int action) {
+    window.register_key_callback(329, [volume, poses, hist, textures, &pos] (int action, int) {
         if (action) {
             if (pos[2] >= volume->depth() - 2) return;
             pos[2] += 1;
@@ -362,7 +362,7 @@ int main(int argc, char **argv) {
             }
         }
     });
-    window.register_key_callback(327, [volume, poses, hist, textures, &pos] (int action) {
+    window.register_key_callback(327, [volume, poses, hist, textures, &pos] (int action, int) {
         if (action) {
             if (pos[2] <= 1) return;
             pos[2] -= 1;

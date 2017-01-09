@@ -12,7 +12,7 @@ class Window {
 private:
     GLFWwindow* window;
 
-    std::unordered_map<int, std::function<void(int)> > key_callbacks;
+    std::unordered_map<int, std::function<void(int, int)> > key_callbacks;
     std::unordered_map<int, std::function<void(int)> > mouse_button_callbacks;
     std::unique_ptr<std::function<void(double, double)> > cursor_position_callback;
     std::unique_ptr<std::function<void(double, double)> > scroll_callback;
@@ -28,7 +28,7 @@ public:
     Window(const char * title, int width, int height);
     ~Window(void);
 
-    void register_key_callback(int key, std::function<void(int)> const & func);
+    void register_key_callback(int key, std::function<void(int, int)> const & func);
     void register_mouse_button_callback(int button, std::function<void(int)> const & func);
     void register_cursor_position_callback(std::function<void(double, double)> const & func);
     void register_scroll_callback(std::function<void(double, double)> const & func);

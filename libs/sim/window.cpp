@@ -5,17 +5,17 @@
 
 void
 Window::key_callback_wrapper(GLFWwindow* glfw_window,
-    int key, int /*scancode*/, int action, int /*mods*/)
+    int key, int /*scancode*/, int action, int mods)
 {
     if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
         glfwSetWindowShouldClose(glfw_window, GL_TRUE);
     }
 
     Window * window = (Window*) glfwGetWindowUserPointer(glfw_window);
-    std::unordered_map<int, std::function<void (int)> >::iterator it;
+    std::unordered_map<int, std::function<void (int, int)> >::iterator it;
     it = window->key_callbacks.find(key);
     if (it != window->key_callbacks.end()) {
-        it->second(action);
+        it->second(action, mods);
     }
 }
 
@@ -89,7 +89,7 @@ Window::~Window(void) {
 }
 
 void
-Window::register_key_callback(int key, std::function<void(int)> const & func) {
+Window::register_key_callback(int key, std::function<void(int, int)> const & func) {
     key_callbacks.insert(std::make_pair(key, func));
 }
 
