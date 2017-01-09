@@ -33,7 +33,8 @@ struct Arguments {
     std::string trajectory;
     std::string proxy_mesh;
     std::string proxy_cloud;
-    std::string export_cloud;
+    std::string recon_cloud;
+    std::string obs_cloud;
     float max_distance;
     float target_recon;
 };
@@ -44,7 +45,10 @@ Arguments parse_args(int argc, char **argv) {
     args.set_nonopt_maxnum(3);
     args.set_nonopt_minnum(3);
     args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] TRAJECTORY/SCENE PROXY_MESH PROXY_CLOUD");
-    args.add_option('e', "export", true, "export per surface point reconstructability as point cloud");
+    args.add_option('r', "reconstructability", true,
+        "export per vertex reconstructability as point cloud");
+    args.add_option('o', "observations", true,
+            "export per vertex observations as point cloud");
     args.add_option('\0', "max-distance", true, "maximum distance to surface [80.0]");
     args.set_description("Evaluate trajectory");
     args.parse(argc, argv);
@@ -59,8 +63,11 @@ Arguments parse_args(int argc, char **argv) {
     for (util::ArgResult const* i = args.next_option();
          i != nullptr; i = args.next_option()) {
         switch (i->opt->sopt) {
-        case 'e':
-            conf.export_cloud = i->arg;
+        case 'r':
+            conf.recon_cloud = i->arg;
+        break;
+        case 'o':
+            conf.obs_cloud = i->arg;
         break;
         case '\0':
             if (i->opt->lopt == "max-distance") {
@@ -191,13 +198,7 @@ int main(int argc, char * argv[])
 
     std::cout << "Length: " << utp::length(trajectory) << '\n' << std::endl;
 
-    if (!args.export_cloud.empty()) {
-        cacc::Array<float, cacc::HOST> recons(*drecons);
-        cacc::Array<float, cacc::HOST>::Data const & data = recons.cdata();
-        for (std::size_t i = 0; i < num_verts; ++i) {
-            values[i] = data.data_ptr[i]; //Clobbering values
-        }
-
+    if (!args.recon_cloud.empty() || !args.obs_cloud.empty()) {
         mve::TriangleMesh::Ptr mesh;
         try {
             mesh = mve::geom::load_ply_mesh(args.proxy_cloud);
@@ -205,12 +206,32 @@ int main(int argc, char * argv[])
             std::cerr << "\tCould not load mesh: "<< e.what() << std::endl;
             std::exit(EXIT_FAILURE);
         }
-
-        std::vector<float> & ovalues = mesh->get_vertex_values();
-        ovalues.assign(values.begin(), values.end());
-
         mve::geom::SavePLYOptions opts;
         opts.write_vertex_values = true;
-        mve::geom::save_ply_mesh(mesh, args.export_cloud, opts);
+
+        std::vector<float> & ovalues = mesh->get_vertex_values();
+        if (!args.recon_cloud.empty()) {
+            cacc::Array<float, cacc::HOST> recons(*drecons);
+            cacc::Array<float, cacc::HOST>::Data const & data = recons.cdata();
+            for (std::size_t i = 0; i < num_verts; ++i) {
+                values[i] = data.data_ptr[i]; //Clobbering values
+            }
+
+            ovalues.assign(values.begin(), values.end());
+
+            mve::geom::save_ply_mesh(mesh, args.recon_cloud, opts);
+        }
+
+        if (!args.obs_cloud.empty()) {
+            cacc::VectorArray<cacc::Vec3f, cacc::HOST> dir_hist(*ddir_hist);
+            cacc::VectorArray<cacc::Vec3f, cacc::HOST>::Data const & data = dir_hist.cdata();
+            for (std::size_t i = 0; i < num_verts; ++i) {
+                values[i] = data.num_rows_ptr[i]; //Clobbering values
+            }
+
+            ovalues.assign(values.begin(), values.end());
+
+            mve::geom::save_ply_mesh(mesh, args.obs_cloud, opts);
+        }
     }
 }
