@@ -91,7 +91,7 @@ load_point_cloud(std::string const & path)
 }
 
 template <typename T> void
-save_vector(std::vector<T> const & vector, std::string const & filename)  {
+save_vector(std::vector<T> const & vector, std::string const & filename) {
     std::ofstream out(filename.c_str(), std::ios::binary);
     if (!out.good()) throw util::FileException(filename, std::strerror(errno));
 

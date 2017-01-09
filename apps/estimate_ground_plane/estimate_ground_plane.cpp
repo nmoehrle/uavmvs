@@ -222,7 +222,7 @@ int main(int argc, char **argv) {
         try {
             cloud = mve::geom::load_ply_mesh(args.path);
         } catch (std::exception& e) {
-            std::cerr << "Could not load cloud: "<< e.what() << std::endl;
+            std::cerr << "Could not load cloud: " << e.what() << std::endl;
             std::exit(EXIT_FAILURE);
         }
         aabb = acc::calculate_aabb(cloud->get_vertices());
