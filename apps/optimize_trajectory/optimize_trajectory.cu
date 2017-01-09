@@ -147,8 +147,12 @@ int main(int argc, char **argv) {
     cacc::Array<float, cacc::DEVICE>::Ptr dwrecons;
     dwrecons = cacc::Array<float, cacc::DEVICE>::create(num_verts);
 
+    /* Reduce fov by 2 deg to compensate for inaccuracies. */
+    float fov = 2.0f * std::atan2(1.0f, 2.0f * args.focal_length);
+    fov -= 2.0f * (pi / 180.0f);
+
     mve::CameraInfo cam;
-    cam.flen = args.focal_length;
+    cam.flen = 1.0f / (2.0f * std::tan(fov / 2.0f));
     math::Matrix3f calib;
     int width = 1920;
     int height = 1080;
@@ -451,7 +455,7 @@ int main(int argc, char **argv) {
 
                 if (i > 0) {
                     float improvement = ovalues[std::max((int)i - 100, 0)] - avg_wrecon;
-                    if (improvement < args.target_recon * 1e-3f) {
+                    if (improvement < args.target_recon * 1e-4f) {
                         terminate = true;
                     }
                 }
