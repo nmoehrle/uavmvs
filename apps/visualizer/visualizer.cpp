@@ -224,7 +224,7 @@ int main(int argc, char **argv) {
             std::exit(EXIT_FAILURE);
         }
 
-        mve::TriangleMesh::Ptr sphere = generate_sphere(0.1f, 5u);
+        mve::TriangleMesh::Ptr sphere = generate_sphere_mesh(0.1f, 5u);
         parameterize_spherical(sphere);
 
         /* Delete upper hemisphere */

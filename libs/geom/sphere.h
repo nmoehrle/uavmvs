@@ -6,7 +6,7 @@
 
 #include "mve/mesh.h"
 
-mve::TriangleMesh::Ptr generate_sphere(float radius, uint subdivisions) {
+mve::TriangleMesh::Ptr generate_sphere_mesh(float radius, uint subdivisions) {
     /* Derived from mve/apps/umve/scene_addins/addin_sphere_creator.cc */
 
     /* Initialize icosahedron */

@@ -185,7 +185,7 @@ int main(int argc, char **argv) {
     uint num_verts;
     cacc::KDTree<3u, cacc::DEVICE>::Ptr dkd_tree;
     {
-        mve::TriangleMesh::Ptr sphere = generate_sphere(1.0f, 3u);
+        mve::TriangleMesh::Ptr sphere = generate_sphere_mesh(1.0f, 3u);
         std::vector<math::Vec3f> const & verts = sphere->get_vertices();
         num_verts = verts.size();
         acc::KDTree<3u, uint>::Ptr kd_tree = acc::KDTree<3, uint>::create(verts);

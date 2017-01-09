@@ -65,7 +65,7 @@ int main(int argc, char **argv) {
 
     Arguments args = parse_args(argc, argv);
 
-    mve::TriangleMesh::Ptr mesh = generate_sphere(args.radius, args.subdivisions);
+    mve::TriangleMesh::Ptr mesh = generate_sphere_mesh(args.radius, args.subdivisions);
 
     if (args.show_info) {
         std::vector<uint> const & faces = mesh->get_faces();
