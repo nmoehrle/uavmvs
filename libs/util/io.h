@@ -67,6 +67,10 @@ load_point_cloud(std::string const & path)
         std::exit(EXIT_FAILURE);
     }
 
+    if (!mesh->has_vertex_normals() && mesh->get_faces().size() != 0) {
+        mesh->recalc_normals(false, true);
+    }
+
     if (!mesh->has_vertex_normals()) {
         std::cerr << "\tPoint cloud has no vertex normals." << std::endl;
         std::exit(EXIT_FAILURE);
