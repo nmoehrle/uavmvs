@@ -44,11 +44,12 @@ Arguments parse_args(int argc, char **argv) {
     args.set_exit_on_error(true);
     args.set_nonopt_maxnum(3);
     args.set_nonopt_minnum(3);
-    args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] TRAJECTORY/SCENE PROXY_MESH PROXY_CLOUD");
+    args.set_usage("Usage: " + std::string(argv[0]) +
+        " [OPTS] TRAJECTORY/SCENE PROXY_MESH PROXY_CLOUD");
     args.add_option('r', "reconstructability", true,
         "export per vertex reconstructability as point cloud");
     args.add_option('o', "observations", true,
-            "export per vertex observations as point cloud");
+        "export per vertex observations as point cloud");
     args.add_option('\0', "max-distance", true, "maximum distance to surface [80.0]");
     args.set_description("Evaluate trajectory");
     args.parse(argc, argv);

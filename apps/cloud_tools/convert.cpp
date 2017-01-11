@@ -1,4 +1,6 @@
 #include <iostream>
+#include <fstream>
+#include <iterator>
 
 #include "math/octree_tools.h"
 
@@ -15,28 +17,6 @@ struct Arguments {
     std::string out_cloud;
     std::string aabb;
 };
-
-
-/* Derived from mve/apps/scene2pset/scene2pset.cc */
-void
-aabb_from_string (std::string const& str,
-    math::Vec3f* aabb_min, math::Vec3f* aabb_max)
-{
-    util::Tokenizer tok;
-    tok.split(str, ',');
-    if (tok.size() != 6) {
-        std::cerr << "Error: Invalid AABB given" << std::endl;
-        std::exit(EXIT_FAILURE);
-    }
-
-    for (int i = 0; i < 3; ++i) {
-        (*aabb_min)[i] = tok.get_as<float>(i);
-        (*aabb_max)[i] = tok.get_as<float>(i + 3);
-    }
-    std::cout << "Using AABB: (" << (*aabb_min) << ") / ("
-        << (*aabb_max) << ")" << std::endl;
-}
-
 
 Arguments parse_args(int argc, char **argv) {
     util::Arguments args;
@@ -62,6 +42,26 @@ Arguments parse_args(int argc, char **argv) {
     }
 
     return conf;
+}
+
+/* Derived from mve/apps/scene2pset/scene2pset.cc */
+void
+aabb_from_string (std::string const& str,
+    math::Vec3f* aabb_min, math::Vec3f* aabb_max)
+{
+    util::Tokenizer tok;
+    tok.split(str, ',');
+    if (tok.size() != 6) {
+        std::cerr << "Error: Invalid AABB given" << std::endl;
+        std::exit(EXIT_FAILURE);
+    }
+
+    for (int i = 0; i < 3; ++i) {
+        (*aabb_min)[i] = tok.get_as<float>(i);
+        (*aabb_max)[i] = tok.get_as<float>(i + 3);
+    }
+    std::cout << "Using AABB: (" << (*aabb_min) << ") / ("
+        << (*aabb_max) << ")" << std::endl;
 }
 
 template <typename T>
@@ -125,7 +125,25 @@ int main(int argc, char **argv) {
         remove_elements(&mesh->get_vertex_confidences(), del);
     }
 
-    mve::geom::save_mesh(mesh, args.out_cloud);
+    if (args.out_cloud.size() >= 4
+        && util::string::right(args.out_cloud, 4) == ".txt") {
+        if (!mesh->has_vertex_values()) {
+            std::cerr << "Cloud does not have vertex values." << std::endl;
+            std::exit(EXIT_FAILURE);
+        }
+
+        std::ofstream out(args.out_cloud.c_str());
+        if (!out.good()) {
+            std::cerr << "Could not open file: "
+                << std::strerror(errno) << std::endl;
+            std::exit(EXIT_FAILURE);
+        }
+        std::vector<float> const & values = mesh->get_vertex_values();
+        std::copy(values.begin(), values.end(), std::ostream_iterator<float>(out, "\n"));
+        out.close();
+    } else {
+        mve::geom::save_mesh(mesh, args.out_cloud);
+    }
 
     return EXIT_SUCCESS;
 }
