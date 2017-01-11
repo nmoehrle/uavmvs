@@ -84,25 +84,22 @@ __forceinline__ __device__
 float
 heuristic(cacc::Vec3f const * rel_dirs, uint stride, uint n, cacc::Vec3f new_rel_dir)
 {
-    float min_alpha = pi;
     float sum = 0.0f;
     for (uint i = 0; i < n; ++i) {
         cacc::Vec3f rel_dir = rel_dirs[i * stride];
 
         float calpha = dot(new_rel_dir, rel_dir);
         float alpha = acosf(max(-1.0f, min(calpha, 1.0f)));
-        min_alpha = min(min_alpha, alpha);
 
         cacc::Vec3f half = (rel_dir + new_rel_dir).normalize();
         float scale = (rel_dir[3] + new_rel_dir[3]) / 2.0f;
-        //float quality = dot(cacc::Vec3f(0.0f, 0.0f, 1.0f), half) * scale;
-        float quality = half[2] * scale;
-        float matchability = 1.0f - sigmoid(alpha, pi / 4.0f, 16.0f);
-        sum += matchability * quality;
+        //float ctheta = dot(cacc::Vec3f(0.0f, 0.0f, 1.0f), half);
+        float ctheta = half[2];
+        float matchability = (1.0f - sigmoid(alpha, pi / 4.0f, 16.0f)) * ctheta;
+        float triangulation = sigmoid(alpha, pi / 8.0f, 16.0f) * scale;
+        sum += matchability * triangulation;
     }
-    //float novelty = sigmoid(min_alpha, pi / 8.0f, 16.0f);
-    float novelty = min(min_alpha / (pi / 16), 1.0f);
-    return novelty * sum;
+    return sum;
 }
 
 __global__
@@ -339,7 +336,7 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance, float target_r
 
     if (!visible(v, v2cn, l, bvh_tree)) return;
 
-    float capture_difficulty = max(cloud.qualities_ptr[id], 1.0f);
+    //float capture_difficulty = max(cloud.qualities_ptr[id], 1.0f);
 
     int const stride = dir_hist.pitch / sizeof(cacc::Vec3f);
     uint num_rows = dir_hist.num_rows_ptr[id];
