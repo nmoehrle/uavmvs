@@ -19,3 +19,11 @@ project "estimate_transform-scene"
     mve.use({ "util" })
 
     links { "gomp" }
+
+project "reduce_randomly"
+    kind "ConsoleApp"
+    language "C++"
+
+    files { "reduce_randomly.cpp" }
+
+    mve.use({ "util" })
