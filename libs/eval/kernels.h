@@ -67,6 +67,8 @@ void calculate_func_recons(
     float traget_recon,
     cacc::Array<float, cacc::DEVICE>::Data wrecons);
 
+void configure_heuristic(float m_k, float m_x0, float t_k, float t_x0);
+
 //TODO Homogenize naming scheme (vertices vs. verts)
 //TODO Introduce namespace
 

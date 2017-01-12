@@ -40,7 +40,7 @@ Arguments parse_args(int argc, char **argv) {
     args.set_nonopt_maxnum(2);
     args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] CLOUD OUT_MESH");
     args.set_description("Generates a proxy geometry of the scene by interperting "
-        "the point cloud as height map and extracting a 2.5D surface from it."
+        "the point cloud as height map and extracting a 2.5D surface from it.\n"
         "WARNING: Assumes that the z axis corresponds to height.");
     args.add_option('r', "resolution", true, "height map resolution [-1.0]");
     args.add_option('h', "height-map", true, "save height map as pfm file");

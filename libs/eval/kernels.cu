@@ -80,6 +80,18 @@ func(float recon, float target_recon) {
     return __powf(abs(min(recon - target_recon, 0.0f)), 2.0f);
 }
 
+__constant__ float sym_m_k = 8.0f;
+__constant__ float sym_m_x0 = 4.0f;
+__constant__ float sym_t_k = 32.0f;
+__constant__ float sym_t_x0 = 16.0f;
+
+void configure_heuristic(float m_k, float m_x0, float t_k, float t_x0) {
+    CHECK(cudaMemcpyToSymbol(sym_m_k, &m_k, sizeof(float)));
+    CHECK(cudaMemcpyToSymbol(sym_m_x0, &m_x0, sizeof(float)));
+    CHECK(cudaMemcpyToSymbol(sym_t_k, &t_k, sizeof(float)));
+    CHECK(cudaMemcpyToSymbol(sym_t_x0, &t_x0, sizeof(float)));
+};
+
 __forceinline__ __device__
 float
 heuristic(cacc::Vec3f const * rel_dirs, uint stride, uint n, cacc::Vec3f new_rel_dir)
@@ -91,12 +103,10 @@ heuristic(cacc::Vec3f const * rel_dirs, uint stride, uint n, cacc::Vec3f new_rel
         float calpha = dot(new_rel_dir, rel_dir);
         float alpha = acosf(max(-1.0f, min(calpha, 1.0f)));
 
-        cacc::Vec3f half = (rel_dir + new_rel_dir).normalize();
-        float scale = (rel_dir[3] + new_rel_dir[3]) / 2.0f;
-        //float ctheta = dot(cacc::Vec3f(0.0f, 0.0f, 1.0f), half);
-        float ctheta = half[2];
-        float matchability = (1.0f - sigmoid(alpha, pi / 4.0f, 16.0f)) * ctheta;
-        float triangulation = sigmoid(alpha, pi / 8.0f, 16.0f) * scale;
+        float scale = min(rel_dir[3], new_rel_dir[3]);
+        float ctheta = min(rel_dir[2], new_rel_dir[2]);
+        float matchability = (1.0f - sigmoid(alpha, pi / sym_m_x0, sym_m_k)) * ctheta;
+        float triangulation = sigmoid(alpha, pi / sym_t_x0, sym_t_k) * scale;
         sum += matchability * triangulation;
     }
     return sum;
@@ -128,7 +138,7 @@ update_direction_histogram(bool populate,
     // 0.087f ~ cos(85.0f / 180.0f * pi)
     if (ctheta < 0.087f) return;
 
-    if (l > max_distance) return;
+    if (l >= max_distance) return;
     cacc::Vec2f p = project(mult(w2c, v, 1.0f), calib);
 
     if (p[0] < 0.0f || width <= p[0] || p[1] < 0.0f || height <= p[1]) return;
@@ -285,7 +295,7 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance,
     cacc::Vec3f v2cn = v2c / l;
     float ctheta = dot(v2cn, n);
     // 0.087f ~ cos(85.0f / 180.0f * pi)
-    if (ctheta <= 0.087f) return;
+    if (ctheta < 0.087f) return;
 
     if (!visible(v, v2cn, l, bvh_tree)) return;
 
@@ -335,8 +345,6 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance, float target_r
     if (ctheta < 0.087f) return;
 
     if (!visible(v, v2cn, l, bvh_tree)) return;
-
-    //float capture_difficulty = max(cloud.qualities_ptr[id], 1.0f);
 
     int const stride = dir_hist.pitch / sizeof(cacc::Vec3f);
     uint num_rows = dir_hist.num_rows_ptr[id];
