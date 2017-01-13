@@ -221,38 +221,56 @@ int main(int argc, char **argv) {
     std::vector<float> heuristics(verts.size());
 
     for (int i = 0; i < 16 * 16; ++i) {
-        //std::chrono::time_point<std::chrono::high_resolution_clock> start, end;
-        //start = std::chrono::high_resolution_clock::now();
-        float k = i / 16 + 2;
-        float x0 = i % 16;
+        float t_k = i / 16 + 2;
+        float t_x0 = i % 16;
+        std::cout << '\n' << std::string(80, '=')
+            << '\n' << t_k << ' ' << t_x0 << '\n'
+            << std::string(80, '-') << std::endl;
 
-        if (i % 16 == 0) std::cout << k << ' ';
+        for (int j = 0; j < 16 * 16; ++j) {
+            float m_k = j / 16 + 2;
+            float m_x0 = j % 16;
 
-        //configure_heuristic(k, x0, 16.0f, 8.0f);
-        configure_heuristic(8.0f, 4.0f, k, x0);
-        CHECK(cudaDeviceSynchronize());
-        dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
-        dim3 block(KERNEL_BLOCK_SIZE);
-        evaluate_direction_histogram<<<grid, block>>>(ddir_hist->cdata(), drecons->cdata());
-        CHECK(cudaDeviceSynchronize());
+            if (j % 16 == 0) std::cout << m_k << ' ';
 
-        cacc::Array<float, cacc::HOST> recons(*drecons);
-        cacc::Array<float, cacc::HOST>::Data const & data = recons.cdata();
-        CHECK(cudaDeviceSynchronize());
+            configure_heuristic(m_k, m_x0, t_k, t_x0);
+            CHECK(cudaDeviceSynchronize());
+            dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
+            dim3 block(KERNEL_BLOCK_SIZE);
+            evaluate_direction_histogram<<<grid, block>>>(ddir_hist->cdata(),
+                drecons->cdata());
+            CHECK(cudaDeviceSynchronize());
 
-        for (std::size_t j = 0; j < data.num_values; ++j) {
-            heuristics[j] = data.data_ptr[j];
+            cacc::Array<float, cacc::HOST> recons(*drecons);
+            cacc::Array<float, cacc::HOST>::Data const & data = recons.cdata();
+            CHECK(cudaDeviceSynchronize());
+
+            for (std::size_t k = 0; k < data.num_values; ++k) {
+                heuristics[k] = data.data_ptr[k];
+            }
+
+#if 0
+            std::ofstream out("/tmp/data.csv");
+            if (!out.good()) {
+                std::cerr << "Could not open file: "
+                    << std::strerror(errno) << std::endl;
+                std::exit(EXIT_FAILURE);
+            }
+            for (std::size_t k = 0; k < heuristics.size(); ++k) {
+                out << heuristics[k] << ',' << errors[k] << std::endl;
+            }
+            out.close();
+#endif
+
+            std::cout << stat::spearmans_rank_correlation(heuristics, errors)
+                << ' ' << std::flush;
+
+            if (j % 16 == 15) std::cout << '\n';
         }
 
-        //std::cout << "Spearman's Rank Correlation Coefficient: "
-        std::cout << stat::spearmans_rank_correlation(heuristics, errors)
-            << ' ' << std::flush;
-        //end = std::chrono::high_resolution_clock::now();
-        //std::chrono::duration<double> diff = end - start;
-        //std::cout << "Evaluation took " << diff.count() << 's' << std::endl;
-
-        if (i % 16 == 15) std::cout << '\n';
+        std::cout << std::string(80, '=') << '\n' << std::endl;
     }
+
 
     return EXIT_SUCCESS;
 }
