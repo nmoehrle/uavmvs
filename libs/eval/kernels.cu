@@ -200,11 +200,11 @@ process_direction_histogram(
     cacc::Vec3f * rel_dirs = dir_hist.data_ptr + id;
     cacc::Vec3f rel_dir;
     int key = tx;
-    float alpha = -1.0f;
+    float theta = -1.0f;
     if (key < num_rows) {
         rel_dir = rel_dirs[key * stride]; //16 byte non coaleced read...
-        //alpha = dot(cacc::Vec3f(0.0f, 0.0f, 1.0f), rel_dir);
-        alpha = (rel_dir[3] >= 0.0f) ? rel_dir[2] : -1.0f;
+        //theta = dot(cacc::Vec3f(0.0f, 0.0f, 1.0f), rel_dir);
+        theta = (rel_dir[3] >= 0.0f) ? rel_dir[2] : -1.0f;
     }
 
     //Bitonic Sort
@@ -214,18 +214,18 @@ process_direction_histogram(
         for (int stride = 1 << i; stride > 0; stride >>= 1) {
             bool dir = (tx % (stride << 1)) < stride;
 
-            float oalpha = __shfl_xor(alpha, stride);
+            float otheta = __shfl_xor(theta, stride);
             int okey = __shfl_xor(key, stride);
 
-            if (oalpha != alpha && (oalpha > alpha == (asc ^ dir))) {
-                alpha = oalpha;
+            if (otheta != theta && (otheta > theta == (asc ^ dir))) {
+                theta = otheta;
                 key = okey;
             }
         }
     }
 
     /* Remove invalid entries */
-    uint num_valid = __popc(__ballot(alpha >= 0.0f));
+    uint num_valid = __popc(__ballot(theta >= 0.0f));
     if (num_valid < num_rows && tx == 0) {
         dir_hist.num_rows_ptr[id] = num_valid;
     }
@@ -259,15 +259,12 @@ evaluate_direction_histogram(
     cacc::Vec3f * rel_dirs = dir_hist.data_ptr + id;
 
     float recon = num_rows >= 1 ? 0.0f : -1.0f;
-    if (num_rows > 1) {
-        for (int i = 1; i < num_rows; ++i) {
-            cacc::Vec3f rel_dir = rel_dirs[i * stride];
-            recon += heuristic(rel_dirs, stride, i, rel_dir);
-        }
+    for (int i = 1; i < num_rows; ++i) {
+        cacc::Vec3f rel_dir = rel_dirs[i * stride];
+        recon += heuristic(rel_dirs, stride, i, rel_dir);
     }
 
     recons.data_ptr[id] = recon;
-    //recons.data_ptr[id] = min(recon, RECONSTRUCTABLE);
 }
 
 __global__
