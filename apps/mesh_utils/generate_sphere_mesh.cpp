@@ -7,6 +7,8 @@
 
 #include "mve/mesh_io_ply.h"
 
+#include "stat/statistics.h"
+
 #include "geom/sphere.h"
 
 
@@ -70,22 +72,17 @@ int main(int argc, char **argv) {
     if (args.show_info) {
         std::vector<uint> const & faces = mesh->get_faces();
         std::vector<math::Vec3f> const & verts = mesh->get_vertices();
+        std::vector<float> areas(faces.size() / 3);
 
-        double sum = 0, sqsum = 0, k = 0;
         for (std::size_t i = 0; i < faces.size(); i += 3) {
             math::Vec3f v0 = verts[faces[i + 0]];
             math::Vec3f v1 = verts[faces[i + 1]];
             math::Vec3f v2 = verts[faces[i + 2]];
-            float area = std::abs(math::geom::triangle_area(v0, v1, v2));
-
-            if (i == 0) k = area;
-            sum += area - k;
-            sqsum += (area - k) * (area - k);
+            areas[i] = std::abs(math::geom::triangle_area(v0, v1, v2));
         }
 
-        uint num_faces = faces.size() / 3;
-        float mean = sum / num_faces + k;
-        float var = (sqsum = (sum * sum) / num_faces) / (num_faces - 1);
+        float mean, var;
+        std::tie(mean, var) = stat::moments(areas);
         float cv = std::sqrt(var) / mean;
 
         std::cout << "Mean: " << mean << " Var: " << var

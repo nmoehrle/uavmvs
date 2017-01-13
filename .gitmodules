@@ -10,3 +10,11 @@
 [submodule "libs/fmt"]
 	path = libs/fmt
 	url = https://github.com/nmoehrle/libfmt
+[submodule "libstat"]
+	path = libstat
+	url = https://github.com/nmoehrle/libstat.git
+	branch = develop
+[submodule "libs/stat"]
+	path = libs/stat
+	url = https://github.com/nmoehrle/libstat.git
+	branch = develop

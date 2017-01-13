@@ -53,9 +53,7 @@ workspace "uavmvs"
     include("apps/cloud_tools")
     include("apps/volume_tools")
 
-    include("apps/create_bundle")
     include("apps/determine_matching_mask")
-
     include("apps/estimate_ground_plane")
 
     include("apps/generate_texture")
