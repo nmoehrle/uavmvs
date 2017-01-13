@@ -65,6 +65,18 @@ Arguments parse_args(int argc, char **argv) {
     return conf;
 }
 
+template <int N> inline void
+patch(mve::FloatImage::Ptr img, int x, int y, float (*ptr)[N][N]) {
+    static_assert(N % 2 == 1, "Requires odd patch size");
+    constexpr int e = N / 2;
+    for (int i = -e; i <= e; ++i) {
+        for (int j = -e; j <= e; ++j) {
+            (*ptr)[e + j][e + i] = img->at(x + j, y + i, 0);
+        }
+    }
+}
+
+
 int main(int argc, char **argv) {
     util::system::register_segfault_handler();
     util::system::print_build_timestamp(argv[0]);
@@ -100,21 +112,27 @@ int main(int argc, char **argv) {
         if (view == nullptr) continue;
         if (!view->has_image(args.image, mve::IMAGE_TYPE_FLOAT)) continue;
 
-        mve::FloatImage::Ptr depth = view->get_float_image(args.image);
+        mve::FloatImage::Ptr dmap = view->get_float_image(args.image);
 
         mve::CameraInfo const & camera = view->get_camera();
         math::Vec3f origin;
         camera.fill_camera_pos(origin.begin());
         math::Matrix3f invcalib;
         camera.fill_inverse_calibration(invcalib.begin(),
-            depth->width(), depth->height());
+            dmap->width(), dmap->height());
         math::Matrix3f c2w_rot;
         camera.fill_cam_to_world_rot(c2w_rot.begin());
 
-        for (int y = 0; y < depth->height(); ++y) {
-            for (int x = 0; x < depth->width(); ++x) {
-                float d = depth->at(x, y, 0);
-                if (d <= 0.0f) continue;
+        for (int y = 2; y < dmap->height() - 2; ++y) {
+            for (int x = 2; x < dmap->width() - 2; ++x) {
+                float depth = dmap->at(x, y, 0);
+                if (depth <= 0.0f) continue;
+
+                float depths[25];
+                patch(dmap, x, y, (float (*)[5][5])&depths);
+
+                if (std::any_of(depths, depths + 25,
+                        [] (float d) { return d == 0.0f; })) continue;
 
                 BVHTree::Ray ray;
                 ray.origin = origin;
@@ -132,7 +150,7 @@ int main(int argc, char **argv) {
                 math::Vec3f v1 = vertices[faces[hit.idx * 3 + 1]];
                 math::Vec3f v2 = vertices[faces[hit.idx * 3 + 2]];
                 normals.push_back((v2 - v0).cross(v1 - v0).normalize());
-                errors.push_back(std::abs(d - (hit.t * ray.dir).norm()));
+                errors.push_back(std::abs(depth - (hit.t * ray.dir).norm()));
             }
         }
     }
