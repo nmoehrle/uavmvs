@@ -67,6 +67,7 @@ workspace "uavmvs"
     include("apps/simulator")
     include("apps/visualizer")
 
+    include("apps/tune_heuristic")
     include("apps/plan_trajectory")
     include("apps/capture_trajectory")
     include("apps/optimize_trajectory")
