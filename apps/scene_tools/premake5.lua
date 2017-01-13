@@ -27,3 +27,15 @@ project "reduce_randomly"
     files { "reduce_randomly.cpp" }
 
     mve.use({ "util" })
+
+project "deduce_bundle"
+    kind "ConsoleApp"
+    language "C++"
+
+    buildoptions { "-fopenmp" }
+
+    files { "deduce_bundle.cpp" }
+
+    mve.use({ "util", "sfm" })
+
+    links { "gomp" }
