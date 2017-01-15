@@ -117,12 +117,12 @@ int main(int argc, char **argv) {
             }
 
             for (uint j = 0; j < num_face_samples; ++j) {
-                float u = dist(gen);
-                float v = dist(gen);
+                float r1 = dist(gen);
+                float r2 = dist(gen);
 
-                float tmp = std::sqrt(u);
-                u = 1.0f - tmp;
-                v = tmp * v;
+                float tmp = std::sqrt(r1);
+                float u = 1.0f - tmp;
+                float v = r2 * tmp;
 
                 float w = 1.0f - v - u;
 
