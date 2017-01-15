@@ -69,7 +69,7 @@ constexpr float pi = 3.14159265f;
 
 __forceinline__ __device__
 float
-sigmoid(float x, float x0, float k) {
+logistic(float x, float k, float x0) {
     return 1.0f / (1.0f + __expf(-k * (x - x0)));
 }
 
@@ -105,8 +105,8 @@ heuristic(cacc::Vec3f const * rel_dirs, uint stride, uint n, cacc::Vec3f new_rel
 
         float scale = min(rel_dir[3], new_rel_dir[3]);
         float ctheta = min(rel_dir[2], new_rel_dir[2]);
-        float matchability = (1.0f - sigmoid(alpha, pi / sym_m_x0, sym_m_k)) * ctheta;
-        float triangulation = sigmoid(alpha, pi / sym_t_x0, sym_t_k) * scale;
+        float matchability = (1.0f - logistic(alpha, sym_m_k, pi / sym_m_x0)) * ctheta;
+        float triangulation = logistic(alpha, sym_t_k, pi / sym_t_x0) * scale;
         sum += matchability * triangulation;
     }
     return sum;
