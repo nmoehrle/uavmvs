@@ -5,6 +5,7 @@
 #include "util/arguments.h"
 
 #include "util/io.h"
+#include "util/numpy_io.h"
 
 #include "cacc/util.h"
 #include "cacc/math.h"
@@ -16,12 +17,11 @@
 #include "mve/scene.h"
 #include "mve/image.h"
 
-#define SQR(x) ((x) * (x))
-
 struct Arguments {
     std::string scene;
     std::string image;
     std::string gt_mesh;
+    std::string file;
     float max_distance;
     float target_recon;
 };
@@ -32,10 +32,10 @@ typedef acc::BVHTree<uint, math::Vec3f> BVHTree;
 Arguments parse_args(int argc, char **argv) {
     util::Arguments args;
     args.set_exit_on_error(true);
-    args.set_nonopt_minnum(3);
-    args.set_nonopt_maxnum(3);
+    args.set_nonopt_minnum(4);
+    args.set_nonopt_maxnum(4);
     args.set_usage("Usage: " + std::string(argv[0]) +
-        " [OPTS] SCENE IMAGE GT_MESH");
+        " [OPTS] SCENE IMAGE GT_MESH FILE");
     args.set_description("Evaluates Spearman's rank correlation between "
         "depth error and heuristic for multiple parameter sets.");
     args.add_option('\0', "max-distance", true, "maximum distance to surface [80.0]");
@@ -45,6 +45,7 @@ Arguments parse_args(int argc, char **argv) {
     conf.scene = args.get_nth_nonopt(0);
     conf.image = args.get_nth_nonopt(1);
     conf.gt_mesh = args.get_nth_nonopt(2);
+    conf.file = args.get_nth_nonopt(3);
     conf.max_distance = 80.0f;
 
     for (util::ArgResult const* i = args.next_option();
@@ -75,7 +76,6 @@ patch(mve::FloatImage::Ptr img, int x, int y, float (*ptr)[N][N]) {
         }
     }
 }
-
 
 int main(int argc, char **argv) {
     util::system::register_segfault_handler();
@@ -217,60 +217,29 @@ int main(int argc, char **argv) {
            ddir_hist->cdata());
     }
 
-
     std::vector<float> heuristics(verts.size());
 
-    for (int i = 0; i < 16 * 16; ++i) {
-        float t_k = i / 16 + 2;
-        float t_x0 = i % 16;
-        std::cout << '\n' << std::string(80, '=')
-            << '\n' << t_k << ' ' << t_x0 << '\n'
-            << std::string(80, '-') << std::endl;
+    float m_k = 8.0f, m_x0 = 4.0f, t_k = 8.0f, t_x0 = 6.0f;
+    {
+        configure_heuristic(m_k, m_x0, t_k, t_x0);
+        CHECK(cudaDeviceSynchronize());
+        dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
+        dim3 block(KERNEL_BLOCK_SIZE);
+        evaluate_direction_histogram<<<grid, block>>>(ddir_hist->cdata(),
+            drecons->cdata());
+        CHECK(cudaDeviceSynchronize());
 
-        for (int j = 0; j < 16 * 16; ++j) {
-            float m_k = j / 16 + 2;
-            float m_x0 = j % 16;
+        cacc::Array<float, cacc::HOST> recons(*drecons);
+        cacc::Array<float, cacc::HOST>::Data const & data = recons.cdata();
+        CHECK(cudaDeviceSynchronize());
 
-            if (j % 16 == 0) std::cout << m_k << ' ';
-
-            configure_heuristic(m_k, m_x0, t_k, t_x0);
-            CHECK(cudaDeviceSynchronize());
-            dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
-            dim3 block(KERNEL_BLOCK_SIZE);
-            evaluate_direction_histogram<<<grid, block>>>(ddir_hist->cdata(),
-                drecons->cdata());
-            CHECK(cudaDeviceSynchronize());
-
-            cacc::Array<float, cacc::HOST> recons(*drecons);
-            cacc::Array<float, cacc::HOST>::Data const & data = recons.cdata();
-            CHECK(cudaDeviceSynchronize());
-
-            for (std::size_t k = 0; k < data.num_values; ++k) {
-                heuristics[k] = data.data_ptr[k];
-            }
-
-#if 0
-            std::ofstream out("/tmp/data.csv");
-            if (!out.good()) {
-                std::cerr << "Could not open file: "
-                    << std::strerror(errno) << std::endl;
-                std::exit(EXIT_FAILURE);
-            }
-            for (std::size_t k = 0; k < heuristics.size(); ++k) {
-                out << heuristics[k] << ',' << errors[k] << std::endl;
-            }
-            out.close();
-#endif
-
-            std::cout << stat::spearmans_rank_correlation(heuristics, errors)
-                << ' ' << std::flush;
-
-            if (j % 16 == 15) std::cout << '\n';
+        for (std::size_t k = 0; k < data.num_values; ++k) {
+            heuristics[k] = data.data_ptr[k];
         }
-
-        std::cout << std::string(80, '=') << '\n' << std::endl;
+        std::cout << stat::spearmans_rank_correlation(heuristics, errors) << std::endl;
     }
 
+    save_numpy_file(heuristics, errors, args.file);
 
     return EXIT_SUCCESS;
 }
