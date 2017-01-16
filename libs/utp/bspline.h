@@ -6,7 +6,7 @@
 #include <type_traits>
 
 #include <Eigen/SparseCore>
-#include <Eigen/SparseLU>
+#include <Eigen/SparseQR>
 
 #include "math/vector.h"
 
@@ -90,9 +90,6 @@ public:
         SpMat A(n, n);
         A.setFromTriplets(cA.begin(), cA.end());
 
-        Eigen::SparseLU<SpMat> solver;
-        solver.compute(A);
-
         points.resize(n);
         Eigen::MatrixXf B(n, N);
         Eigen::MatrixXf X(n, N);
@@ -101,7 +98,11 @@ public:
                 B(i, j) = verts[i][j];
             }
         }
+
+        Eigen::SparseQR<SpMat, Eigen::COLAMDOrdering<int>> solver;
+        solver.compute(A);
         X = solver.solve(B);
+
         for (uint i = 0; i < n; ++i) {
             for (std::size_t j = 0; j < N; ++j) {
                 points[i][j] = X(i, j);
