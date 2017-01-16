@@ -67,11 +67,11 @@ workspace "uavmvs"
     include("apps/simulator")
     include("apps/visualizer")
 
-    include("apps/tune_heuristic")
     include("apps/plan_trajectory")
     include("apps/capture_trajectory")
     include("apps/optimize_trajectory")
     include("apps/evaluate_trajectory")
-    include("apps/interpolate_trajectory")
+    include("apps/evaluate_heuristic")
     include("apps/evaluate_reconstruction")
+    include("apps/interpolate_trajectory")
     include("apps/estimate_capture_difficulty")

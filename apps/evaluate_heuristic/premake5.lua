@@ -1,13 +1,13 @@
 local mve = require "mve"
 
-project "tune_heuristic"
+project "evaluate_heuristic"
     kind "ConsoleApp"
     language "C++"
     toolset "nvcc"
 
     buildoptions { "-Xcompiler -fopenmp" }
 
-    files { "tune_heuristic.cu" }
+    files { "evaluate_heuristic.cu" }
 
     mve.use({ "util" })
 
