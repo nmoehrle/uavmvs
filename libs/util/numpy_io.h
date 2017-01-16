@@ -36,7 +36,7 @@ dimension(std::vector<T> const & vec, Args&... args)
         throw std::runtime_error("Dimension missmatch");
     }
 
-    return std::make_tuple(n + 1, m, filename);
+    return std::make_tuple(n + 1, vec.size(), filename);
 }
 
 template <typename T>
