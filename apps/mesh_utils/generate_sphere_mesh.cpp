@@ -74,10 +74,10 @@ int main(int argc, char **argv) {
         std::vector<math::Vec3f> const & verts = mesh->get_vertices();
         std::vector<float> areas(faces.size() / 3);
 
-        for (std::size_t i = 0; i < faces.size(); i += 3) {
-            math::Vec3f v0 = verts[faces[i + 0]];
-            math::Vec3f v1 = verts[faces[i + 1]];
-            math::Vec3f v2 = verts[faces[i + 2]];
+        for (std::size_t i = 0; i < areas.size(); ++i) {
+            math::Vec3f v0 = verts[faces[i * 3 + 0]];
+            math::Vec3f v1 = verts[faces[i * 3 + 1]];
+            math::Vec3f v2 = verts[faces[i * 3 + 2]];
             areas[i] = std::abs(math::geom::triangle_area(v0, v1, v2));
         }
 
