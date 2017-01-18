@@ -3,6 +3,8 @@
 #include "util/system.h"
 #include "util/arguments.h"
 
+#include "util/io.h"
+
 #include "mve/scene.h"
 #include "mve/image_io.h"
 #include "mve/mesh_io_ply.h"
@@ -45,22 +47,6 @@ Arguments parse_args(int argc, char **argv) {
     }
 
     return conf;
-}
-
-acc::BVHTree<uint, math::Vec3f>::Ptr
-load_mesh_as_bvh_tree(std::string const & path)
-{
-    mve::TriangleMesh::Ptr mesh;
-    try {
-        mesh = mve::geom::load_ply_mesh(path);
-    } catch (std::exception& e) {
-        std::cerr << "\tCould not load mesh: "<< e.what() << std::endl;
-        std::exit(EXIT_FAILURE);
-    }
-
-    std::vector<math::Vec3f> const & vertices = mesh->get_vertices();
-    std::vector<uint> const & faces = mesh->get_faces();
-    return acc::BVHTree<uint, math::Vec3f>::create(faces, vertices);
 }
 
 int main(int argc, char **argv) {

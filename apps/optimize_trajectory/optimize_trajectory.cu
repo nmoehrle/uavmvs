@@ -20,6 +20,7 @@
 #include "cacc/reduction.h"
 
 #include "util/io.h"
+#include "util/cio.h"
 
 #include "geom/sphere.h"
 #include "geom/volume_io.h"

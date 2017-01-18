@@ -21,6 +21,7 @@
 #include "cacc/point_cloud.h"
 
 #include "util/io.h"
+#include "util/cio.h"
 #include "util/progress_counter.h"
 #include "util/itos.h"
 

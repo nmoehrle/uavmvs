@@ -8,6 +8,7 @@
 #include "util/file_system.h"
 
 #include "util/io.h"
+#include "util/cio.h"
 
 #include "mve/mesh_io_ply.h"
 #include "mve/scene.h"
