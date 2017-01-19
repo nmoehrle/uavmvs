@@ -114,12 +114,11 @@ void filter_nth_lowest(mve::FloatImage::Ptr hmap, int idx, float boundary) {
     #pragma omp parallel for
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
-            if (y == 0 || y == height - 1 || x == 0 || x == width - 1) {
+            if (y < (N / 2) || y >= height - (N / 2) || x < (N / 2) || x >= width - (N / 2)) {
                 tmp->at(x, y, 0) = boundary;
             } else {
                 float heights[n];
                 patch(hmap, x, y, (float (*)[N][N])&heights);
-                //std::sort(heights, heights + n);
                 std::nth_element(heights, heights + idx, heights + n);
                 tmp->at(x, y, 0) = heights[idx];
             }
@@ -209,7 +208,7 @@ int main(int argc, char **argv) {
 
     if (args.min_distance == 0.0f) {
         /* Use median filter to eliminate outliers. */
-        filter_nth_lowest<3>(hmap, 4, lowest);
+        filter_nth_lowest<5>(hmap, 12, lowest);
         /* Use biased median to revert overestimation. */
         filter_nth_lowest<3>(hmap, 2, lowest);
     }
@@ -407,7 +406,7 @@ int main(int argc, char **argv) {
             }
             sample.color = color / norm;
         } else {
-            sample.color = math::Vec3f(0.0f, 0.0f, 0.7f);
+            sample.color = math::Vec3f(0.415f, 0.353f, 0.80f);
         }
         octree.insert_sample(sample);
     }
