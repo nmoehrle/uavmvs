@@ -9,6 +9,7 @@
 #include "math/matrix_tools.h"
 
 #include "mve/bundle_io.h"
+#include "mve/mesh_io_ply.h"
 
 #include "ogl/events.h"
 #include "ogl/camera.h"
@@ -32,6 +33,7 @@ struct Arguments {
     std::string bundle;
     std::string out_aabb;
     std::string out_trans;
+    std::string dense_cloud;
 };
 
 Arguments parse_args(int argc, char **argv) {
@@ -41,6 +43,7 @@ Arguments parse_args(int argc, char **argv) {
     args.set_nonopt_maxnum(3);
     args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] BUNDLE OUT_TRANSFORM OUT_AABB");
     args.set_description("Selector");
+    args.add_option('d', "dense-cloud", true, "TODO");
     args.parse(argc, argv);
 
     Arguments conf;
@@ -51,6 +54,9 @@ Arguments parse_args(int argc, char **argv) {
     for (util::ArgResult const* i = args.next_option();
          i != 0; i = args.next_option()) {
         switch (i->opt->sopt) {
+        case 'd':
+            conf.dense_cloud = i->arg;
+        break;
         default:
             throw std::invalid_argument("Invalid option");
         }
@@ -74,6 +80,20 @@ int main(int argc, char **argv) {
     util::system::print_build_timestamp(argv[0]);
 
     Arguments args = parse_args(argc, argv);
+
+    mve::TriangleMesh::Ptr dense_cloud;
+    if (!args.dense_cloud.empty()) {
+        try {
+            dense_cloud = mve::geom::load_ply_mesh(args.dense_cloud);
+        } catch (std::exception& e) {
+            std::cerr << "\tCould not load dense cloud: "<< e.what() << std::endl;
+            std::exit(EXIT_FAILURE);
+        }
+        std::for_each(dense_cloud->get_vertex_colors().begin(),
+            dense_cloud->get_vertex_colors().end(),
+            [] (math::Vec4f & color) { col::gamma_decode_srgb(color.begin());}
+        );
+    }
 
     mve::TriangleMesh::Ptr cloud = mve::TriangleMesh::create();
     std::vector<math::Vec3f> & verts = cloud->get_vertices();
@@ -120,6 +140,13 @@ int main(int argc, char **argv) {
         verts[i] = T.mult(verts[i], 1.0f);
     }
 
+    if (dense_cloud != nullptr) {
+        std::vector<math::Vec3f> & verts = dense_cloud->get_vertices();
+        for (std::size_t i = 0; i < verts.size(); ++i) {
+            verts[i] = T.mult(verts[i], 1.0f);
+        }
+    }
+
     aabb = estimate_aabb(verts, 0.01f);
 
     math::Vec3f t = aabb.min + (aabb.max - aabb.min) / 2.0f;
@@ -130,7 +157,7 @@ int main(int argc, char **argv) {
     });
 
     cloud->ensure_normals(true, true);
-    Window window("Visualizer", 1920, 1080);
+    Window window("Selector", 1920, 1080);
     init_opengl();
 
     std::vector<Shader::Ptr> shaders;
@@ -151,6 +178,14 @@ int main(int argc, char **argv) {
     cr->set_shader(shaders[0]->get_shader_program());
     cr->set_primitive(GL_POINTS);
 
+    ogl::MeshRenderer::Ptr dcr;
+    if (dense_cloud) {
+        dcr = ogl::MeshRenderer::create();
+        dcr->set_mesh(dense_cloud);
+        dcr->set_shader(shaders[0]->get_shader_program());
+        dcr->set_primitive(GL_POINTS);
+    }
+
     ogl::MeshRenderer::Ptr mr = ogl::MeshRenderer::create();
     mr->set_mesh(generate_aabb_mesh(aabb.min, aabb.max));
     mr->set_shader(shaders[1]->get_shader_program());
@@ -167,6 +202,7 @@ int main(int argc, char **argv) {
     ogl::MouseEvent event;
 
     bool update = true;
+    bool render_dense = false;
 
     float angle = 0.0f;
     math::Vec3f scales(1.0f);
@@ -222,6 +258,12 @@ int main(int argc, char **argv) {
     window.register_key_callback(329, [&] (int action, int) {
         if (action) {
             angle -= pi / 180.0f;
+            update = true;
+        }
+    });
+    window.register_key_callback(325, [&] (int action, int) {
+        if (action) {
+            render_dense = !render_dense;
             update = true;
         }
     });
@@ -295,6 +337,7 @@ int main(int argc, char **argv) {
             glViewport(0, 0, 1920, 1080);
 
             cr->draw();
+            if (dcr && render_dense) dcr->draw();
             glEnable(GL_BLEND);
             mr->draw();
             glDisable(GL_BLEND);
