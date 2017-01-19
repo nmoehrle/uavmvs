@@ -164,8 +164,12 @@ int main(int argc, char **argv) {
 
     std::iota(indices.begin(), indices.end(), 0);
     std::sort(indices.begin(), indices.end(),
-        [&zindices] (uint l, uint r) -> bool {
-            return zindices[l] < zindices[r];
+        [&zindices, &overts] (uint l, uint r) -> bool {
+            return zindices[l] < zindices[r]
+                || (zindices[l] == zindices[r]
+                    && std::lexicographical_compare(
+                        overts[l].begin(), overts[l].end(),
+                        overts[r].begin(), overts[r].end()));
         }
     );
 
@@ -178,6 +182,14 @@ int main(int argc, char **argv) {
         tmp[i] = onormals[indices[i]];
     }
     std::swap(tmp, onormals);
+
+#if IDX2VALUE
+    std::vector<float> & ovalues = omesh->get_vertex_values();
+    ovalues.resize(overts.size());
+    for (std::size_t i = 0; i < overts.size(); ++i) {
+        ovalues[i] = static_cast<float>(i) / overts.size();
+    }
+#endif
 
     mve::geom::SavePLYOptions opts;
     opts.write_vertex_normals = true;
