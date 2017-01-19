@@ -79,6 +79,10 @@ Arguments parse_args(int argc, char **argv) {
         throw std::invalid_argument("epsilon is supposed to be in the intervall [0.0, 1.0]");
     }
 
+    if (conf.max < conf.min) {
+        throw std::invalid_argument("minimum has to be smaller that maximum");
+    }
+
     if (conf.meshes.empty()) {
         conf.meshes.push_back(conf.in_mesh);
     }
