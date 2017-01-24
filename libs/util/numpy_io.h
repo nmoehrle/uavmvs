@@ -26,7 +26,7 @@ dimension(std::string const & filename) {
 
 template <typename T, typename... Args>
 std::tuple<std::size_t, std::size_t, const char *>
-dimension(std::vector<T> const & vec, Args&... args)
+dimension(std::vector<T> const & vec, Args const &... args)
 {
     std::size_t n, m;
     const char * filename;
@@ -43,14 +43,14 @@ template <typename T>
 void write_binary(std::ofstream *, std::string const &) {}
 
 template <typename T, typename... Args>
-void write_binary(std::ofstream * out, std::vector<T> const & vec, Args&... args) {
+void write_binary(std::ofstream * out, std::vector<T> const & vec, Args const &... args) {
     out->write(reinterpret_cast<const char*>(vec.data()), vec.size() * sizeof(T));
     write_binary<T>(out, args...);
 }
 
 template <typename T, typename... Args>
 void save_numpy_file(std::vector<T> const & vec,
-    Args&... args)
+    Args const &... args)
 {
     static_assert(std::is_arithmetic<T>::value,
         "Arithmetic type required");
