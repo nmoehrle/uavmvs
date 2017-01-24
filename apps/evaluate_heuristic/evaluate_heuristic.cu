@@ -123,16 +123,10 @@ int main(int argc, char **argv) {
         math::Matrix3f c2w_rot;
         camera.fill_cam_to_world_rot(c2w_rot.begin());
 
-        for (int y = 2; y < dmap->height() - 2; ++y) {
-            for (int x = 2; x < dmap->width() - 2; ++x) {
+        int border = 0.01f * max(dmap->width(), dmap->height());
+        for (int y = border; y < dmap->height() - border; ++y) {
+            for (int x = border; x < dmap->width() - border; ++x) {
                 float depth = dmap->at(x, y, 0);
-                if (depth <= 0.0f) continue;
-
-                float depths[25];
-                patch(dmap, x, y, (float (*)[5][5])&depths);
-
-                if (std::any_of(depths, depths + 25,
-                        [] (float d) { return d == 0.0f; })) continue;
 
                 BVHTree::Ray ray;
                 ray.origin = origin;
@@ -150,7 +144,16 @@ int main(int argc, char **argv) {
                 math::Vec3f v1 = vertices[faces[hit.idx * 3 + 1]];
                 math::Vec3f v2 = vertices[faces[hit.idx * 3 + 2]];
                 normals.push_back((v2 - v0).cross(v1 - v0).normalize());
-                errors.push_back(std::abs(depth - (hit.t * ray.dir).norm()));
+
+                //float depths[25];
+                //patch(dmap, x, y, (float (*)[5][5])&depths);
+                //if (std::any_of(depths, depths + 25,
+                //        [] (float d) { return d == 0.0f; })) {
+                if (depth == 0) {
+                    errors.push_back(-1.0f);
+                } else {
+                    errors.push_back(std::abs(depth - (hit.t * ray.dir).norm()));
+                }
             }
         }
     }
@@ -219,10 +222,14 @@ int main(int argc, char **argv) {
 
     std::vector<float> heuristics(verts.size());
 
-    float m_k = 8.0f, m_x0 = 4.0f, t_k = 8.0f, t_x0 = 6.0f;
+    float m_k = 8;
+    float m_x0 =4;
+    float t_k = 32;
+    float t_x0 = 16;
     {
         configure_heuristic(m_k, m_x0, t_k, t_x0);
         CHECK(cudaDeviceSynchronize());
+
         dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
         dim3 block(KERNEL_BLOCK_SIZE);
         evaluate_direction_histogram<<<grid, block>>>(ddir_hist->cdata(),
@@ -237,9 +244,9 @@ int main(int argc, char **argv) {
             heuristics[k] = data.data_ptr[k];
         }
         std::cout << stat::spearmans_rank_correlation(heuristics, errors) << std::endl;
-    }
 
-    save_numpy_file(heuristics, errors, args.file);
+        save_numpy_file(heuristics, errors, args.file);
+    }
 
     return EXIT_SUCCESS;
 }
