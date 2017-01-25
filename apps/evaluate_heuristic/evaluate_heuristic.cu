@@ -22,6 +22,8 @@ struct Arguments {
     std::string image;
     std::string gt_mesh;
     std::string file;
+    std::string recon_cloud;
+    std::string obs_cloud;
     float max_distance;
     float target_recon;
 };
@@ -38,6 +40,10 @@ Arguments parse_args(int argc, char **argv) {
         " [OPTS] SCENE IMAGE GT_MESH FILE");
     args.set_description("Evaluates Spearman's rank correlation between "
         "depth error and heuristic for multiple parameter sets.");
+    args.add_option('r', "recon-cloud", true,
+        "save cloud with predicted reconstructabilities");
+    args.add_option('o', "obs-cloud", true,
+        "save cloud with number of observations reconstructabilities");
     args.add_option('\0', "max-distance", true, "maximum distance to surface [80.0]");
     args.parse(argc, argv);
 
@@ -51,6 +57,12 @@ Arguments parse_args(int argc, char **argv) {
     for (util::ArgResult const* i = args.next_option();
          i != 0; i = args.next_option()) {
         switch (i->opt->sopt) {
+        case 'r':
+            conf.recon_cloud = i->arg;
+        break;
+        case 'o':
+            conf.obs_cloud = i->arg;
+        break;
         case '\0':
             if (i->opt->lopt == "max-distance") {
                 conf.max_distance = i->get_arg<float>();
@@ -83,6 +95,8 @@ int main(int argc, char **argv) {
 
     Arguments args = parse_args(argc, argv);
 
+    int device = cacc::select_cuda_device(3, 5);
+
     mve::Scene::Ptr scene;
     try {
         scene = mve::Scene::create(args.scene);
@@ -101,7 +115,9 @@ int main(int argc, char **argv) {
 
     std::vector<math::Vec3f> const & vertices = mesh->get_vertices();
     std::vector<uint> const & faces = mesh->get_faces();
+    std::cout << "Building BVH... " << std::flush;
     BVHTree::Ptr bvh_tree = BVHTree::create(faces, vertices);
+    std::cout << "done." << std::endl;
 
     std::vector<float> errors;
     std::vector<math::Vec3f> verts;
@@ -110,7 +126,11 @@ int main(int argc, char **argv) {
     std::vector<mve::View::Ptr> views = scene->get_views();
     for (mve::View::Ptr & view : views) {
         if (view == nullptr) continue;
-        if (!view->has_image(args.image, mve::IMAGE_TYPE_FLOAT)) continue;
+        if (!view->has_image(args.image, mve::IMAGE_TYPE_FLOAT)) {
+            std::cerr << "Warning view " << view->get_name()
+                << " has no image " << args.image << std::endl;
+            continue;
+        }
 
         mve::FloatImage::Ptr dmap = view->get_float_image(args.image);
 
@@ -221,6 +241,7 @@ int main(int argc, char **argv) {
     }
 
     std::vector<float> heuristics(verts.size());
+    std::vector<float> observations(verts.size());
 
     float m_k = 8;
     float m_x0 =4;
@@ -236,16 +257,47 @@ int main(int argc, char **argv) {
             drecons->cdata());
         CHECK(cudaDeviceSynchronize());
 
-        cacc::Array<float, cacc::HOST> recons(*drecons);
-        cacc::Array<float, cacc::HOST>::Data const & data = recons.cdata();
-        CHECK(cudaDeviceSynchronize());
+        {
+            cacc::Array<float, cacc::HOST> recons(*drecons);
+            cacc::Array<float, cacc::HOST>::Data const & data = recons.cdata();
+            CHECK(cudaDeviceSynchronize());
 
-        for (std::size_t k = 0; k < data.num_values; ++k) {
-            heuristics[k] = data.data_ptr[k];
+            for (std::size_t k = 0; k < data.num_values; ++k) {
+                heuristics[k] = data.data_ptr[k];
+            }
         }
         std::cout << stat::spearmans_rank_correlation(heuristics, errors) << std::endl;
 
-        save_numpy_file(heuristics, errors, args.file);
+        {
+            cacc::VectorArray<cacc::Vec3f, cacc::HOST> dir_hist(*ddir_hist);
+            cacc::VectorArray<cacc::Vec3f, cacc::HOST>::Data const & data = dir_hist.cdata();
+            CHECK(cudaDeviceSynchronize());
+
+            for (std::size_t k = 0; k < data.num_cols; ++k) {
+                observations[k] = data.num_rows_ptr[k];
+            }
+        }
+
+        save_numpy_file(heuristics, errors, observations, args.file);
+    }
+
+    if (!args.recon_cloud.empty() || !args.obs_cloud.empty()) {
+        mve::TriangleMesh::Ptr mesh = mve::TriangleMesh::create();
+
+        mesh->get_vertices().assign(verts.begin(), verts.end());
+
+        mve::geom::SavePLYOptions opts;
+        opts.write_vertex_values = true;
+
+        if (!args.recon_cloud.empty()) {
+            mesh->get_vertex_values().assign(heuristics.begin(), heuristics.end());
+            mve::geom::save_ply_mesh(mesh, args.recon_cloud, opts);
+        }
+
+        if (!args.obs_cloud.empty()) {
+            mesh->get_vertex_values().assign(observations.begin(), observations.end());
+            mve::geom::save_ply_mesh(mesh, args.obs_cloud, opts);
+        }
     }
 
     return EXIT_SUCCESS;
