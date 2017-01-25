@@ -1,6 +1,6 @@
 local mve = require "mve"
 
-project "convert"
+project "convert-image"
     kind "ConsoleApp"
     language "C++"
 

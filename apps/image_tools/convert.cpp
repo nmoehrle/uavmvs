@@ -60,7 +60,8 @@ int main(int argc, char **argv) {
     switch (base_image->get_type()) {
         case mve::IMAGE_TYPE_FLOAT:
         {
-            mve::FloatImage::Ptr image = std::dynamic_pointer_cast<mve::FloatImage>(base_image);
+            mve::FloatImage::Ptr image;
+            image = std::dynamic_pointer_cast<mve::FloatImage>(base_image);
             for (int i = 0; i < image->get_value_amount(); ++i) {
                 float v = image->at(i);
                 if (v < args.min_value || args.max_value < v) {
@@ -73,7 +74,17 @@ int main(int argc, char **argv) {
             throw std::runtime_error("Not implemented");
     }
 
-    mve::image::save_mvei_file(base_image, args.out_image);
+    std::string ext = util::string::lowercase(
+        util::string::right(args.out_image, 4));
+    if (ext == ".pfm") {
+        mve::FloatImage::Ptr image;
+        image = std::dynamic_pointer_cast<mve::FloatImage>(base_image);
+        mve::image::save_pfm_file(image, args.out_image);
+    } else if (ext == "mvei") {
+        mve::image::save_mvei_file(base_image, args.out_image);
+    } else {
+        throw std::runtime_error("Not implemented");
+    }
 
     return EXIT_SUCCESS;
 }
