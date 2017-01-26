@@ -34,6 +34,8 @@
 
 #include "utp/trajectory_io.h"
 
+//TODOs
+//determine inputs on filetype
 
 struct Arguments {
     std::string mesh;
@@ -47,10 +49,10 @@ Arguments parse_args(int argc, char **argv) {
     args.set_nonopt_minnum(0);
     args.set_nonopt_maxnum(0);
     args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS]");
-    args.add_option('m', "mesh", true, "TODO");
-    args.add_option('v', "volume", true, "TODO");
-    args.add_option('t', "trajectory", true, "TODO");
-    args.set_description("Visualizer");
+    args.add_option('m', "mesh", true, "");
+    args.add_option('v', "volume", true, "");
+    args.add_option('t', "trajectory", true, "");
+    args.set_description("Visualizer for meshes, volumes and trajectories.");
     args.parse(argc, argv);
 
     Arguments conf;
@@ -177,7 +179,8 @@ int main(int argc, char **argv) {
             }
 
             if (!faces.empty() && faces.size() % 3 == 0) {
-                faces.push_back(0); faces.push_back(0); //TODO remove this hack
+                //Hack to force selection of line shader
+                faces.push_back(0); faces.push_back(0);
             }
         }
 

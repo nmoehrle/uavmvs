@@ -42,8 +42,10 @@ Arguments parse_args(int argc, char **argv) {
     args.set_nonopt_minnum(3);
     args.set_nonopt_maxnum(3);
     args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] BUNDLE OUT_TRANSFORM OUT_AABB");
-    args.set_description("Selector");
-    args.add_option('d', "dense-cloud", true, "TODO");
+    args.set_description("Visual selector for target areas based on bundle "
+            "files. Writes out the selection as axis-aligned bounding box and "
+            "according transformation.");
+    args.add_option('d', "dense-cloud", true, "dense cloud to display");
     args.parse(argc, argv);
 
     Arguments conf;

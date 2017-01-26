@@ -12,8 +12,6 @@ namespace math {
     typedef Quaternion<float> Quatf;
 };
 
-//TODO evalute switching from shared pointer to pointer - ownership entity
-
 struct DataComponent {
     typedef std::shared_ptr<const DataComponent> ConstPtr;
     virtual ~DataComponent() {}

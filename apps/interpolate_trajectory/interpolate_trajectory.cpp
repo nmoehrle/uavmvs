@@ -25,8 +25,11 @@ Arguments parse_args(int argc, char **argv) {
     args.set_nonopt_minnum(2);
     args.set_nonopt_maxnum(2);
     args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] IN_TRAJECTORY OUT_TRAJECTORY");
-    args.set_description("TODO");
-    args.add_option('m', "mesh", true, "TODO");
+    args.set_description("Searches for a short path trough the input trajectories "
+        "view positions by solving the corresponding TSP and estimates "
+        "the length by fitting a B-Spline through the resulting trajectory. "
+        "Optionally estimates the minimal distance to the given mesh.");
+    args.add_option('m', "mesh", true, "mesh for minimal distance calculation");
     args.parse(argc, argv);
 
     Arguments conf;
