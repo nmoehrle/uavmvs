@@ -66,8 +66,8 @@ Arguments parse_args(int argc, char **argv) {
     conf.out_trajectory = args.get_nth_nonopt(3);
     conf.seed = 0u;
     conf.max_iters = 100;
-    conf.max_distance = 50.0f;
     conf.min_distance = 2.5f;
+    conf.max_distance = 50.0f;
     conf.focal_length = 0.86f;
     conf.target_recon = 3.0f;
 
@@ -139,7 +139,7 @@ int main(int argc, char **argv) {
 
     acc::KDTree<3, uint>::Ptr kd_tree(load_mesh_as_kd_tree(args.proxy_cloud));
 
-    uint max_cameras = 50;
+    uint max_cameras = 32;
 
     cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Ptr ddir_hist;
     ddir_hist = cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::create(num_verts, max_cameras);
