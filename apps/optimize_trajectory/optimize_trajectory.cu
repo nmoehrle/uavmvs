@@ -112,6 +112,7 @@ int main(int argc, char **argv) {
 
     int device = cacc::select_cuda_device(3, 5);
 
+    /* Load proxy mesh and construct BVH for visibility calculations. */
     cacc::BVHTree<cacc::DEVICE>::Ptr dbvh_tree;
     {
         acc::BVHTree<uint, math::Vec3f>::Ptr bvh_tree;
@@ -119,6 +120,7 @@ int main(int argc, char **argv) {
         dbvh_tree = cacc::BVHTree<cacc::DEVICE>::create<uint, math::Vec3f>(bvh_tree);
     }
 
+    /* Generate sphere and construct KDTree for histogram binning. */
     uint num_sverts;
     cacc::KDTree<3u, cacc::DEVICE>::Ptr dkd_tree;
     {
@@ -129,18 +131,19 @@ int main(int argc, char **argv) {
         dkd_tree = cacc::KDTree<3u, cacc::DEVICE>::create<uint>(kd_tree);
     }
 
+    /* Load proxy cloud to evaluate heuristic */
     cacc::PointCloud<cacc::DEVICE>::Ptr dcloud;
     {
         cacc::PointCloud<cacc::HOST>::Ptr cloud;
         cloud = load_point_cloud(args.proxy_cloud);
         dcloud = cacc::PointCloud<cacc::DEVICE>::create<cacc::HOST>(cloud);
     }
-    uint num_verts = dcloud->cdata().num_vertices;
+    int num_verts = dcloud->cdata().num_vertices;
 
     acc::KDTree<3, uint>::Ptr kd_tree(load_mesh_as_kd_tree(args.proxy_cloud));
 
+    /* Allocate shared GPU data structures. */
     uint max_cameras = 32;
-
     cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Ptr ddir_hist;
     ddir_hist = cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::create(num_verts, max_cameras);
     cacc::Array<float, cacc::DEVICE>::Ptr drecons;
@@ -161,16 +164,16 @@ int main(int argc, char **argv) {
 
     std::vector<mve::CameraInfo> trajectory;
     utp::load_trajectory(args.in_trajectory, &trajectory);
-    std::vector<std::size_t> iters(trajectory.size(), args.max_iters);
 
+    /* Initialize data structure for view selection distribution. */
+    std::vector<std::size_t> iters(trajectory.size(), args.max_iters);
     std::mt19937 gen(args.seed);
 
-    std::vector<Simplex<3> > simplices(trajectory.size());
-
-    std::vector<std::vector<float> > contribss(trajectory.size());
-
+    /* Determine minimal distance for independent views. */
     float min_sq_distance = args.max_distance * args.max_distance;
 
+    /* Initialize simplexes as regular tetrahedron. */
+    std::vector<Simplex<3> > simplices(trajectory.size());
     {
         float tmp = 1.0f / std::sqrt(2.0f);
         math::Vec3f tet[] = {
@@ -181,6 +184,7 @@ int main(int argc, char **argv) {
         };
         float scale = 0.5f * (args.min_distance / 10.0f);
 
+        /* Randomly rotate simplexes of each camera. */
         std::uniform_real_distribution<float> dist(0.0f, pi);
         for (std::size_t i = 0; i < trajectory.size(); ++i) {
             mve::CameraInfo const & cam = trajectory[i];
@@ -208,6 +212,7 @@ int main(int argc, char **argv) {
     ovalues.reserve(args.max_iters);
     #pragma omp parallel
     {
+        /* Allocate thread local data structures. */
         cacc::set_cuda_device(device);
 
         cudaStream_t stream;
@@ -216,14 +221,17 @@ int main(int argc, char **argv) {
         cudaEvent_t event;
         CHECK(cudaEventCreateWithFlags(&event, cudaEventDefault | cudaEventDisableTiming));
 
+        /* Spherical histogram. */
         cacc::VectorArray<float, cacc::DEVICE>::Ptr dcon_hist;
         dcon_hist = cacc::VectorArray<float, cacc::DEVICE>::create(num_sverts, 1, stream);
 
+        /* Convoluted spherical histograms. */
         cacc::Image<float, cacc::DEVICE>::Ptr dhist;
         dhist = cacc::Image<float, cacc::DEVICE>::create(128, 45, stream);
         cacc::Image<float, cacc::HOST>::Ptr hist;
         hist = cacc::Image<float, cacc::HOST>::create(128, 45, stream);
 
+        /* Initialize direction histograms. */
         #pragma omp for schedule(dynamic)
         for (std::size_t j = 0; j < trajectory.size(); ++j) {
             mve::CameraInfo const & cam = trajectory[j];
@@ -247,13 +255,16 @@ int main(int argc, char **argv) {
         }
 
         for (uint i = 0; i < args.max_iters && !terminate; ++i) {
+            /* Select views to optimize by a single thread. */
             #pragma omp single
             {
                 volume = 0.0f;
                 oindices.clear();
 
+                /* Create view selection distribution. */
                 std::discrete_distribution<> d(iters.begin(), iters.end());
                 {
+                    /* Select multiple independent views for optimization. */
                     std::vector<math::Vec3f> poss;
                     for (std::size_t j = 0; j < trajectory.size(); ++j) {
                         std::size_t idx = d(gen);
@@ -275,6 +286,7 @@ int main(int argc, char **argv) {
                 }
             }
 
+            /* Remove view directions of selected views. */
             #pragma omp for schedule(dynamic)
             for (std::size_t j = 0; j < oindices.size(); ++j) {
                 mve::CameraInfo const & cam = trajectory[oindices[j]];
@@ -296,8 +308,9 @@ int main(int argc, char **argv) {
 
                 cacc::sync(stream, event, std::chrono::microseconds(100));
             }
-            ((void)0);
+            ((void)0); //For unknown reasons a statement is required here
 
+            /* Compute new reconstructabilities. */
             #pragma omp single
             {
                 {
@@ -317,15 +330,18 @@ int main(int argc, char **argv) {
                 cacc::sync(stream, event, std::chrono::microseconds(100));
             }
 
+            /* Execute a iteration of simplex-downhill for selected views. */
             #pragma omp for schedule(dynamic)
             for (std::size_t j = 0; j < oindices.size(); ++j) {
                 std::size_t idx = oindices[j];
                 mve::CameraInfo & cam = trajectory[idx];
 
+                /* Will be set by simplex-downhill. */
                 float vmin = 0.0f;
                 float vtheta = 0.0f;
                 float vphi = 0.0f;
 
+                /* Objective function for simplex-downhill. */
                 std::function<float(math::Vec3f)> func =
                     [&] (math::Vec3f const & pos) -> float
                 {
@@ -336,7 +352,9 @@ int main(int argc, char **argv) {
                         return args.min_distance - nn.second;
                     }
 
+                    /* Clear spherical histogram. */
                     dcon_hist->null();
+                    /* Compute spherical histogram. */
                     {
                         dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
                         dim3 block(KERNEL_BLOCK_SIZE);
@@ -346,6 +364,7 @@ int main(int argc, char **argv) {
                             ddir_hist->cdata(), drecons->cdata(), dcon_hist->cdata());
                     }
 
+                    /* Convolve spherical histogram. */
                     {
                         dim3 grid(cacc::divup(128, KERNEL_BLOCK_SIZE), 45);
                         dim3 block(KERNEL_BLOCK_SIZE);
@@ -359,6 +378,7 @@ int main(int argc, char **argv) {
 
                     cacc::sync(stream, event, std::chrono::microseconds(100));
 
+                    /* Select optimal direction based on spherical histogram. */
                     float min = 0.0f; //all values are negative;
                     float theta = 0.0f;
                     float phi = 0.0f;
@@ -385,6 +405,7 @@ int main(int argc, char **argv) {
 
                 Simplex<3> & simplex  = simplices[idx];
 
+                /* Execute one iteration of simplex-downhill and update view accordingly. */
                 float value;
                 std::size_t vid;
                 std::tie(vid, value) = nelder_mead(&simplex, func);
@@ -398,6 +419,7 @@ int main(int argc, char **argv) {
                 std::copy(rot.begin(), rot.end(), cam.rot);
             }
 
+            /* Add view directions of optimized views. */
             #pragma omp for schedule(dynamic)
             for (std::size_t j = 0; j < oindices.size(); ++j) {
                 mve::CameraInfo const & cam = trajectory[oindices[j]];
@@ -422,6 +444,7 @@ int main(int argc, char **argv) {
                 cacc::sync(stream, event, std::chrono::microseconds(100));
             }
 
+            /* Calculate total simplex volume - step size. */
             #pragma omp for reduction(+:volume)
             for (std::size_t j = 0; j < simplices.size(); ++j) {
                 std::array<math::Vector<float, 3>, 4> & v = simplices[j].verts;
@@ -437,6 +460,7 @@ int main(int argc, char **argv) {
                         ddir_hist->cdata());
                 }
 
+                /* Evaluate new reconstructabilities. */
                 {
                     dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
                     dim3 block(KERNEL_BLOCK_SIZE);
@@ -451,9 +475,11 @@ int main(int argc, char **argv) {
 
                 //float length = utp::length(trajectory);
 
+                /* Calculate value of objective function. */
                 float avg_wrecon = cacc::reduction::sum(dwrecons) / num_verts;
                 ovalues.push_back(avg_wrecon);
 
+                /* Terminate if improvement to small. */
                 if (i > 0) {
                     float improvement = ovalues[std::max((int)i - 100, 0)] - avg_wrecon;
                     if (improvement < args.target_recon * 1e-4f) {
@@ -461,21 +487,10 @@ int main(int argc, char **argv) {
                     }
                 }
 
-#if 0
-                cacc::Array<float, cacc::HOST> recons(*drecons);
-                float *begin, *nth, *end;
-                begin = recons.cdata().data_ptr;
-                nth = begin + recons.cdata().num_values / 20;
-                end = begin + recons.cdata().num_values;
-                std::nth_element(begin, nth, end);
-#endif
                 float max_recon = cacc::reduction::max(drecons);
                 std::cout << i << " "
                     << oindices.size() << " "
                     << avg_wrecon << " "
-#if 0
-                    << *nth << " "
-#endif
                     << volume << std::endl;
             }
         }
