@@ -62,7 +62,7 @@ least_squares_plane(std::vector<math::Vec3f> const & vertices,
 
 math::Plane3f
 estimate_ground_plane(mve::TriangleMesh::ConstPtr cloud, acc::AABB<math::Vec3f> aabb) {
-    float threshold = (aabb.max - aabb.min).norm() * 1e-4f;
+    float threshold = (aabb.max - aabb.min).norm() * 1e-5f;
 
     std::vector<math::Vec3f> const & verts = cloud->get_vertices();
 
@@ -71,6 +71,7 @@ estimate_ground_plane(mve::TriangleMesh::ConstPtr cloud, acc::AABB<math::Vec3f> 
     std::default_random_engine gen;
     std::uniform_int_distribution<std::size_t> dis(0, verts.size());
 
+    /* Estimate plane via RANSAC. */
     #pragma omp parallel
     {
         std::vector<std::size_t> current_inliers;
@@ -103,17 +104,17 @@ estimate_ground_plane(mve::TriangleMesh::ConstPtr cloud, acc::AABB<math::Vec3f> 
 
     math::Plane3f plane = least_squares_plane(verts, inliers);
 
-    uint above = 0;
-    uint below = 0;
+    /* Use linear weights on band around plane to determine orientation. */
+    threshold = (aabb.max - aabb.min).norm() * 1e-3f;
+    float avg_dist = 0.0f;
     for (std::size_t i = 0; i < verts.size(); ++i) {
-        if (plane.point_dist(verts[i]) > 0.0f) {
-            above += 1;
-        } else {
-            below += 1;
+        float dist = plane.point_dist(verts[i]);
+        if (std::abs(dist) < threshold) {
+            avg_dist += dist;
         }
     }
 
-    if (above < below) {
+    if (avg_dist > 0.0f) {
         plane = plane.invert();
     }
 
