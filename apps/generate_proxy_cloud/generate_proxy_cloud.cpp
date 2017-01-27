@@ -90,11 +90,6 @@ int main(int argc, char **argv) {
         }
         std::size_t num_samples = surface * args.samples;
 
-        #pragma omp single
-        {
-            std::cout << num_samples << std::endl;
-        }
-
         samples.reserve(num_samples / num_threads);
         normals.reserve(num_samples / num_threads);
 
@@ -131,13 +126,10 @@ int main(int argc, char **argv) {
             }
         }
 
-        #pragma omp for ordered
-        for (int i = 0; i < num_threads; ++i) {
-            #pragma omp ordered
-            {
-                overts.insert(overts.end(), samples.begin(), samples.end());
-                onormals.insert(onormals.end(), normals.begin(), normals.end());
-            }
+        #pragma omp critical
+        {
+            overts.insert(overts.end(), samples.begin(), samples.end());
+            onormals.insert(onormals.end(), normals.begin(), normals.end());
         }
     }
 

@@ -3,6 +3,8 @@
 #include "util/system.h"
 #include "util/arguments.h"
 
+#include "math/geometry.h"
+
 #include "mve/mesh_io_ply.h"
 #include "acc/bvh_tree.h"
 
@@ -26,8 +28,8 @@ Arguments parse_args(int argc, char **argv) {
     args.set_description("Evaluate reconstruction with Middlebury mview methodology");
     args.add_option('a', "accuracy-mesh", true,
         "save in_mesh with distance as vertex value to give filename");
-    args.add_option('c', "completeness-mesh", true,
-        "save gt_mesh with distance as vertex value to given filename");
+    //args.add_option('c', "completeness-mesh", true,
+    //    "save gt_mesh with distance as vertex value to given filename");
     args.add_option('\0', "accuracy-threshold", true, "percentile [90]");
     args.add_option('\0', "completeness-threshold", true, "distance [0.05]");
     args.parse(argc, argv);
@@ -140,14 +142,81 @@ calculate_completeness(mve::TriangleMesh::Ptr in_mesh,
     mve::TriangleMesh::Ptr gt_mesh, float threshold)
 {
     std::vector<math::Vec3f> const & verts = gt_mesh->get_vertices();
-    std::vector<float> & values = gt_mesh->get_vertex_values();
+    std::vector<float> values; // = gt_mesh->get_vertex_values(); //TODO fix
     acc::BVHTree<uint, math::Vec3f>::Ptr bvh_tree;
     bvh_tree = create_bvh_tree(in_mesh);
 
-    values.resize(verts.size());
+    std::vector<uint> const & faces = gt_mesh->get_faces();
+
+    uint num_in_verts = in_mesh->get_vertices().size();
+
+    std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+    std::atomic<int> num_threads(0);
+
+    float surface = 0.0f;
+    std::vector<math::Vec3f> samples;
+
+    /* Sample surface to obtain similar number of vertices as in_mesh. */
+    #pragma omp parallel
+    {
+        num_threads += 1;
+        std::mt19937 gen;
+
+        #pragma omp for reduction(+:surface)
+        for (std::size_t i = 0; i < faces.size(); i += 3) {
+            math::Vec3f v0 = verts[faces[i + 0]];
+            math::Vec3f v1 = verts[faces[i + 1]];
+            math::Vec3f v2 = verts[faces[i + 2]];
+
+            surface += math::geom::triangle_area(v0, v1, v2);
+        }
+
+        float area_per_sample = surface / num_in_verts;
+
+        std::vector<math::Vec3f> tsamples;
+        tsamples.reserve(num_in_verts / num_threads);
+
+        #pragma omp for schedule(static)
+        for (std::size_t i = 0; i < faces.size(); i += 3) {
+            gen.seed(i);
+
+            math::Vec3f v0 = verts[faces[i + 0]];
+            math::Vec3f v1 = verts[faces[i + 1]];
+            math::Vec3f v2 = verts[faces[i + 2]];
+
+            float area = math::geom::triangle_area(v0, v1, v2);
+
+            float face_samples = area / area_per_sample;
+            uint num_face_samples = face_samples;
+
+            if (dist(gen) < (face_samples - static_cast<float>(num_face_samples))) {
+                num_face_samples += 1;
+            }
+
+            for (uint j = 0; j < num_face_samples; ++j) {
+                float r1 = dist(gen);
+                float r2 = dist(gen);
+
+                float tmp = std::sqrt(r1);
+                float u = 1.0f - tmp;
+                float v = r2 * tmp;
+
+                float w = 1.0f - v - u;
+
+                tsamples.push_back(u * v0 + v * v1 + w * v2);
+            }
+        }
+
+        #pragma omp critical
+        {
+            samples.insert(samples.end(), tsamples.begin(), tsamples.end());
+        }
+    }
+
+    values.resize(samples.size());
     #pragma omp parallel for
-    for (std::size_t i = 0; i < verts.size(); ++i) {
-        math::Vec3f q = verts[i];
+    for (std::size_t i = 0; i < samples.size(); ++i) {
+        math::Vec3f q = samples[i];
         math::Vec3f p = bvh_tree->closest_point(q);
         float dist = (q - p).norm();
         values[i] = dist;

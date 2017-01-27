@@ -94,7 +94,6 @@ estimate_ground_plane(mve::Scene::Ptr scene, acc::AABB<math::Vec3f> aabb) {
     return math::Plane3f(normal, point + normal * *nth);
 }
 
-
 int main(int argc, char **argv) {
     util::system::register_segfault_handler();
     util::system::print_build_timestamp(argv[0]);

@@ -92,6 +92,11 @@ int main(int argc, char **argv) {
         std::exit(EXIT_FAILURE);
     }
 
+    if (scene->get_views().size() != bundle->get_cameras().size()) {
+        std::cerr << "\tScene views and bundle cameras do not match" << std::endl;
+        std::exit(EXIT_FAILURE);
+    }
+
     std::vector<math::Vec3f> const & vertices = mesh->get_vertices();
     std::vector<uint> const & faces = mesh->get_faces();
     acc::BVHTree<uint, math::Vec3f> bvh_tree(faces, vertices);
