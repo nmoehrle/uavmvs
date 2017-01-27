@@ -4,6 +4,7 @@
 #include "util/arguments.h"
 
 #include "mve/image_io.h"
+#include "mve/image_tools.h"
 
 constexpr float inf = std::numeric_limits<float>::infinity();
 
@@ -50,13 +51,49 @@ Arguments parse_args(int argc, char **argv) {
     return conf;
 }
 
+mve::ImageBase::Ptr
+load_image(std::string const & filename) {
+    std::string ext = util::string::lowercase(
+        util::string::right(filename, 4));
+    if (ext == ".pfm") {
+        return mve::image::load_pfm_file(filename);
+    } else if (ext == "mvei") {
+        return mve::image::load_mvei_file(filename);
+    } else {
+        throw std::runtime_error("Not implemented");
+    }
+}
+
+void
+save_image(mve::ImageBase::Ptr base_image, std::string const & filename) {
+    std::string ext = util::string::lowercase(
+        util::string::right(filename, 4));
+    if (ext == ".pfm") {
+        mve::FloatImage::Ptr image;
+        image = std::dynamic_pointer_cast<mve::FloatImage>(base_image);
+        mve::image::save_pfm_file(image, filename);
+    } else if (ext == "mvei") {
+        mve::image::save_mvei_file(base_image, filename);
+    } else if (ext == ".png") {
+        mve::FloatImage::Ptr image;
+        image = std::dynamic_pointer_cast<mve::FloatImage>(base_image);
+        //mve::image::gamma_correct_srgb<float>(image);
+        mve::ByteImage::Ptr byte_image;
+        byte_image = mve::image::float_to_byte_image(image);
+        mve::image::save_png_file(byte_image, filename);
+    } else {
+        throw std::runtime_error("Not implemented");
+    }
+}
+
 int main(int argc, char **argv) {
     util::system::register_segfault_handler();
     util::system::print_build_timestamp(argv[0]);
 
     Arguments args = parse_args(argc, argv);
 
-    mve::ImageBase::Ptr base_image = mve::image::load_mvei_file(args.in_image);
+    mve::ImageBase::Ptr base_image = load_image(args.in_image);
+
     switch (base_image->get_type()) {
         case mve::IMAGE_TYPE_FLOAT:
         {
@@ -74,17 +111,7 @@ int main(int argc, char **argv) {
             throw std::runtime_error("Not implemented");
     }
 
-    std::string ext = util::string::lowercase(
-        util::string::right(args.out_image, 4));
-    if (ext == ".pfm") {
-        mve::FloatImage::Ptr image;
-        image = std::dynamic_pointer_cast<mve::FloatImage>(base_image);
-        mve::image::save_pfm_file(image, args.out_image);
-    } else if (ext == "mvei") {
-        mve::image::save_mvei_file(base_image, args.out_image);
-    } else {
-        throw std::runtime_error("Not implemented");
-    }
+    save_image(base_image, args.out_image);
 
     return EXIT_SUCCESS;
 }
