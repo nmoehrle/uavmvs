@@ -203,8 +203,8 @@ int main(int argc, char **argv) {
         cudaStream_t stream;
         cudaStreamCreate(&stream);
 
-        cacc::VectorArray<float, cacc::DEVICE>::Ptr dcon_hist;
-        dcon_hist = cacc::VectorArray<float, cacc::DEVICE>::create(num_sverts, 1, stream);
+        cacc::Array<float, cacc::DEVICE>::Ptr dcon_hist;
+        dcon_hist = cacc::Array<float, cacc::DEVICE>::create(num_sverts, stream);
 
         cacc::Image<float, cacc::DEVICE>::Ptr dhist;
         dhist = cacc::Image<float, cacc::DEVICE>::create(128, 45, stream);
@@ -259,7 +259,7 @@ int main(int argc, char **argv) {
                 {
                     dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
                     dim3 block(KERNEL_BLOCK_SIZE);
-                    populate_histogram<<<grid, block, 0, stream>>>(
+                    populate_spherical_histogram<<<grid, block, 0, stream>>>(
                         cacc::Vec3f(pos.begin()), avg_recon,
                         args.max_distance, dbvh_tree->accessor(), dcloud->cdata(),
                         dkd_tree->accessor(), ddir_hist->cdata(),
@@ -269,7 +269,7 @@ int main(int argc, char **argv) {
                 {
                     dim3 grid(cacc::divup(128, KERNEL_BLOCK_SIZE), 45);
                     dim3 block(KERNEL_BLOCK_SIZE);
-                    evaluate_histogram<<<grid, block, 0, stream>>>(
+                    evaluate_spherical_histogram<<<grid, block, 0, stream>>>(
                         cacc::Mat3f(calib.begin()), width, height,
                         dkd_tree->accessor(), dcon_hist->cdata(), dhist->cdata());
                 }
@@ -325,12 +325,12 @@ int main(int argc, char **argv) {
                 {
                     dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
                     dim3 block(KERNEL_BLOCK_SIZE);
-                    update_direction_histogram<<<grid, block, 0, stream>>>(
+                    update_observation_rays<<<grid, block, 0, stream>>>(
                         true, cacc::Vec3f(state.pos.begin()), args.max_distance,
                         cacc::Mat4f(w2c.begin()), cacc::Mat3f(calib.begin()), width, height,
                         dbvh_tree->accessor(), dcloud->cdata(), ddir_hist->cdata()
                     );
-                    evaluate_direction_histogram<<<grid, block, 0, stream>>>(
+                    evaluate_observation_rays<<<grid, block, 0, stream>>>(
                         ddir_hist->cdata(), drecons->cdata()
                     );
                 }

@@ -117,8 +117,8 @@ int main(int argc, char * argv[])
     uint num_verts = dcloud->cdata().num_vertices;
     uint max_cameras = 32;
 
-    cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Ptr ddir_hist;
-    ddir_hist = cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::create(num_verts, max_cameras);
+    cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Ptr dobs_rays;
+    dobs_rays = cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::create(num_verts, max_cameras);
     cacc::Array<float, cacc::DEVICE>::Ptr drecons;
     drecons = cacc::Array<float, cacc::DEVICE>::create(num_verts);
     drecons->null();
@@ -148,10 +148,10 @@ int main(int argc, char * argv[])
             cam.fill_world_to_cam(w2c.begin());
             cam.fill_camera_pos(view_pos.begin());
 
-            update_direction_histogram<<<grid, block, 0, stream>>>(
+            update_observation_rays<<<grid, block, 0, stream>>>(
                 true, cacc::Vec3f(view_pos.begin()), args.max_distance,
                 cacc::Mat4f(w2c.begin()), cacc::Mat3f(calib.begin()), width, height,
-                dbvh_tree->accessor(), dcloud->cdata(), ddir_hist->cdata()
+                dbvh_tree->accessor(), dcloud->cdata(), dobs_rays->cdata()
             );
         }
 
@@ -165,14 +165,14 @@ int main(int argc, char * argv[])
     {
         dim3 grid(cacc::divup(num_verts, 2));
         dim3 block(32, 2);
-        process_direction_histogram<<<grid, block>>>(
-            ddir_hist->cdata());
+        process_observation_rays<<<grid, block>>>(
+            dobs_rays->cdata());
     }
 
     {
         dim3 grid(cacc::divup(num_verts, KERNEL_BLOCK_SIZE));
         dim3 block(KERNEL_BLOCK_SIZE);
-        evaluate_direction_histogram<<<grid, block>>>(ddir_hist->cdata(), drecons->cdata());
+        evaluate_observation_rays<<<grid, block>>>(dobs_rays->cdata(), drecons->cdata());
         calculate_func_recons<<<grid, block>>>(drecons->cdata(),
             args.target_recon, dwrecons->cdata());
         CHECK(cudaDeviceSynchronize());
@@ -225,8 +225,8 @@ int main(int argc, char * argv[])
         }
 
         if (!args.obs_cloud.empty()) {
-            cacc::VectorArray<cacc::Vec3f, cacc::HOST> dir_hist(*ddir_hist);
-            cacc::VectorArray<cacc::Vec3f, cacc::HOST>::Data const & data = dir_hist.cdata();
+            cacc::VectorArray<cacc::Vec3f, cacc::HOST> obs_rays(*dobs_rays);
+            cacc::VectorArray<cacc::Vec3f, cacc::HOST>::Data const & data = obs_rays.cdata();
             for (std::size_t i = 0; i < num_verts; ++i) {
                 values[i] = data.num_rows_ptr[i]; //Clobbering values
             }

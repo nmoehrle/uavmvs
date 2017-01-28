@@ -10,57 +10,72 @@
 #include "cacc/vector_array.h"
 
 #define KERNEL_BLOCK_SIZE 128
-__global__
-void update_direction_histogram(bool populate,
-    cacc::Vec3f view_pos, float max_distance,
-    cacc::Mat4f w2c, cacc::Mat3f calib, int width, int height,
+
+/* Add (populate) observation rays for each sample visible in the view.
+ * If populate == false marks rays invalid instead
+ * WARNING process_observation_rays has to be called prior to
+ * evaluate_observation_rays when populate == false. */
+__global__ void update_observation_rays(bool populate,
+    cacc::Vec3f view_pos, float max_distance, cacc::Mat4f w2c,
+    cacc::Mat3f calib, int width, int height,
     cacc::BVHTree<cacc::DEVICE>::Accessor const bvh_tree,
     cacc::PointCloud<cacc::DEVICE>::Data const cloud,
-    cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data dir_hist);
+    cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data obs_rays);
 
-__global__
-void process_direction_histogram(
-    cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data dir_hist);
+/* Sort and remove invalid observation rays. */
+__global__ void process_observation_rays(
+    cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data obs_rays);
 
-__global__
-void evaluate_direction_histogram(
-    cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data dir_hist,
+/* Evaluate per sample reconstructabilities based on their observation rays. */
+__global__ void evaluate_observation_rays(
+    cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data obs_rays,
     cacc::Array<float, cacc::DEVICE>::Data recons);
 
-__global__
-void populate_histogram(cacc::Vec3f view_pos, float max_distance,
+__global__ void populate_spherical_histogram(cacc::Vec3f view_pos, float max_distance,
     cacc::BVHTree<cacc::DEVICE>::Accessor const bvh_tree,
     cacc::PointCloud<cacc::DEVICE>::Data const cloud,
     cacc::KDTree<3, cacc::DEVICE>::Accessor const kd_tree,
-    cacc::VectorArray<float, cacc::DEVICE>::Data obs_hist);
+    cacc::Array<float, cacc::DEVICE>::Data obs_rays);
 
-__global__
-void populate_histogram(cacc::Vec3f view_pos, float max_distance, float target_recon,
+/* Populate spherical histogram by calculating the contribution to each visible
+ * cloud vertex and adding them for each bin.
+ * bvh_tree - scene approximation mesh
+ * cloud - samples of the scene approximation
+ * kd_tree - vertices of a sphere (to index into the sphererical histogram)
+ * obs_rays - observation rays for each sample
+ * recons - current reconstructabilities for each sample */
+__global__ void populate_spherical_histogram(cacc::Vec3f view_pos,
+    float max_distance, float target_recon,
     cacc::BVHTree<cacc::DEVICE>::Accessor const bvh_tree,
     cacc::PointCloud<cacc::DEVICE>::Data const cloud,
     cacc::KDTree<3, cacc::DEVICE>::Accessor const kd_tree,
-    cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data dir_hist,
+    cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data obs_rays,
     cacc::Array<float, cacc::DEVICE>::Data recons,
-    cacc::VectorArray<float, cacc::DEVICE>::Data con_hist);
+    cacc::Array<float, cacc::DEVICE>::Data sphere_hist);
 
+/* Evaluates the spherical histogram for viewing directions of the lower
+ * hemisphere by "convolving" it with a "frustum kernel".
+ * Each x of hist is phi [0, width] -> [0, 2pi] and
+ * y of hist is phi [0, height] -> [pi/2, pi].
+ * kd_tree - vertices are 3D location of sphere_hist bins */
 __global__
-void evaluate_histogram(cacc::Image<float, cacc::DEVICE>::Data hist);
-
-__global__
-void initialize_histogram(cacc::VectorArray<float, cacc::DEVICE>::Data con_hist);
-
-__global__
-void evaluate_histogram(cacc::Mat3f calib, int width, int height,
+void evaluate_spherical_histogram(cacc::Mat3f calib, int width, int height,
     cacc::KDTree<3, cacc::DEVICE>::Accessor const kd_tree,
-    cacc::VectorArray<float, cacc::DEVICE>::Data const con_hist,
+    cacc::Array<float, cacc::DEVICE>::Data const sphere_hist,
     cacc::Image<float, cacc::DEVICE>::Data hist);
 
+/* Estimate the capture difficulty of each cloud vertex by sampling which parts
+ * of the hemisphere around the samples normal are observable.
+ * bvh_tree - contains both proxy and airspace mesh, the face IDs of the
+ * airspace mesh have to start at mesh_size
+ * kd_tree - vertices of a sphere */
 __global__
 void estimate_capture_difficulty(float max_distance,
     cacc::BVHTree<cacc::DEVICE>::Accessor const bvh_tree, uint mesh_size,
     cacc::KDTree<3, cacc::DEVICE>::Accessor const kd_tree,
     cacc::PointCloud<cacc::DEVICE>::Data const cloud);
 
+/* Calculate per sample part of objective function. */
 __global__
 void calculate_func_recons(
     cacc::Array<float, cacc::DEVICE>::Data recons,
@@ -69,7 +84,6 @@ void calculate_func_recons(
 
 void configure_heuristic(float m_k, float m_x0, float t_k, float t_x0);
 
-//TODO Homogenize naming scheme (vertices vs. verts)
 //TODO Introduce namespace
 
 #endif /* KERNELS_HEADER */

@@ -94,17 +94,17 @@ void configure_heuristic(float m_k, float m_x0, float t_k, float t_x0) {
 
 __forceinline__ __device__
 float
-heuristic(cacc::Vec3f const * rel_dirs, uint stride, uint n, cacc::Vec3f new_rel_dir)
+heuristic(cacc::Vec3f const * rel_rays, uint stride, uint n, cacc::Vec3f new_rel_ray)
 {
     float sum = 0.0f;
     for (uint i = 0; i < n; ++i) {
-        cacc::Vec3f rel_dir = rel_dirs[i * stride];
+        cacc::Vec3f rel_ray = rel_rays[i * stride];
 
-        float calpha = dot(new_rel_dir, rel_dir);
+        float calpha = dot(new_rel_ray, rel_ray);
         float alpha = acosf(max(-1.0f, min(calpha, 1.0f)));
 
-        float scale = min(rel_dir[3], new_rel_dir[3]);
-        float ctheta = min(rel_dir[2], new_rel_dir[2]);
+        float scale = min(rel_ray[3], new_rel_ray[3]);
+        float ctheta = min(rel_ray[2], new_rel_ray[2]);
         float matchability = (1.0f - logistic(alpha, sym_m_k, pi / sym_m_x0)) * ctheta;
         float triangulation = logistic(alpha, sym_t_k, pi / sym_t_x0) * scale;
         sum += matchability * triangulation;
@@ -114,18 +114,18 @@ heuristic(cacc::Vec3f const * rel_dirs, uint stride, uint n, cacc::Vec3f new_rel
 
 __global__
 void
-update_direction_histogram(bool populate,
+update_observation_rays(bool populate,
     cacc::Vec3f view_pos, float max_distance,
     cacc::Mat4f w2c, cacc::Mat3f calib, int width, int height,
     cacc::BVHTree<cacc::DEVICE>::Accessor const bvh_tree,
     cacc::PointCloud<cacc::DEVICE>::Data cloud,
-    cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data dir_hist)
+    cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data obs_rays)
 {
     int const bx = blockIdx.x;
     int const tx = threadIdx.x;
 
     uint id = bx * blockDim.x + tx;
-    int const stride = dir_hist.pitch / sizeof(cacc::Vec3f);
+    int const stride = obs_rays.pitch / sizeof(cacc::Vec3f);
 
     if (id >= cloud.num_vertices) return;
     cacc::Vec3f v = cloud.vertices_ptr[id];
@@ -145,33 +145,33 @@ update_direction_histogram(bool populate,
 
     if (!visible(v, v2cn, l, bvh_tree)) return;
 
-    cacc::Vec3f rel_dir = relative_direction(v2cn, n);
+    cacc::Vec3f rel_ray = relative_direction(v2cn, n);
     float scale = 1.0f - (l / max_distance);
-    rel_dir[3] = scale;
+    rel_ray[3] = scale;
 
     if (populate) {
-        uint num_rows = atomicAdd(dir_hist.num_rows_ptr + id, 1u);
+        uint num_rows = atomicAdd(obs_rays.num_rows_ptr + id, 1u);
 
-        if (num_rows >= dir_hist.max_rows) return; //TODO handle overflow
+        if (num_rows >= obs_rays.max_rows) return; //TODO handle overflow
 
-        cacc::Vec3f * rel_dirs = dir_hist.data_ptr + id;
-        rel_dirs[num_rows * stride] = rel_dir;
+        cacc::Vec3f * rel_rays = obs_rays.data_ptr + id;
+        rel_rays[num_rows * stride] = rel_ray;
     } else {
-        uint num_rows = dir_hist.num_rows_ptr[id];
+        uint num_rows = min(obs_rays.num_rows_ptr[id], obs_rays.max_rows);
 
-        cacc::Vec3f * rel_dirs = dir_hist.data_ptr + id;
+        cacc::Vec3f * rel_rays = obs_rays.data_ptr + id;
         for (int i = 0; i < num_rows; ++i) {
-            cacc::Vec3f orel_dir = rel_dirs[i * stride];
+            cacc::Vec3f orel_ray = rel_rays[i * stride];
 
             bool equal = true;
             #pragma unroll
             for (int j = 0; j < 4; ++j) {
-                equal = equal && abs(rel_dir[j] - orel_dir[j]) < 1e-5f;
+                equal = equal && abs(rel_ray[j] - orel_ray[j]) < 1e-5f;
             }
 
             if (equal) {
                 //Mark invalid
-                rel_dirs[i * stride][3] = -1.0f;
+                rel_rays[i * stride][3] = -1.0f;
                 return;
             }
         }
@@ -180,8 +180,8 @@ update_direction_histogram(bool populate,
 
 __global__
 void
-process_direction_histogram(
-    cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data dir_hist)
+process_observation_rays(
+    cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data obs_rays)
 {
     int const bx = blockIdx.x;
     int const tx = threadIdx.x;
@@ -192,19 +192,19 @@ process_direction_histogram(
     //Use of bx intentional (limits of by)
     uint id = bx * blockDim.y + ty;
 
-    if (id >= dir_hist.num_cols) return;
+    if (id >= obs_rays.num_cols) return;
 
-    int const stride = dir_hist.pitch / sizeof(cacc::Vec3f);
-    uint num_rows = min(dir_hist.num_rows_ptr[id], dir_hist.max_rows);
+    int const stride = obs_rays.pitch / sizeof(cacc::Vec3f);
+    uint num_rows = min(obs_rays.num_rows_ptr[id], obs_rays.max_rows);
 
-    cacc::Vec3f * rel_dirs = dir_hist.data_ptr + id;
-    cacc::Vec3f rel_dir;
+    cacc::Vec3f * rel_rays = obs_rays.data_ptr + id;
+    cacc::Vec3f rel_ray;
     int key = tx;
     float theta = -1.0f;
     if (key < num_rows) {
-        rel_dir = rel_dirs[key * stride]; //16 byte non coaleced read...
-        //theta = dot(cacc::Vec3f(0.0f, 0.0f, 1.0f), rel_dir);
-        theta = (rel_dir[3] >= 0.0f) ? rel_dir[2] : -1.0f;
+        rel_ray = rel_rays[key * stride]; //16 byte non coaleced read...
+        //theta = dot(cacc::Vec3f(0.0f, 0.0f, 1.0f), rel_ray);
+        theta = (rel_ray[3] >= 0.0f) ? rel_ray[2] : -1.0f;
     }
 
     //Bitonic Sort
@@ -227,23 +227,23 @@ process_direction_histogram(
     /* Remove invalid entries */
     uint num_valid = __popc(__ballot(theta >= 0.0f));
     if (num_valid < num_rows && tx == 0) {
-        dir_hist.num_rows_ptr[id] = num_valid;
+        obs_rays.num_rows_ptr[id] = num_valid;
     }
 
     #pragma unroll
     for (int i = 0; i < 4; ++i) {
-        rel_dir[i] = __shfl(rel_dir[i], key);
+        rel_ray[i] = __shfl(rel_ray[i], key);
     }
 
     if (tx < num_valid) {
-        rel_dirs[tx * stride] = rel_dir; //16 byte non coaleced write...
+        rel_rays[tx * stride] = rel_ray; //16 byte non coalesced write...
     }
 }
 
 __global__
 void
-evaluate_direction_histogram(
-    cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data dir_hist,
+evaluate_observation_rays(
+    cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data obs_rays,
     cacc::Array<float, cacc::DEVICE>::Data recons)
 {
     int const bx = blockIdx.x;
@@ -251,28 +251,28 @@ evaluate_direction_histogram(
 
     uint id = bx * blockDim.x + tx;
 
-    if (id >= dir_hist.num_cols) return;
+    if (id >= obs_rays.num_cols) return;
 
-    int const stride = dir_hist.pitch / sizeof(cacc::Vec3f);
-    uint num_rows = min(dir_hist.num_rows_ptr[id], dir_hist.max_rows);
+    int const stride = obs_rays.pitch / sizeof(cacc::Vec3f);
+    uint num_rows = min(obs_rays.num_rows_ptr[id], obs_rays.max_rows);
 
-    cacc::Vec3f * rel_dirs = dir_hist.data_ptr + id;
+    cacc::Vec3f * rel_rays = obs_rays.data_ptr + id;
 
     float recon = num_rows >= 1 ? 0.0f : -1.0f;
     for (int i = 1; i < num_rows; ++i) {
-        cacc::Vec3f rel_dir = rel_dirs[i * stride];
-        recon += heuristic(rel_dirs, stride, i, rel_dir);
+        cacc::Vec3f rel_ray = rel_rays[i * stride];
+        recon += heuristic(rel_rays, stride, i, rel_ray);
     }
 
     recons.data_ptr[id] = recon;
 }
 
 __global__
-void populate_histogram(cacc::Vec3f view_pos, float max_distance,
+void populate_spherical_histogram(cacc::Vec3f view_pos, float max_distance,
     cacc::BVHTree<cacc::DEVICE>::Accessor const bvh_tree,
     cacc::PointCloud<cacc::DEVICE>::Data cloud,
     cacc::KDTree<3, cacc::DEVICE>::Accessor const kd_tree,
-    cacc::VectorArray<float, cacc::DEVICE>::Data obs_hist)
+    cacc::Array<float, cacc::DEVICE>::Data sphere_hist)
 {
     int const bx = blockIdx.x;
     int const tx = threadIdx.x;
@@ -309,17 +309,18 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance,
 
     uint idx;
     cacc::nnsearch::find_nn<3u>(kd_tree, -v2cn, &idx, nullptr);
-    atomicAdd(obs_hist.data_ptr + idx, score);
+    atomicAdd(sphere_hist.data_ptr + idx, score);
 }
 
 __global__
-void populate_histogram(cacc::Vec3f view_pos, float max_distance, float target_recon,
+void populate_spherical_histogram(cacc::Vec3f view_pos,
+    float max_distance, float target_recon,
     cacc::BVHTree<cacc::DEVICE>::Accessor const bvh_tree,
     cacc::PointCloud<cacc::DEVICE>::Data cloud,
     cacc::KDTree<3, cacc::DEVICE>::Accessor const kd_tree,
-    cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data dir_hist,
+    cacc::VectorArray<cacc::Vec3f, cacc::DEVICE>::Data obs_rays,
     cacc::Array<float, cacc::DEVICE>::Data recons,
-    cacc::VectorArray<float, cacc::DEVICE>::Data con_hist)
+    cacc::Array<float, cacc::DEVICE>::Data sphere_hist)
 {
     int const bx = blockIdx.x;
     int const tx = threadIdx.x;
@@ -343,49 +344,33 @@ void populate_histogram(cacc::Vec3f view_pos, float max_distance, float target_r
 
     if (!visible(v, v2cn, l, bvh_tree)) return;
 
-    int const stride = dir_hist.pitch / sizeof(cacc::Vec3f);
-    uint num_rows = dir_hist.num_rows_ptr[id];
+    int const stride = obs_rays.pitch / sizeof(cacc::Vec3f);
+    uint num_rows = obs_rays.num_rows_ptr[id];
 
-    if (num_rows >= dir_hist.max_rows) return;
+    if (num_rows >= obs_rays.max_rows) return;
 
     float recon = recons.data_ptr[id];
     float new_recon = 0.0f;
 
     if (num_rows >= 1) {
-        cacc::Vec3f rel_dir = relative_direction(v2cn, n);
-        rel_dir[3] = scale;
-        cacc::Vec3f * rel_dirs = dir_hist.data_ptr + id;
-        new_recon = recon + heuristic(rel_dirs, stride, num_rows, rel_dir);
+        cacc::Vec3f rel_ray = relative_direction(v2cn, n);
+        rel_ray[3] = scale;
+        cacc::Vec3f * rel_rays = obs_rays.data_ptr + id;
+        new_recon = recon + heuristic(rel_rays, stride, num_rows, rel_ray);
     }
 
     float delta = func(new_recon, target_recon) - func(recon, target_recon);
 
     uint idx;
     cacc::nnsearch::find_nn<3u>(kd_tree, -v2cn, &idx, nullptr);
-    atomicAdd(con_hist.data_ptr + idx, delta);
+    atomicAdd(sphere_hist.data_ptr + idx, delta);
 }
 
 __global__
 void
-initialize_histogram(cacc::VectorArray<float, cacc::DEVICE>::Data con_hist)
-{
-    int const bx = blockIdx.x;
-    int const tx = threadIdx.x;
-
-    uint id = bx * blockDim.x + tx;
-
-    if (id >= con_hist.num_cols) return;
-
-    int const stride = con_hist.pitch / sizeof(float);
-    con_hist.data_ptr[id] = 0.0f;
-    con_hist.data_ptr[id + stride] = cacc::float_to_uint32(0.0f);
-}
-
-__global__
-void
-evaluate_histogram(cacc::Mat3f calib, int width, int height,
+evaluate_spherical_histogram(cacc::Mat3f calib, int width, int height,
     cacc::KDTree<3, cacc::DEVICE>::Accessor const kd_tree,
-    cacc::VectorArray<float, cacc::DEVICE>::Data const con_hist,
+    cacc::Array<float, cacc::DEVICE>::Data const sphere_hist,
     cacc::Image<float, cacc::DEVICE>::Data hist)
 {
     int const bx = blockIdx.x;
@@ -405,6 +390,8 @@ evaluate_histogram(cacc::Mat3f calib, int width, int height,
     cacc::Vec3f view_dir(stheta * cosf(phi), stheta * sinf(phi), cosf(theta));
     view_dir.normalize();
 
+    /* Determine stable rotation matrix
+     * (local coordinate system with z == viewing direction). */
     cacc::Vec3f rz = -view_dir;
 
     cacc::Vec3f up = cacc::Vec3f(0.0f, 0.0f, 1.0f);
@@ -428,7 +415,7 @@ evaluate_histogram(cacc::Mat3f calib, int width, int height,
         cacc::Vec2f p = project(v, calib);
         if (p[0] < 0.0f || width <= p[0] || p[1] < 0.0f || height <= p[1]) continue;
 
-        sum += con_hist.data_ptr[i];
+        sum += sphere_hist.data_ptr[i];
     }
 
     int const stride = hist.pitch / sizeof(float);
@@ -454,6 +441,7 @@ estimate_capture_difficulty(float max_distance,
     float sum = 0.0f;
     float max_ctheta = 0.0f;
 
+    /* Sample hemisphere (KDTree contains vertices of a sphere). */
     for (uint i = 0; i < kd_tree.num_verts; ++i) {
         cacc::Vec3f dir = kd_tree.verts_ptr[i].normalize();
         float ctheta = dot(dir, n);
