@@ -1,3 +1,7 @@
+/* Adapted for c from the example code provided in "Simplex noise demystified"
+ * by Stefan Gustavson, Linköping University, Sweden (stegu@itn.liu.se).
+ */
+
 int grad3[][3] = {{1,1,0},{-1,1,0},{1,-1,0},{-1,-1,0},
     {1,0,1},{-1,0,1},{1,0,-1},{-1,0,-1},
     {0,1,1},{0,-1,1},{0,1,-1},{0,-1,-1}};
