@@ -3,6 +3,8 @@
 #include "util/system.h"
 #include "util/arguments.h"
 
+#include "util/io.h"
+
 #include "mve/mesh_io_ply.h"
 
 #include "acc/primitives.h"
@@ -12,6 +14,7 @@
 struct Arguments {
     std::string proxy_mesh;
     std::string out_trajectory;
+    std::string airspace_mesh;
     float focal_length;
     float max_distance;
     float forward_overlap;
@@ -29,6 +32,7 @@ Arguments parse_args(int argc, char **argv) {
     args.add_option('\0', "max-distance", true, "maximum distance to surface [80.0]");
     args.add_option('\0', "forward-overlap", true, "forward overlap in percent [80.0]");
     args.add_option('\0', "side-overlap", true, "side overlap in percent [60.0]");
+    args.add_option('\0', "airspace-mesh", true, "use mesh to consider flyable airspace");
     args.parse(argc, argv);
 
     Arguments conf;
@@ -51,6 +55,8 @@ Arguments parse_args(int argc, char **argv) {
                 conf.forward_overlap = i->get_arg<float>();
             } else if (i->opt->lopt == "side-overlap") {
                 conf.side_overlap = i->get_arg<float>();
+            } else if (i->opt->lopt == "airspace-mesh") {
+                conf.airspace_mesh = i->arg;
             } else {
                 throw std::invalid_argument("Invalid option");
             }
@@ -75,6 +81,11 @@ int main(int argc, char **argv) {
     } catch (std::exception& e) {
         std::cerr << "\tCould not load mesh: "<< e.what() << std::endl;
         std::exit(EXIT_FAILURE);
+    }
+
+    acc::BVHTree<uint, math::Vec3f>::Ptr bvh_tree;
+    if (!args.airspace_mesh.empty()) {
+        bvh_tree = load_mesh_as_bvh_tree(args.airspace_mesh);
     }
 
     std::vector<math::Vec3f> const & verts = mesh->get_vertices();
@@ -149,6 +160,29 @@ int main(int argc, char **argv) {
             math::Vec3f trans = -rot * pos;
             std::copy(trans.begin(), trans.end(), cam.trans);
             trajectory.push_back(cam);
+        }
+    }
+
+    /* Adjust heights based on airspace mesh. */
+    if (bvh_tree != nullptr) {
+        for (std::size_t i = 0; i < trajectory.size(); ++i) {
+            mve::CameraInfo & cam = trajectory[i];
+
+            math::Vec3f pos;
+            cam.fill_camera_pos(pos.begin());
+
+            acc::BVHTree<uint, math::Vec3f>::Ray ray;
+            ray.origin = pos;
+            ray.dir = math::Vec3f(0.0f, 0.0f, 1.0f);
+            ray.tmin = 0.0f;
+            ray.tmax = std::numeric_limits<float>::infinity();
+
+            acc::BVHTree<uint, math::Vec3f>::Hit hit;
+            if (!bvh_tree->intersect(ray, &hit)) continue;
+
+            pos[2] += hit.t + args.max_distance / 20.0f;
+            math::Vec3f trans = -rot * pos;
+            std::copy(trans.begin(), trans.end(), cam.trans);
         }
     }
 
