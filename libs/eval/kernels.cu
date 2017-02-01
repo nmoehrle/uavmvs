@@ -8,6 +8,8 @@
 
 #include "kernels.h"
 
+#define SQR(x) ((x) * (x))
+
 __forceinline__ __device__
 cacc::Vec2f
 project(cacc::Vec3f const & v, cacc::Mat3f const & calib)
@@ -94,6 +96,12 @@ void configure_heuristic(float m_k, float m_x0, float t_k, float t_x0) {
 
 __forceinline__ __device__
 float
+rad2deg(float rad) {
+    return (rad / pi) * 180.0f;
+}
+
+__forceinline__ __device__
+float
 heuristic(cacc::Vec3f const * rel_rays, uint stride, uint n, cacc::Vec3f new_rel_ray)
 {
     float sum = 0.0f;
@@ -105,9 +113,16 @@ heuristic(cacc::Vec3f const * rel_rays, uint stride, uint n, cacc::Vec3f new_rel
 
         float scale = min(rel_ray[3], new_rel_ray[3]);
         float ctheta = min(rel_ray[2], new_rel_ray[2]);
+#if 1
         float matchability = (1.0f - logistic(alpha, sym_m_k, pi / sym_m_x0)) * ctheta;
         float triangulation = logistic(alpha, sym_t_k, pi / sym_t_x0) * scale;
         sum += matchability * triangulation;
+#else
+        float deg = rad2deg(alpha);
+        float sigma2 = (deg < 20.0f) ? SQR(5.0f) : SQR(15.0f);
+        float trimatch = exp(- SQR(deg - 20.0f) / (2.0f * sigma2));
+        sum += trimatch * scale * ctheta;
+#endif
     }
     return sum;
 }

@@ -171,7 +171,7 @@ calculate_completeness(mve::TriangleMesh::Ptr in_mesh,
             surface += math::geom::triangle_area(v0, v1, v2);
         }
 
-        float area_per_sample = surface / num_in_verts;
+        float area_per_sample = surface / (10 * num_in_verts);
 
         std::vector<math::Vec3f> tsamples;
         tsamples.reserve(num_in_verts / num_threads);
@@ -221,6 +221,14 @@ calculate_completeness(mve::TriangleMesh::Ptr in_mesh,
         float dist = (q - p).norm();
         values[i] = dist;
     }
+
+
+    mve::TriangleMesh::Ptr cloud = mve::TriangleMesh::create();
+    cloud->get_vertices().assign(samples.begin(), samples.end());
+    cloud->get_vertex_values().assign(values.begin(), values.end());
+    mve::geom::SavePLYOptions opts;
+    opts.write_vertex_values = true;
+    mve::geom::save_ply_mesh(cloud, "/tmp/cloud.ply", opts);
 
     uint covered = 0;
     for (std::size_t i = 0; i < values.size(); ++i) {

@@ -55,20 +55,22 @@ nelder_mead(Simplex<N> * simplex, std::function<float(math::Vector<float, N>)> c
     float refl_value = func(refl);
 
     if (refl_value < best_value) {
-        /* Expansion */
         math::Vector<float, N> exp = refl + (refl - hpc);
         float exp_value = func(exp);
 
         if (exp_value < best_value) {
+            /* Expansion */
             verts[worst_idx] = exp;
             return {worst_idx, exp_value};
         } else {
+            /* Reflection */
             verts[worst_idx] = refl;
             return {worst_idx, refl_value};
         }
     } else {
         if (refl_value < worst_value) {
             if (refl_value < lousy_value) {
+                /* Reflection */
                 verts[worst_idx] = refl;
                 return {best_idx, best_value};
             } else {

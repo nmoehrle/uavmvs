@@ -170,7 +170,7 @@ int main(int argc, char **argv) {
     std::mt19937 gen(args.seed);
 
     /* Determine minimal distance for independent views. */
-    float min_sq_distance = args.max_distance * args.max_distance;
+    float min_sq_distance = 2.0f * (args.max_distance * args.max_distance);
 
     /* Initialize simplexes as regular tetrahedron. */
     std::vector<Simplex<3> > simplices(trajectory.size());

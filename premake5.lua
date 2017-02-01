@@ -66,6 +66,7 @@ workspace "uavmvs"
     include("apps/selector")
     include("apps/simulator")
     include("apps/visualizer")
+    include("apps/illustrator")
 
     include("apps/plan_trajectory")
     include("apps/capture_trajectory")
@@ -73,5 +74,6 @@ workspace "uavmvs"
     include("apps/evaluate_trajectory")
     include("apps/evaluate_heuristic")
     include("apps/evaluate_reconstruction")
+    include("apps/evaluate_ground_sampling")
     include("apps/interpolate_trajectory")
     include("apps/estimate_capture_difficulty")

@@ -143,6 +143,7 @@ int main(int argc, char **argv) {
         math::Matrix3f c2w_rot;
         camera.fill_cam_to_world_rot(c2w_rot.begin());
 
+        /* Ignore border - issues with kernel approaches. */
         int border = 0.01f * max(dmap->width(), dmap->height());
         for (int y = border; y < dmap->height() - border; ++y) {
             for (int x = border; x < dmap->width() - border; ++x) {
@@ -156,6 +157,7 @@ int main(int argc, char **argv) {
                 ray.tmin = 0.0f;
                 ray.tmax = std::numeric_limits<float>::infinity();
 
+                /* Ground truth depth? */
                 BVHTree::Hit hit;
                 if (!bvh_tree->intersect(ray, &hit)) continue;
 
@@ -178,6 +180,7 @@ int main(int argc, char **argv) {
         }
     }
 
+    /* Construct cloud for heuristic evaluation on GPU. */
     cacc::PointCloud<cacc::HOST>::Ptr cloud;
     cloud = cacc::PointCloud<cacc::HOST>::create(verts.size());
     cacc::PointCloud<cacc::HOST>::Data data = cloud->cdata();
@@ -208,6 +211,7 @@ int main(int argc, char **argv) {
     math::Matrix3f calib;
     math::Vec3f view_pos(0.0f);
 
+    /* Populate view direction histograms. */
     {
         cudaStream_t stream;
         cudaStreamCreate(&stream);

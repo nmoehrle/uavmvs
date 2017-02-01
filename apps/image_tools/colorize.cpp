@@ -9,7 +9,8 @@
 
 enum ColorMap {
     VIRIDIS = 0,
-    COOLWARM = 1
+    COOLWARM = 1,
+    RED = 2
 };
 
 template <> inline
