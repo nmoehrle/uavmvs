@@ -43,6 +43,7 @@ struct Arguments {
     float max_distance;
     float focal_length;
     float target_recon;
+    float independence;
 };
 
 Arguments parse_args(int argc, char **argv) {
@@ -56,6 +57,7 @@ Arguments parse_args(int argc, char **argv) {
     args.add_option('\0', "min-distance", true, "minimum distance to surface [2.5]");
     args.add_option('\0', "max-distance", true, "maximum distance to surface [50.0]");
     args.add_option('\0', "focal-length", true, "camera focal length [0.86]");
+    args.add_option('\0', "independence", true, "reduce independence constraint [1.0]");
     args.add_option('m', "max-iters", true, "maximum iterations [100]");
     args.parse(argc, argv);
 
@@ -70,6 +72,7 @@ Arguments parse_args(int argc, char **argv) {
     conf.max_distance = 50.0f;
     conf.focal_length = 0.86f;
     conf.target_recon = 3.0f;
+    conf.independence = 1.0f;
 
     for (util::ArgResult const* i = args.next_option();
          i != 0; i = args.next_option()) {
@@ -86,6 +89,8 @@ Arguments parse_args(int argc, char **argv) {
                 conf.min_distance = i->get_arg<float>();
             } else if (i->opt->lopt == "max-distance") {
                 conf.max_distance = i->get_arg<float>();
+            } else if (i->opt->lopt == "independence") {
+                conf.independence = i->get_arg<float>();
             } else {
                 throw std::invalid_argument("Invalid option");
             }
@@ -169,8 +174,9 @@ int main(int argc, char **argv) {
     std::vector<std::size_t> iters(trajectory.size(), args.max_iters);
     std::mt19937 gen(args.seed);
 
-    /* Determine minimal distance for independent views. */
-    float min_sq_distance = 2.0f * (args.max_distance * args.max_distance);
+    /* Determine minimal distance for independent views (ignoring simplex). */
+    float min_sq_distance = args.independence * 2.0f
+        * args.max_distance * args.max_distance;
 
     /* Initialize simplexes as regular tetrahedron. */
     std::vector<Simplex<3> > simplices(trajectory.size());
