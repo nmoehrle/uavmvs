@@ -42,9 +42,7 @@ ProgressCounter::ProgressCounter(std::string const & task, std::size_t max)
 
 inline void
 ProgressCounter::inc(void) {
-    std::size_t tmp = ++count;
-
-    if(tmp == max) {
+    if (++count == max) {
         std::stringstream ss;
         ss << clear << task << " 100%... done. (Took "
             << timer.get_elapsed_sec() << "s)";

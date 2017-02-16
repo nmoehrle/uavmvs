@@ -2,9 +2,6 @@
 #include <cassert>
 #include <algorithm>
 
-//#include <fstream>
-//#include <iterator>
-
 #include <fmt/format.h>
 
 #include "util/system.h"
@@ -28,7 +25,6 @@ struct Arguments {
     std::string mesh;
     std::string hmap;
     std::string scloud;
-    bool fuse;
     float resolution;
     float min_distance;
 };
@@ -45,23 +41,18 @@ Arguments parse_args(int argc, char **argv) {
     args.add_option('r', "resolution", true, "height map resolution [-1.0]");
     args.add_option('h', "height-map", true, "save height map as pfm file");
     args.add_option('s', "sample-cloud", true, "save sample mesh as ply file");
-    args.add_option('f', "fuse-samples", false, "use original and artificial samples");
     args.add_option('m', "min-distance", true, "minimum distance from original samples [0.0]");
     args.parse(argc, argv);
 
     Arguments conf;
     conf.cloud = args.get_nth_nonopt(0);
     conf.mesh = args.get_nth_nonopt(1);
-    conf.fuse = false;
     conf.resolution = -1.0f;
     conf.min_distance = 0.0f;
 
     for (util::ArgResult const* i = args.next_option();
          i != 0; i = args.next_option()) {
         switch (i->opt->sopt) {
-        case 'f':
-            conf.fuse = true;
-        break;
         case 'r':
             conf.resolution = i->get_arg<float>();
         break;
@@ -81,11 +72,6 @@ Arguments parse_args(int argc, char **argv) {
 
     if (conf.min_distance < 0.0f) {
         throw std::invalid_argument("Minimum distance may not be negative.");
-    }
-
-    if (conf.min_distance > 0.0f && conf.fuse) {
-        throw std::invalid_argument("Cannot fuse samples if "
-            "minimum distance is larger than zero.");
     }
 
     return conf;
@@ -169,10 +155,7 @@ int main(int argc, char **argv) {
     assert(cloud->get_faces().empty());
 
     std::vector<math::Vec3f> const & verts = cloud->get_vertices();
-    std::vector<math::Vec3f> const & normals = cloud->get_vertex_normals();
     std::vector<math::Vec4f> const & colors = cloud->get_vertex_colors();
-    std::vector<float> const & values = cloud->get_vertex_values();
-    std::vector<float> const & confidences = cloud->get_vertex_confidences();
 
     acc::AABB<math::Vec3f> aabb = acc::calculate_aabb(verts);
 
@@ -215,7 +198,8 @@ int main(int argc, char **argv) {
 
     /* Fill holes within the height map. */
     bool holes = true;
-    while (holes) {
+    int hole_filling_iters = 20;
+    while (holes && 0 < hole_filling_iters--) {
         holes = false;
 
         mve::FloatImage::Ptr tmp = mve::FloatImage::create(width, height, 1);
@@ -260,10 +244,14 @@ int main(int argc, char **argv) {
         }
     }
 
-    #pragma omp parallel for
+    std::size_t num_valid = 0;
+    #pragma omp parallel for reduction(+:num_valid)
     for (int i = 0; i < hmap->get_value_amount(); ++i) {
         float height = hmap->at(i);
-        hmap->at(i) = (height != lowest) ? height - ground_level : 0.0f;
+        if (height == lowest) continue;
+
+        num_valid += 1;
+        hmap->at(i) = height - ground_level;
     }
 
     if (args.min_distance > 0.0f) {
@@ -290,18 +278,28 @@ int main(int argc, char **argv) {
         #pragma omp parallel for
         for (int y = 0; y < height; ++y) {
             for (int x = 0; x < width; ++x) {
-                float max = 0.0f;
+                float max = lowest;
+
                 for (int ky = 0; ky < kernel_size; ++ky) {
                     for (int kx = 0; kx < kernel_size; ++kx) {
                         int cx = x + kx - kernel_size / 2;
                         int cy = y + ky - kernel_size / 2;
                         if (cx < 0 || width <= cx || cy < 0 || height <= cy) continue;
 
-                        float v = kernel->at(kx, ky, 0) + hmap->at(cx, cy, 0);
+                        float h = hmap->at(cx, cy, 0);
+
+                        /* Skip patches that have invalid pixels. */
+                        if (h == lowest) {
+                            max = lowest;
+                            goto end;
+                        }
+
+                        float v = kernel->at(kx, ky, 0) + h;
                         max = std::max(max, v);
                     }
                 }
-                tmp->at(x, y, 0) = max;
+
+                end: tmp->at(x, y, 0) = max;
             }
         }
 
@@ -327,51 +325,56 @@ int main(int argc, char **argv) {
             float heights[3][3];
             patch(hmap, x, y, &heights);
 
+            /* Only sample valid patches. */
+            {
+                float * it = (float *)heights;
+                bool invalid = std::any_of(it, it + 9, [](float h) {
+                    return h == lowest;
+                });
+                if (invalid) continue;
+            }
+
+            float gx =
+                (heights[0][0] - heights[2][0])
+                + 2.0f * (heights[0][1] - heights[2][1])
+                + (heights[0][2] - heights[2][2]);
+            float gy =
+                (heights[0][0] - heights[0][2])
+                + 2.0f * (heights[1][0] - heights[1][2])
+                + (heights[2][0] - heights[2][2]);
+
+            float px = x * args.resolution + args.resolution / 2 + aabb.min[0];
+            float py = y * args.resolution + args.resolution / 2 + aabb.min[1];
+
+            #pragma omp critical
+            {
+
+                math::Vec3f normal(
+                    gx / (8.0f * args.resolution),
+                    gy / (8.0f * args.resolution),
+                    1.0f);
+                normal.normalize();
+                sverts.emplace_back(px, py, heights[1][1] + ground_level);
+                snormals.push_back(normal);
+            }
+
             float rdx = -heights[0][1] + heights[1][1];
             float rdy = -heights[1][0] + heights[1][1];
             float fdx = -heights[1][1] + heights[2][1];
             float fdy = -heights[1][1] + heights[1][2];
 
+            if (fdx > 0.0f && rdx < 0.0f && fdy > 0.0f && rdy < 0.0f) continue;
+
             /* Calculate relevant magnitude. */
             float m = std::max(std::max(rdx, -fdx), std::max(rdy, -fdy));
+            math::Vec3f normal(gx, gy, 0.0f);
+            normal.normalize();
 
-            float gx =
-                -heights[0][0] + heights[2][0]
-                +2 * (-heights[0][1] + heights[2][1])
-                -heights[0][2] + heights[2][2];
-            float gy =
-                -heights[0][0] + heights[0][2]
-                +2 * (-heights[1][0] + heights[1][2])
-                -heights[2][0] + heights[2][2];
+            if (m / args.resolution < 1.5f) continue;
 
-            math::Vec3f normal(-gx, -gy, 0.0f); normal.normalize();
-            float px = x * args.resolution + args.resolution / 2 + aabb.min[0];
-            float py = y * args.resolution + args.resolution / 2 + aabb.min[1];
-
-            if (m <= args.resolution) {
-                if (!args.fuse) {
-                    #pragma omp critical
-                    {
-                        sverts.emplace_back(px, py, heights[1][1] + ground_level);
-                        snormals.emplace_back(0.0f, 0.0f, 1.0f);
-                    }
-                }
-                continue;
-            }
-
-            #pragma omp critical
-            {
-                sverts.emplace_back(px, py, heights[1][1] + ground_level);
-                snormals.push_back((math::Vec3f(0.0f, 0.0f, 1.0f) + normal).normalize());
-            }
-
-            for (int i = 1; i <= m / args.resolution; ++i) {
+            for (int i = 1; i < m / args.resolution; ++i) {
                 float pz = ground_level + heights[1][1] - i * args.resolution;
                 math::Vec3f vertex(px, py, pz);
-
-                if (args.fuse && kd_tree.find_nn(vertex, nullptr, args.resolution)) continue;
-
-                if (fdx > 0.0f && rdx < 0.0f && fdy > 0.0f && rdy < 0.0f) continue;
 
                 #pragma omp critical
                 {
@@ -393,7 +396,7 @@ int main(int argc, char **argv) {
         sample.pos = sverts[i];
         sample.normal = snormals[i];
         sample.scale = args.resolution;
-        sample.confidence = 0.5f;
+        sample.confidence = 1.0f;
         std::vector<std::pair<uint, float> > nns;
         kd_tree.find_nns(sverts[i], 3, &nns, args.resolution);
         if (!nns.empty()) {
@@ -409,18 +412,6 @@ int main(int argc, char **argv) {
             sample.color = math::Vec3f(0.415f, 0.353f, 0.80f);
         }
         octree.insert_sample(sample);
-    }
-
-    if (args.fuse) {
-        for (std::size_t i = 0; i < verts.size(); ++i) {
-            fssr::Sample sample;
-            sample.pos = verts[i];
-            sample.normal = normals[i];
-            sample.scale = values[i];
-            sample.confidence = confidences[i];
-            sample.color = math::Vec3f(colors[i].begin());
-            octree.insert_sample(sample);
-        }
     }
 
     /* Perform fssrecon c.f. mve/apps/fssrecon/fssrecon.cc */
@@ -442,7 +433,7 @@ int main(int argc, char **argv) {
         mesh->delete_vertices_fix_faces(delete_verts);
     }
 
-    mve::geom::mesh_components(mesh, width * height);
+    mve::geom::mesh_components(mesh, num_valid);
     fssr::clean_mc_mesh(mesh);
 
     mve::geom::SavePLYOptions opts;
