@@ -57,6 +57,7 @@ workspace "uavmvs"
     include("apps/estimate_ground_plane")
 
     include("apps/generate_texture")
+    include("apps/generate_gcp_bundle")
     include("apps/generate_proxy_mesh")
     include("apps/generate_proxy_cloud")
     include("apps/generate_grid_trajectory")
@@ -66,7 +67,6 @@ workspace "uavmvs"
     include("apps/selector")
     include("apps/simulator")
     include("apps/visualizer")
-    include("apps/illustrator")
 
     include("apps/plan_trajectory")
     include("apps/capture_trajectory")

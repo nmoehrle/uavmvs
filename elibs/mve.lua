@@ -37,14 +37,24 @@ end
 function m.use(libs)
     includedirs { m.basedir .. "/libs" }
 
+    if libs then
+        for _, lib in pairs(libs) do
+            if not lib ~= "util" then
+                libdirs { m.basedir .. "/libs/" .. lib }
+                links { "mve_" .. lib }
+            end
+        end
+    end
+
     libdirs { m.basedir .. "/libs/mve" }
     links { "mve" }
 
     if libs then
-        for _, lib in pairs(libs) do
-            libdirs { m.basedir .. "/libs/" .. lib }
-            links { "mve_" .. lib }
+        if table.contains(libs, "util") then
+            libdirs { m.basedir .. "/libs/util" }
+            links { "mve_util" }
         end
+
         if table.contains(libs, "fssr") then
             links { "gomp" }
         end
