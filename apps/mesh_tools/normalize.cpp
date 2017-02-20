@@ -180,10 +180,6 @@ int main(int argc, char **argv) {
         float & value = vertex_values[i];
         if (value == args.no_value) continue;
 
-        if (value < 0.05f) value = 0.0f;
-        else value = 1.0f;
-        continue;
-
         if (value >= min) {
             if(value <= max) {
                 value = ((value - min) / delta);
@@ -201,14 +197,12 @@ int main(int argc, char **argv) {
         }
     }
 
-#if 0
     float sum = std::accumulate(hist.begin(), hist.end(), 0u);
     for (int i = 0; i < 11; ++i) {
         std::size_t width = std::ceil((hist[i] / sum) * 100.0f);
         std::string bar = width ? std::string(width, '#') : " ";
         std::cout << i / 10.0f << '\t' << bar << std::endl;
     }
-#endif
 
     if (args.clamp) {
         std::cout << "Clamped ";
