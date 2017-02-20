@@ -51,7 +51,7 @@ determine_rotation_and_scale(math::Matrix3d const & cov, double sigma2) {
         return {VUt, scale};
     } else {
         math::Matrix3d F(0.0);
-        F(0, 0) = 1.0; F(1, 1) = 1.0; F(2, 2) = det;
+        F(0, 0) = 1.0; F(1, 1) = 1.0; F(2, 2) = -1.0;
         double scale = trace(S * F) / sigma2;
         return {V * F * U.transposed(), scale};
     }
