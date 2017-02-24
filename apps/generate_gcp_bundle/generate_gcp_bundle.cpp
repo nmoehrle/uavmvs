@@ -184,7 +184,8 @@ int main(int argc, char **argv) {
 
     for (auto & gcp_tid : gcp2tid) {
         std::cout << gcp_tid.first << ' '
-            << math::Vec3f((float const *)features[gcp_tid.second].pos) << std::endl;
+            << math::Vec3f((float const *)features[gcp_tid.second].pos)
+            << std::endl;
     }
 
     mve::save_mve_bundle(bundle, args.bundle);

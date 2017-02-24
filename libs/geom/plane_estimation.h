@@ -121,4 +121,82 @@ estimate_ground_plane(mve::TriangleMesh::ConstPtr cloud, acc::AABB<math::Vec3f> 
     return plane;
 }
 
+math::Plane3f
+estimate_ground_plane(mve::TriangleMesh::ConstPtr cloud) {
+    std::vector<math::Vec3f> const & verts = cloud->get_vertices();
+
+    constexpr float pi = std::acos(-1.0f);
+
+    std::default_random_engine gen;
+    std::uniform_int_distribution<std::size_t> dis(0, verts.size() - 1);
+
+    constexpr int ires = 1<<8;
+    constexpr int jres = 2<<8;
+    int accum[ires][jres] = {0};
+
+    /* Estimate normal with random Hough transform. */
+    for (std::size_t v = 0; v < verts.size(); ++v) {
+        math::Vec3f v0, v1, v2;
+
+        v0 = verts[dis(gen)];
+        v1 = verts[dis(gen)];
+        v2 = verts[dis(gen)];
+
+        math::Vec3f v01 = v1 - v0;
+        math::Vec3f v02 = v2 - v0;
+
+        math::Vec3f normal = v01.cross(v02).normalize();
+
+        if (std::isnan(normal.square_norm())) continue;
+
+        if (normal[2] < 0.0f) normal = -normal;
+
+        float theta = std::acos(normal[2]);
+        float phi = std::atan2(normal[1], normal[0]) + pi;
+
+        int i = theta / pi * (ires - 1);
+        int j = phi / (2.0f * pi) * (jres - 1);
+
+        accum[i][j] += 1;
+    }
+
+    /* Find maximum with local support. */
+    float theta = 0;
+    float phi = 0;
+    int max = 0;
+    for (int i = 0; i < ires; ++i) {
+        for (int j = 0; j < jres; ++j) {
+            int sum = 0;
+            for (int ri = -1; ri <= 1; ++ri) {
+                for (int rj = -1; rj <= 1; ++rj) {
+                    sum += accum[(i + ri) & (ires - 1)][(j + rj) & (jres - 1)];
+                }
+            }
+
+            if (sum > max) {
+                max = sum;
+                theta = (static_cast<float>(i) / (ires - 1)) * pi;
+                phi = (static_cast<float>(j) / (jres - 1)) * 2.0f * pi - pi;
+            }
+        }
+    }
+
+    math::Vec3f normal;
+    normal[0] = std::sin(theta) * std::cos(phi);
+    normal[1] = std::sin(theta) * std::sin(phi);
+    normal[2] = std::cos(theta);
+
+    math::Plane3f plane(normal, math::Vec3f(0.0f));
+
+    std::vector<float> dists(verts.size());
+    for (std::size_t i = 0; i < verts.size(); ++i) {
+        dists[i] = plane.point_dist(verts[i]);
+    }
+
+    auto nth = dists.begin() + dists.size() / 20;
+    std::nth_element(dists.begin(), nth, dists.end());
+
+    return math::Plane3f(normal, normal * *nth);
+}
+
 #endif /* GEOM_PLANE_ESTIMATION_HEADER */
