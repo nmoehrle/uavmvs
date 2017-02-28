@@ -160,12 +160,6 @@ center(std::vector<Correspondence> * correspondences) {
     return std::make_pair(c0, c1);
 }
 
-inline
-math::Matrix4f
-assemble_transform(math::Matrix3f R, math::Vec3f t, float s) {
-    return (R * s).hstack(t).vstack(math::Vec4f(0.0f, 0.0f, 0.0f, 1.0f));
-}
-
 math::Matrix4f
 estimate_transform(std::vector<Correspondence> correspondences, float threshold)
 {
@@ -193,7 +187,7 @@ estimate_transform(std::vector<Correspondence> correspondences, float threshold)
         if (num_inliers > max_inliers) {
             max_inliers = num_inliers;
             math::Vec3f t = c1 + (-R * s * c0);
-            T = assemble_transform(R, t, s);
+            T = assemble_transform(R, s, t);
         }
     }
 
@@ -213,7 +207,7 @@ estimate_transform(std::vector<Correspondence> correspondences)
     std::tie(R, s) = determine_rotation_and_scale(correspondences);
     math::Vec3f t = c1 + (-R * s * c0);
 
-    return assemble_transform(R, t, s);
+    return assemble_transform(R, s, t);
 }
 
 math::Matrix4f
