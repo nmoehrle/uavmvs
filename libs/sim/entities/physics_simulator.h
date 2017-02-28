@@ -15,7 +15,7 @@ private:
     void integrate(float h) {
         math::Matrix3f R;
         pose->q.to_rotation_matrix(R.begin());
-        math::Vec3f up = R.col(2);
+        math::Vec3f up = R.row(2);
 
         float gamma = 0.1f; //TODO estimate
         float air_speed = motion->v.norm();
@@ -34,7 +34,7 @@ private:
         for (std::size_t i = 0; i < 6; ++i) {
             math::Vec3f thrust = up * propulsion->thrusts[i];
             f += thrust;
-            tau += (R * -propulsion->rs[i]).cross(thrust);
+            tau += (R.transposed() * -propulsion->rs[i]).cross(thrust);
             // Every second engine spins ccw
             tau += i % 2 ? -gamma * thrust : gamma * thrust;
         }
@@ -42,9 +42,9 @@ private:
         //TODO replace Newton
         pose->x += motion->v * h;
         motion->v += (f / physics->mass) * h;
-        motion->omega += R * physics->Ii * R.transposed() * tau * h;
+        motion->omega += R.transposed() * physics->Ii * R * tau * h;
 
-        math::Vec3f qs = R.transposed() * motion->omega * h;
+        math::Vec3f qs = R * motion->omega * h;
         float theta = qs.norm();
 
         if (std::abs(theta) >= std::numeric_limits<float>::epsilon()) {
