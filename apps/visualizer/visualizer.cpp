@@ -136,11 +136,11 @@ int main(int argc, char **argv) {
         std::vector<math::Vec4f> & colors = mesh->get_vertex_colors();
 
         std::vector<math::Vec3f> poss;
-        float step;
+        std::size_t length = 0;
         {
             std::vector<mve::CameraInfo> trajectory;
             utp::load_trajectory(args.trajectory, &trajectory);
-            step = 0.1f / (trajectory.size() - 1);
+            length = trajectory.size();
             poss.reserve(trajectory.size());
             verts.reserve(trajectory.size() * 5);
             colors.reserve(trajectory.size() * 5);
@@ -188,7 +188,9 @@ int main(int argc, char **argv) {
         spline.fit(poss);
 
         Trajectory::Ptr trajectory(new Trajectory);
-        for (float t = 0.0f; t < 1.0f; t += step) {
+
+        for (std::size_t i = 0; i < 10 * length; ++i) {
+            float t = i / (10.0f * length - 1.0f);
             trajectory->xs.push_back(spline.eval(t));
             trajectory->qs.emplace_back(math::Vec3f(0.0f, 0.0f, 1.0f), 0.0f);
         }
