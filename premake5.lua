@@ -52,6 +52,7 @@ workspace "uavmvs"
     include("apps/scene_tools")
     include("apps/cloud_tools")
     include("apps/volume_tools")
+    include("apps/trajectory_tools")
 
     include("apps/determine_matching_mask")
     include("apps/estimate_ground_plane")
@@ -60,7 +61,6 @@ workspace "uavmvs"
     include("apps/generate_gcp_bundle")
     include("apps/generate_proxy_mesh")
     include("apps/generate_proxy_cloud")
-    include("apps/generate_grid_trajectory")
     include("apps/generate_guidance_volume")
     include("apps/generate_initial_trajectory")
 
