@@ -20,3 +20,13 @@ project "shorten-trajectory"
     mve.use({ "util" })
 
     links { "gomp", "utp" }
+
+project "interpolate-trajectory"
+    kind "ConsoleApp"
+    language "C++"
+
+    sysincludedirs { "/usr/include/eigen3" }
+    files { "interpolate.cpp" }
+
+    links { "utp" }
+    mve.use({ "util" })

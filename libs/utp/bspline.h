@@ -31,21 +31,29 @@ public:
     BSpline(std::vector<math::Vector<T, N> > const & verts,
         std::vector<T> knots) : points(verts), us(knots) {}
 
-    T fit(std::vector<math::Vector<T, N> > const & verts) {
-        typedef Eigen::SparseMatrix<T> SpMat;
-        typedef Eigen::Triplet<T, int> Triplet;
-
+    static std::vector<T>
+    generate_ts(std::vector<math::Vector<T, N> > const & verts) {
         std::size_t n = verts.size();
         std::vector<T> ts(n);
 
-        std::vector<T> psum(n, 0.0);
         /* Chord length ts */
+        std::vector<T> psum(n, 0.0);
         for(std::size_t i = 1; i < n; ++i) {
             psum[i] = psum[i - 1] + (verts[i - 1] - verts[i]).norm();
         }
         for(std::size_t i = 0; i < n; ++i) {
             ts[i] = psum[i] / psum[n - 1];
         }
+
+        return ts;
+    }
+
+    T fit(std::vector<math::Vector<T, N> > const & verts) {
+        typedef Eigen::SparseMatrix<T> SpMat;
+        typedef Eigen::Triplet<T, int> Triplet;
+
+        std::size_t n = verts.size();
+        std::vector<T> ts = generate_ts(verts);
 
         /* Generate knot vector */
         us.resize(n + p + 1, 0.0);
