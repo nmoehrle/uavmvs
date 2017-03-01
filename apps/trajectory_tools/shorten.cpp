@@ -97,7 +97,8 @@ int main(int argc, char **argv) {
     std::cout << "Evaluating spline... " << std::flush;
     math::Vec3f last = spline.eval(0.0f);
     for (std::size_t i = 1; i < trajectory.size() * 1000; ++i) {
-        math::Vec3f curr = spline.eval(i / (trajectory.size() * 1000.0f - 1.0f));
+        float t = i / (trajectory.size() * 1000.0f - 1.0f);
+        math::Vec3f curr = spline.eval(t);
 
         if (i % 100 == 0 && bvh_tree != nullptr) {
             math::Vec3f cp = bvh_tree->closest_point(curr);

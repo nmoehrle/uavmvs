@@ -75,5 +75,4 @@ workspace "uavmvs"
     include("apps/evaluate_heuristic")
     include("apps/evaluate_reconstruction")
     include("apps/evaluate_ground_sampling")
-    include("apps/interpolate_trajectory")
     include("apps/estimate_capture_difficulty")
