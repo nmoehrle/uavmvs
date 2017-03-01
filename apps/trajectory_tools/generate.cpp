@@ -24,6 +24,7 @@ struct Arguments {
     std::vector<float> angles;
     float max_distance;
     float focal_length;
+    float aspect_ratio;
 };
 
 Arguments parse_args(int argc, char **argv) {
@@ -39,18 +40,20 @@ Arguments parse_args(int argc, char **argv) {
     args.add_option('r', "rotation", true, "rotation (deg) [0]");
     args.add_option('a', "angles", true, "comma separate list of angles (nadir 0 deg) [0]");
     args.add_option('\0', "focal-length", true, "camera focal length [0.86]");
+    args.add_option('\0', "aspect-ratio", true, "camera sensor aspect ratio [0.66]");
     args.add_option('\0', "airspace-mesh", true, "use mesh to consider flyable airspace");
     args.parse(argc, argv);
 
     Arguments conf;
     conf.proxy_mesh = args.get_nth_nonopt(0);
     conf.out_trajectory = args.get_nth_nonopt(1);
-    conf.focal_length = 0.86f;
-    conf.max_distance = 80.0f;
     conf.forward_overlap = 80.0f;
     conf.side_overlap = 60.0f;
     conf.rotation = 0.0f;
     conf.angles = {0};
+    conf.max_distance = 80.0f;
+    conf.focal_length = 0.86f;
+    conf.aspect_ratio = 2.0f / 3.0f;
 
     std::string angles;
     for (util::ArgResult const* i = args.next_option();
@@ -74,6 +77,8 @@ Arguments parse_args(int argc, char **argv) {
         case '\0':
             if (i->opt->lopt == "focal-length") {
                 conf.focal_length = i->get_arg<float>();
+            } else if (i->opt->lopt == "aspect-ratio") {
+                conf.aspect_ratio = i->get_arg<float>();
             } else if (i->opt->lopt == "airspace-mesh") {
                 conf.airspace_mesh = i->arg;
             } else {
@@ -83,6 +88,10 @@ Arguments parse_args(int argc, char **argv) {
         default:
             throw std::invalid_argument("Invalid option");
         }
+    }
+
+    if (conf.aspect_ratio > 1.0f) {
+        throw std::invalid_argument("Aspect ratio has to be less than one");
     }
 
     if (!angles.empty()) {
@@ -136,9 +145,10 @@ int main(int argc, char **argv) {
 
 
     float hfov = 2.0f * std::atan2(1.0f, 2.0f * args.focal_length);
-    float vfov = 2.0f * std::atan2(2.0f / 3.0f, 2.0f * args.focal_length);
+    float vfov = 2.0f * std::atan2(args.aspect_ratio, 2.0f * args.focal_length);
 
-    float altitude = args.max_distance * 0.9f;
+    /* Compensate for lower parts. */
+    float altitude = args.max_distance * 0.95f;
     float width = std::tan(hfov / 2.0f) * altitude * 2.0f;
     float height = std::tan(vfov / 2.0f) * altitude * 2.0f;
 
@@ -165,8 +175,8 @@ int main(int argc, char **argv) {
         int sw = d % 2;
         /* Forward dimension */
         int fw = (d + 1) % 2;
-        int lines = std::ceil(dim[sw] / spacing) + 1;
-        int images = std::ceil(dim[fw] / velocity) + 1;
+        int lines = std::max<int>(std::ceil(dim[sw] / spacing), 2);
+        int images = std::max<int>(std::ceil(dim[fw] / velocity), 2);
 
         math::Vec3f axis(0.0f);
         axis[sw] = 1.0f;
@@ -209,7 +219,7 @@ int main(int argc, char **argv) {
                 r[fw] = std::sin(angle * j) * radius;
 
                 rel = math::Vec3f(0.0f);
-                rel[sw] = ss * (spacing * (i - (lines - 1) / 2.0f) + radius - r[sw]);
+                rel[sw] = ss * ((i - (lines - 1) / 2.0f) * spacing + radius - r[sw]);
                 rel[fw] = lfs * (((images - 1) / 2.0f) * velocity + r[fw]);
 
                 math::Vec3f pos = off + rot * rel;
@@ -219,6 +229,8 @@ int main(int argc, char **argv) {
             }
         }
     }
+
+    std::cout << trajectory.size() << std::endl;
 
     /* Adjust heights based on airspace mesh. */
     if (bvh_tree != nullptr) {
