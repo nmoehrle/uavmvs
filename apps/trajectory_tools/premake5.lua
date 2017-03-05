@@ -6,15 +6,14 @@ project "generate-trajectory"
 
     files { "generate.cpp" }
 
-    links { "utp" }
     mve.use({ "util" })
+    links { "utp" }
 
 project "shorten-trajectory"
     kind "ConsoleApp"
     language "C++"
 
     buildoptions { "-fopenmp" }
-    sysincludedirs { "/usr/include/eigen3" }
     files { "shorten.cpp" }
 
     mve.use({ "util" })
@@ -28,5 +27,15 @@ project "interpolate-trajectory"
     sysincludedirs { "/usr/include/eigen3" }
     files { "interpolate.cpp" }
 
-    links { "utp" }
     mve.use({ "util" })
+    links { "utp" }
+
+project "evaluate-trajectory"
+    kind "ConsoleApp"
+    language "C++"
+
+    sysincludedirs { "/usr/include/eigen3" }
+    files { "evaluate.cpp" }
+
+    mve.use({ "util" })
+    links { "utp" }
