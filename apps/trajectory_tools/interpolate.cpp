@@ -242,11 +242,14 @@ int main(int argc, char **argv) {
         std::exit(EXIT_FAILURE);
     }
 
+    out << "x,y,z,qw,qx,qy,qz,key" << std::endl;
     for (std::size_t i = 0; i < xs.size(); ++i) {
         math::Vec3f x = xs[i];
         math::Quat4f q = qs[i];
 
-        out << x << ' ' << q << ' ' << keys[i] << std::endl;
+        out << x[0] << ',' << x[1] << ',' << x[2] << ','
+            << q[0] << ',' << q[1] << ',' << q[2] << ',' << q[3]
+            << keys[i] << std::endl;
     }
     out.close();
 
