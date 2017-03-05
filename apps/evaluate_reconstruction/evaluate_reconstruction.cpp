@@ -2,6 +2,7 @@
 
 #include "util/system.h"
 #include "util/arguments.h"
+#include "util/tokenizer.h"
 
 #include "math/geometry.h"
 
@@ -10,11 +11,43 @@
 
 typedef unsigned int uint;
 
+struct Range {
+    float min;
+    float step;
+    float max;
+};
+
+std::vector<float>
+expand_range(Range const & range) {
+    std::vector<float> ret;
+    for (float x = range.min; x < range.max; x += range.step) {
+        ret.push_back(x);
+    }
+    return ret;
+}
+
+Range parse_range(std::string const & str) {
+    util::Tokenizer tok;
+    tok.split(str, ':');
+
+    if (tok.size() != 3) throw std::runtime_error("Invalid range");
+
+    Range ret = {tok.get_as<float>(0), tok.get_as<float>(1), tok.get_as<float>(2)};
+
+    if (ret.step == 0.0f
+        || (ret.min > ret.max && ret.step > 0.0f)
+        || (ret.min < ret.max && ret.step < 0.0f)) {
+        throw std::runtime_error("Invalid range");
+    }
+
+    return ret;
+}
+
 struct Arguments {
     std::string in_mesh;
     std::string gt_mesh;
-    float comp_thresh;
-    float acc_thresh;
+    Range comp_range;
+    Range acc_range;
     std::string accuracy_mesh;
     std::string completeness_mesh;
 };
@@ -30,15 +63,15 @@ Arguments parse_args(int argc, char **argv) {
         "save in_mesh with distance as vertex value to give filename");
     //args.add_option('c', "completeness-mesh", true,
     //    "save gt_mesh with distance as vertex value to given filename");
-    args.add_option('\0', "accuracy-threshold", true, "percentile [90]");
-    args.add_option('\0', "completeness-threshold", true, "distance [0.05]");
+    args.add_option('\0', "accuracy-range", true, "percentile [0.8:0.01:0.99]");
+    args.add_option('\0', "completeness-range", true, "distance [0.005:0.005:0.01]");
     args.parse(argc, argv);
 
     Arguments conf;
     conf.in_mesh = args.get_nth_nonopt(0);
     conf.gt_mesh = args.get_nth_nonopt(1);
-    conf.comp_thresh = 0.05f;
-    conf.acc_thresh = 90.0f;
+    conf.acc_range = {0.8f, 0.01f, 0.99f};
+    conf.comp_range = {0.005f, 0.005f, 0.1f};
 
     for (util::ArgResult const* i = args.next_option();
          i != 0; i = args.next_option()) {
@@ -51,9 +84,9 @@ Arguments parse_args(int argc, char **argv) {
         break;
         case '\0':
             if (i->opt->lopt == "accuracy-threshold") {
-                conf.acc_thresh = i->get_arg<float>();
+                conf.acc_range = parse_range(i->arg);
             } else if (i->opt->lopt == "completeness-threshold") {
-                conf.comp_thresh = i->get_arg<float>();
+                conf.comp_range = parse_range(i->arg);
             } else {
                 throw std::invalid_argument("Invalid option");
             }
@@ -62,8 +95,8 @@ Arguments parse_args(int argc, char **argv) {
         }
     }
 
-    if (conf.acc_thresh < 0.0f || 100.0f < conf.acc_thresh) {
-        throw std::invalid_argument("Accuracy threshold has to be in [0,100]");
+    if (conf.acc_range.min < 0.0f || 1.0f < conf.acc_range.max) {
+        throw std::invalid_argument("Accuracy range has to be in [0,1]");
     }
 
     return conf;
@@ -88,9 +121,9 @@ create_bvh_tree(mve::TriangleMesh::Ptr mesh) {
     return acc::BVHTree<uint, math::Vec3f>::create(faces, vertices);
 }
 
-float
+void
 calculate_accuracy(mve::TriangleMesh::Ptr in_mesh,
-    mve::TriangleMesh::Ptr gt_mesh, float threshold)
+    mve::TriangleMesh::Ptr gt_mesh, Range acc_range)
 {
     std::vector<math::Vec3f> const & verts = in_mesh->get_vertices();
     std::vector<float> & values = in_mesh->get_vertex_values();
@@ -134,12 +167,17 @@ calculate_accuracy(mve::TriangleMesh::Ptr in_mesh,
     }
     std::sort(dists.begin(), dists.end());
 
-    return dists[dists.size() * (threshold / 100.0f)];
+    std::vector<float> threshs = expand_range(acc_range);
+    std::cout << "Accuracy:" << std::endl;
+    for (float threshold : threshs) {
+        float acc = dists[dists.size() * threshold];
+        std::cout << threshold << ' ' << acc << std::endl;
+    }
 }
 
-float
+void
 calculate_completeness(mve::TriangleMesh::Ptr in_mesh,
-    mve::TriangleMesh::Ptr gt_mesh, float threshold)
+    mve::TriangleMesh::Ptr gt_mesh, Range comp_range)
 {
     std::vector<math::Vec3f> const & verts = gt_mesh->get_vertices();
     std::vector<float> values; // = gt_mesh->get_vertex_values(); //TODO fix
@@ -228,15 +266,20 @@ calculate_completeness(mve::TriangleMesh::Ptr in_mesh,
     cloud->get_vertex_values().assign(values.begin(), values.end());
     mve::geom::SavePLYOptions opts;
     opts.write_vertex_values = true;
-    mve::geom::save_ply_mesh(cloud, "/tmp/cloud.ply", opts);
+    //mve::geom::save_ply_mesh(cloud, "/tmp/cloud.ply", opts);
 
-    uint covered = 0;
-    for (std::size_t i = 0; i < values.size(); ++i) {
-        if (values[i] > threshold) continue;
-        covered += 1;
+    std::vector<float> threshs = expand_range(comp_range);
+    std::cout << "Completeness: " << std::endl;
+    for (float threshold : threshs) {
+        std::size_t covered = 0;
+        for (std::size_t i = 0; i < values.size(); ++i) {
+            if (values[i] < threshold) {
+                covered += 1;
+            }
+        }
+        float comp = covered / static_cast<float>(values.size());
+        std::cout << threshold << ' ' << comp << std::endl;
     }
-
-    return covered / static_cast<float>(values.size());
 }
 
 int main(int argc, char **argv) {
@@ -252,14 +295,12 @@ int main(int argc, char **argv) {
     mve::geom::SavePLYOptions opts;
     opts.write_vertex_values = true;
 
-    float acc = calculate_accuracy(in_mesh, gt_mesh, args.acc_thresh);
-    std::cout << "Accuracy: " << acc << std::endl;
+    calculate_accuracy(in_mesh, gt_mesh, args.acc_range);
     if (!args.accuracy_mesh.empty()) {
         mve::geom::save_ply_mesh(in_mesh, args.accuracy_mesh, opts);
     }
 
-    float comp = calculate_completeness(in_mesh, gt_mesh, args.comp_thresh);
-    std::cout << "Completeness: " << comp << std::endl;
+    calculate_completeness(in_mesh, gt_mesh, args.comp_range);
     if (!args.completeness_mesh.empty()) {
         mve::geom::save_ply_mesh(gt_mesh, args.completeness_mesh, opts);
     }
