@@ -303,7 +303,6 @@ int main(int argc, char **argv) {
 
         /* Sample the volume */
         mve::FloatImage::Ptr image = mve::FloatImage::create(w, h, 3);
-        math::Vec3f diag0(1.0f, 1.0f, 1.0f), diag1(-1.0f, -1.0f, 1.0f), diag2(-1.0f, 1.0f, 1.0f);
         #pragma omp parallel for
         for (int y = 0; y < h; ++y) {
             for (int x = 0; x < w; ++x) {
@@ -313,16 +312,8 @@ int main(int argc, char **argv) {
                 /* Calculate noise */
                 math::Vec3f v = (v0 + fx * n0 + fy * n1);
                 math::Vec3f sv = v * args.noise_scale;
-                float value = 0.5f + simplex_noise(sv[0], sv[1], sv[2], args.octaves, args.persistence) * args.factor;
-
-#if GRID
-                /* Blend with 3D grid */
-                float dist = inf;
-                dist = std::min(dist, std::abs(std::fmod(v.dot(diag0), args.grid_scale)));
-                dist = std::min(dist, std::abs(std::fmod(v.dot(diag1), args.grid_scale)));
-                dist = std::min(dist, std::abs(std::fmod(v.dot(diag2), args.grid_scale)));
-                value = value * (1.0f - math::gaussian(dist, args.grid_scale / 100.0f));
-#endif
+                float value = 0.5f + simplex_noise(sv[0], sv[1], sv[2],
+                    args.octaves, args.persistence) * args.factor;
 
                 value = std::min(1.0f, std::max(0.0f, value));
                 image->at(x, y, 0) = value;
