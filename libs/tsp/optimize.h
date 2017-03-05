@@ -9,7 +9,7 @@
 
 TSP_NAMESPACE_BEGIN
 
-float twoopt(std::vector<uint> * ids, std::vector<float> const & sqdists);
+float twoopt(std::vector<uint> * ids, float thresh, std::vector<float> const & sqdists);
 
 template <int N>
 float optimize(std::vector<uint> * ids, std::vector<math::Vector<float, N> > const & verts,
@@ -32,6 +32,7 @@ float optimize(std::vector<uint> * ids, std::vector<math::Vector<float, N> > con
         length += std::sqrt(sqdist(i, i + 1));
     }
 
+    float thresh = length / 10000.0f;
     #pragma omp parallel
     {
         std::mt19937 gen;
@@ -41,7 +42,7 @@ float optimize(std::vector<uint> * ids, std::vector<math::Vector<float, N> > con
             gen.seed(i);
             std::iota(nids.begin(), nids.end(), 0);
             std::shuffle(nids.begin(), nids.end(), gen);
-            float nlength = twoopt(&nids, sqdists);
+            float nlength = twoopt(&nids, thresh, sqdists);
             #pragma omp critical
             if (nlength < length) {
                 std::swap(*ids, nids);
@@ -53,7 +54,7 @@ float optimize(std::vector<uint> * ids, std::vector<math::Vector<float, N> > con
     return length;
 }
 
-float twoopt(std::vector<uint> * ids, std::vector<float> const & sqdists) {
+float twoopt(std::vector<uint> * ids, float thresh, std::vector<float> const & sqdists) {
     auto sqdist = [&ids, &sqdists] (std::size_t i, std::size_t j) {
         std::tie(j, i) = std::minmax(ids->at(i), ids->at(j));
         return sqdists[((i - 1) * i) / 2 + j];
@@ -85,7 +86,7 @@ float twoopt(std::vector<uint> * ids, std::vector<float> const & sqdists) {
             }
         }
 
-        if (best >= -1e-5f) break;
+        if (best >= -thresh) break;
 
         for (std::size_t i = move.first + 1, j = move.second; i < j; ++i, --j) {
             std::swap(ids->at(i), ids->at(j));
