@@ -22,7 +22,8 @@ struct Arguments {
     float side_overlap;
     float rotation;
     std::vector<float> angles;
-    float max_distance;
+    float altitude;
+    float elevation;
     float focal_length;
     float aspect_ratio;
 };
@@ -36,9 +37,11 @@ Arguments parse_args(int argc, char **argv) {
     args.set_description("Generate trajectories");
     args.add_option('f', "forward-overlap", true, "forward overlap in percent [80.0]");
     args.add_option('s', "side-overlap", true, "side overlap in percent [60.0]");
-    args.add_option('m', "max-distance", true, "maximum distance to surface [80.0]");
+    args.add_option('a', "altitude", true, "flying altitude [60.0]");
+    args.add_option('e', "elevation", true, "elevation for overlap planning [0.0]");
     args.add_option('r', "rotation", true, "rotation (deg) [0]");
-    args.add_option('a', "angles", true, "comma separate list of angles (nadir 0 deg) [0]");
+
+    args.add_option('\0', "angles", true, "comma separate list of angles (nadir 0 deg) [0]");
     args.add_option('\0', "focal-length", true, "camera focal length [0.86]");
     args.add_option('\0', "aspect-ratio", true, "camera sensor aspect ratio [0.66]");
     args.add_option('\0', "airspace-mesh", true, "use mesh to consider flyable airspace");
@@ -51,7 +54,7 @@ Arguments parse_args(int argc, char **argv) {
     conf.side_overlap = 60.0f;
     conf.rotation = 0.0f;
     conf.angles = {0};
-    conf.max_distance = 80.0f;
+    conf.altitude = 60.0f;
     conf.focal_length = 0.86f;
     conf.aspect_ratio = 2.0f / 3.0f;
 
@@ -69,13 +72,15 @@ Arguments parse_args(int argc, char **argv) {
             conf.rotation = i->get_arg<float>() * M_PI / 180.0f;
         break;
         case 'a':
-            angles = i->arg;
+            conf.altitude = i->get_arg<float>();
         break;
-        case 'm':
-            conf.max_distance = i->get_arg<float>();
+        case 'e':
+            conf.elevation = i->get_arg<float>();
         break;
         case '\0':
-            if (i->opt->lopt == "focal-length") {
+            if (i->opt->lopt == "angles") {
+                angles = i->arg;
+            } else if (i->opt->lopt == "focal-length") {
                 conf.focal_length = i->get_arg<float>();
             } else if (i->opt->lopt == "aspect-ratio") {
                 conf.aspect_ratio = i->get_arg<float>();
@@ -148,15 +153,14 @@ int main(int argc, char **argv) {
     float vfov = 2.0f * std::atan2(args.aspect_ratio, 2.0f * args.focal_length);
 
     /* Compensate for lower parts. */
-    float altitude = args.max_distance * 0.95f;
-    float width = std::tan(hfov / 2.0f) * altitude * 2.0f;
-    float height = std::tan(vfov / 2.0f) * altitude * 2.0f;
+    float width = std::tan(hfov / 2.0f) * (args.altitude - args.elevation) * 2.0f;
+    float height = std::tan(vfov / 2.0f) * (args.altitude - args.elevation) * 2.0f;
 
     float velocity = height * (1.0f - args.forward_overlap / 100.0f);
     float spacing = width * (1.0f - args.side_overlap / 100.0f);
 
     math::Vec3f dim = aabb.max - aabb.min;
-    math::Vec3f off(aabb.min[0] + dim[0] / 2.0f, aabb.min[1] + dim[1] / 2.0f, altitude);
+    math::Vec3f off(aabb.min[0] + dim[0] / 2.0f, aabb.min[1] + dim[1] / 2.0f, args.altitude);
 
     /* Set camera intrinsics. */
     mve::CameraInfo cam;
@@ -249,7 +253,7 @@ int main(int argc, char **argv) {
             acc::BVHTree<uint, math::Vec3f>::Hit hit;
             if (!bvh_tree->intersect(ray, &hit)) continue;
 
-            pos[2] += hit.t + args.max_distance / 20.0f;
+            pos[2] += hit.t + args.altitude / 20.0f;
             math::Matrix3f cam_rot(cam.rot);
             math::Vec3f trans = -cam_rot * pos;
             std::copy(trans.begin(), trans.end(), cam.trans);
