@@ -89,6 +89,32 @@ patch(mve::FloatImage::Ptr img, int x, int y, float (*ptr)[N][N]) {
 }
 
 template <int N>
+void filter_median(mve::FloatImage::Ptr hmap, float boundary) {
+    constexpr int n = N * N;
+
+    int width = hmap->width();
+    int height = hmap->height();
+    mve::FloatImage::Ptr tmp = mve::FloatImage::create(width, height, 1);
+
+    #pragma omp parallel for
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            if (y < (N / 2) || y >= height - (N / 2) || x < (N / 2) || x >= width - (N / 2)) {
+                tmp->at(x, y, 0) = boundary;
+            } else {
+                float heights[n];
+                patch(hmap, x, y, (float (*)[N][N])&heights);
+                std::nth_element(heights, heights + (n / 2), heights + n);
+                tmp->at(x, y, 0) = heights[n / 2];
+            }
+        }
+    }
+
+    //std::swap(*hmap, *tmp);
+    hmap->swap(*tmp);
+}
+
+template <int N>
 void filter_nth_lowest(mve::FloatImage::Ptr hmap, int idx, float boundary) {
     constexpr int n = N * N;
     assert(idx < n);
@@ -163,9 +189,19 @@ int main(int argc, char **argv) {
 
     acc::KDTree<3, unsigned> kd_tree(verts);
     if (args.resolution <= 0.0f) {
-        std::cout << "Estimating point cloud density... " << std::flush;
-        args.resolution = 2.0f * median_distance_of_nth_nn(verts, kd_tree, 5);
-        std::cout << "done." << std::endl;
+        float density;
+        if (cloud->has_vertex_values()) {
+            std::vector<float> scales = cloud->get_vertex_values();
+            std::vector<float>::iterator nth = scales.begin() + scales.size() / 2;
+            std::nth_element(scales.begin(), nth, scales.end());
+            /* Assuming that the scale is the radius of a 5x5 mvs patch. */
+            density = (*nth / 2.5f);
+        } else {
+            std::cout << "Estimating point cloud density... " << std::flush;
+            density = median_distance_of_nth_nn(verts, kd_tree, 5);
+            std::cout << "done." << std::endl;
+        }
+        args.resolution = 2.0f * density;
     }
 
     int width = (aabb.max[0] - aabb.min[0]) / args.resolution + 1.0f;
@@ -191,9 +227,7 @@ int main(int argc, char **argv) {
 
     if (args.min_distance == 0.0f) {
         /* Use median filter to eliminate outliers. */
-        filter_nth_lowest<5>(hmap, 12, lowest);
-        /* Use biased median to revert overestimation. */
-        filter_nth_lowest<3>(hmap, 2, lowest);
+        filter_median<3>(hmap, lowest);
     }
 
     /* Fill holes within the height map. */
@@ -395,7 +429,8 @@ int main(int argc, char **argv) {
         fssr::Sample sample;
         sample.pos = sverts[i];
         sample.normal = snormals[i];
-        sample.scale = args.resolution;
+        /* Set scale according to fssr scale (radius of patch). */
+        sample.scale = args.resolution * 1.25f;
         sample.confidence = 1.0f;
         std::vector<std::pair<uint, float> > nns;
         kd_tree.find_nns(sverts[i], 3, &nns, args.resolution);
