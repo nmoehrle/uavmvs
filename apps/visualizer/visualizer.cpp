@@ -146,7 +146,7 @@ int main(int argc, char **argv) {
             colors.reserve(trajectory.size() * 5);
             faces.reserve(trajectory.size() * 16);
 
-            float size = 0.1f;
+            float size = 1.0f;
 
             for (std::size_t i = 0; i < trajectory.size(); ++i) {
                 mve::CameraInfo const & cam = trajectory[i];
