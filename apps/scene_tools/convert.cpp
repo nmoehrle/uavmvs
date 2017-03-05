@@ -97,7 +97,9 @@ int main(int argc, char **argv) {
             T = inverse_transform(T);
         }
 
-        math::Matrix3f R = extract_rotation(T);
+        math::Matrix3f R;
+        float s;
+        std::tie(R, s, std::ignore) = split_transform(T);
 
         if (bundle != nullptr) {
             mve::Bundle::Ptr obundle = mve::Bundle::create();
@@ -122,9 +124,24 @@ int main(int argc, char **argv) {
 
         std::vector<mve::View::Ptr> views = scene->get_views();
         for (mve::View::Ptr & view : views) {
+            if (view == nullptr) continue;
+
             mve::CameraInfo camera = view->get_camera();
             transform(&camera, T, R);
             view->set_camera(camera);
+
+            /* Scale all depth images. */
+            std::vector<mve::View::ImageProxy> const & proxys = view->get_images();
+            for (mve::View::ImageProxy const & proxy : proxys) {
+                if (proxy.name.compare(0, 5, "depth")) continue;
+
+                mve::FloatImage::Ptr image = view->get_float_image(proxy.name);
+                for (float * it = image->begin(); it < image->end(); ++it) {
+                    *it *= s;
+                }
+                view->set_image(image, proxy.name);
+            }
+            view->save_view();
         }
     }
 
