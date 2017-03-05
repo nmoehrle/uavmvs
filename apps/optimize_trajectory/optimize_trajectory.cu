@@ -36,6 +36,7 @@ struct Arguments {
     std::string in_trajectory;
     std::string proxy_mesh;
     std::string proxy_cloud;
+    std::string airspace;
     std::string out_trajectory;
     std::uint32_t seed;
     uint max_iters;
@@ -49,9 +50,10 @@ struct Arguments {
 Arguments parse_args(int argc, char **argv) {
     util::Arguments args;
     args.set_exit_on_error(true);
-    args.set_nonopt_minnum(4);
-    args.set_nonopt_maxnum(4);
-    args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] IN_TRAJECTORY PROXY_MESH PROXY_CLOUD OUT_TRAJECTORY");
+    args.set_nonopt_minnum(5);
+    args.set_nonopt_maxnum(5);
+    args.set_usage("Usage: " + std::string(argv[0])
+        + " [OPTS] IN_TRAJECTORY PROXY_MESH PROXY_CLOUD AIRSPACE OUT_TRAJECTORY");
     args.set_description("Optimize position and orientation of trajectory views.");
     args.add_option('\0', "seed", true, "seed for RNG [0]");
     args.add_option('\0', "min-distance", true, "minimum distance to surface [2.5]");
@@ -65,7 +67,8 @@ Arguments parse_args(int argc, char **argv) {
     conf.in_trajectory = args.get_nth_nonopt(0);
     conf.proxy_mesh = args.get_nth_nonopt(1);
     conf.proxy_cloud = args.get_nth_nonopt(2);
-    conf.out_trajectory = args.get_nth_nonopt(3);
+    conf.airspace = args.get_nth_nonopt(3);
+    conf.out_trajectory = args.get_nth_nonopt(4);
     conf.seed = 0u;
     conf.max_iters = 100;
     conf.min_distance = 2.5f;
@@ -109,6 +112,23 @@ float const pi = std::acos(-1.0f);
 
 bool terminate = false;
 
+void initialize(Simplex<3> * simplex, math::Vec3f pos, float scale, float theta, float phi) {
+    static float tmp = 1.0f / std::sqrt(2.0f);
+    static math::Vec3f tet[] = {
+        {1.0f , 0.0f, - tmp},
+        {-1.0f , 0.0f, - tmp},
+        {0.0f, 1.0f, tmp},
+        {0.0f, -1.0f, tmp}
+    };
+
+    math::Matrix3f rot = utp::rotation_from_spherical(theta, phi);
+
+    std::array<math::Vector<float, 3>, 4> & v = simplex->verts;
+    for (std::size_t j = 0; j < v.size(); ++j) {
+        v[j] = pos + rot * (tet[j] * scale);
+    }
+}
+
 int main(int argc, char **argv) {
     util::system::register_segfault_handler();
     util::system::print_build_timestamp(argv[0]);
@@ -145,7 +165,8 @@ int main(int argc, char **argv) {
     }
     int num_verts = dcloud->cdata().num_vertices;
 
-    acc::KDTree<3, uint>::Ptr kd_tree(load_mesh_as_kd_tree(args.proxy_cloud));
+    acc::BVHTree<uint, math::Vec3f>::Ptr bvh_tree;
+    bvh_tree = load_mesh_as_bvh_tree(args.airspace);
 
     /* Allocate shared GPU data structures. */
     uint max_cameras = 32;
@@ -181,13 +202,6 @@ int main(int argc, char **argv) {
     /* Initialize simplexes as regular tetrahedron. */
     std::vector<Simplex<3> > simplices(trajectory.size());
     {
-        float tmp = 1.0f / std::sqrt(2.0f);
-        math::Vec3f tet[] = {
-            {1.0f , 0.0f, - tmp},
-            {-1.0f , 0.0f, - tmp},
-            {0.0f, 1.0f, tmp},
-            {0.0f, -1.0f, tmp}
-        };
         float scale = 0.5f * (args.min_distance / 10.0f);
 
         /* Randomly rotate simplexes of each camera. */
@@ -200,12 +214,7 @@ int main(int argc, char **argv) {
             float theta = dist(gen);
             float phi = 2.0f * dist(gen);
 
-            math::Matrix3f rot = utp::rotation_from_spherical(theta, phi);
-
-            std::array<math::Vector<float, 3>, 4> & v = simplices[i].verts;
-            for (std::size_t j = 0; j < v.size(); ++j) {
-                v[j] = pos + rot * (tet[j] * scale);
-            }
+            initialize(&simplices[i], pos, scale, theta, phi);
         }
     }
 
@@ -351,11 +360,21 @@ int main(int argc, char **argv) {
                 std::function<float(math::Vec3f)> func =
                     [&] (math::Vec3f const & pos) -> float
                 {
+                    float w = 1.0f;
+
                     /* Return positive value if to close ground or surface. */
                     if (pos[2] < args.min_distance) return args.min_distance - pos[2];
-                    std::pair<uint, float> nn;
-                    if (kd_tree->find_nn(pos, &nn, args.min_distance)) {
-                        return args.min_distance - nn.second;
+                    std::pair<uint, math::Vec3f> cp;
+                    if (bvh_tree->closest_point(pos, &cp, args.min_distance)) {
+                        acc::Tri<math::Vec3f> const & tri = bvh_tree->get_triangle(cp.first);
+                        math::Vec3f normal = calculate_normal(tri);
+                        math::Vec3f cpp = pos - cp.second;
+                        float dist = cpp.norm();
+                        if (normal.dot(cpp) < 0.0f) {
+                            return dist;
+                        } else {
+                            w = 1.0f - (args.min_distance - dist) / args.min_distance;
+                        }
                     }
 
                     /* Clear spherical histogram. */
@@ -391,7 +410,7 @@ int main(int argc, char **argv) {
 
                     for (int y = 0; y < data.height; ++y) {
                         for (int x = 0; x < data.width; ++x) {
-                            float v = data.data_ptr[y * data.pitch / sizeof(float) + x];
+                            float v = w * data.data_ptr[y * data.pitch / sizeof(float) + x];
                             if (v < min) {
                                 min = v;
                                 theta = (0.5f + (y / (float) data.height) / 2.0f) * pi;
@@ -416,6 +435,23 @@ int main(int argc, char **argv) {
                 std::size_t vid;
                 std::tie(vid, value) = nelder_mead(&simplex, func);
 
+                /* View does not contribute to the reconstruction, reinitialize. */
+                if (value >= 0.0f) {
+                    math::Vec3f trans(cam.trans);
+                    math::Matrix3f rot(cam.rot);
+                    math::Vec3f pos = -rot.transpose() * trans;
+
+                    /* Move towards center and lift till we are in the flyable airspace. */
+                    math::Vec3f center = math::Vec3f(0.0f, 0.0f, args.max_distance * 0.9f);
+                    math::Vec3f dir = (center - pos).normalize();
+                    pos += dir * args.min_distance;
+                    while (bvh_tree->closest_point(pos, nullptr, args.min_distance)) {
+                        pos[2] += args.min_distance;
+                    }
+
+                    float scale = 0.5f * (args.min_distance / 10.0f);
+                    initialize(&simplex, pos, scale, 0.0f, 0.0f);
+                }
                 math::Vec3f pos = simplex.verts[vid];
 
                 math::Matrix3f rot = utp::rotation_from_spherical(vtheta, vphi);
