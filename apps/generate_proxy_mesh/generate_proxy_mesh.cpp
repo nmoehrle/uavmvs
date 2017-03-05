@@ -182,6 +182,7 @@ int main(int argc, char **argv) {
 
     std::vector<math::Vec3f> const & verts = cloud->get_vertices();
     std::vector<math::Vec4f> const & colors = cloud->get_vertex_colors();
+    std::vector<float> const & confs = cloud->get_vertex_confidences();
 
     acc::AABB<math::Vec3f> aabb = acc::calculate_aabb(verts);
 
@@ -209,10 +210,14 @@ int main(int argc, char **argv) {
 
     std::cout << fmt::format("Creating height map ({}x{})", width, height) << std::endl;
 
+    bool check_confs = cloud->has_vertex_confidences() && args.min_distance == 0.0f;
+
     /* Create height map. */
     mve::FloatImage::Ptr hmap = mve::FloatImage::create(width, height, 1);
     hmap->fill(lowest);
     for (std::size_t i = 0; i < verts.size(); ++i) {
+        if (check_confs && confs[i] == 0.0f) continue;
+
         math::Vec3f vertex = verts[i];
         int x = (vertex[0] - aabb.min[0]) / args.resolution;
         assert(0 <= x && x < width);
