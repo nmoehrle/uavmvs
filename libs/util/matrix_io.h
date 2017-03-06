@@ -13,7 +13,7 @@ save_matrix_to_file(typename math::Matrix<T, N, M> m, std::string const & filena
         throw std::runtime_error("Could not open matrix file");
     }
 
-    out << m;
+    out << std::fixed << m;
 
     out.close();
 }
