@@ -20,6 +20,7 @@
 struct Arguments {
     std::string in_traj;
     std::string transform;
+    std::string out_csv;
     std::string out_traj;
     float resolution;
     bool invert;
@@ -30,16 +31,18 @@ Arguments parse_args(int argc, char **argv) {
     args.set_exit_on_error(true);
     args.set_nonopt_minnum(2);
     args.set_nonopt_maxnum(2);
-    args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] IN_TRAJECTORY OUT_TRAJECTORY");
-    args.set_description("Interpolate and write out trajectory files.");
+    args.set_usage("Usage: " + std::string(argv[0]) + " [OPTS] IN_TRAJECTORY OUT_CSV");
+    args.set_description("Interpolate and write out trajectory csv files.");
     args.add_option('t', "transform", true, "transform vertices with matrix file");
-    args.add_option('r', "resolution", true, "resolution for the trajectory (waypoints per meter) [1.0]");
+    args.add_option('r', "resolution", true,
+        "resolution for the trajectory (waypoints per meter) [1.0]");
     args.add_option('i', "invert", false, "invert transform");
+    args.add_option('\0', "trajectory", true, "Write out a native trajectory file []");
     args.parse(argc, argv);
 
     Arguments conf;
     conf.in_traj = args.get_nth_nonopt(0);
-    conf.out_traj = args.get_nth_nonopt(1);
+    conf.out_csv = args.get_nth_nonopt(1);
     conf.resolution = 1.0f;
     conf.invert = false;
 
@@ -54,6 +57,13 @@ Arguments parse_args(int argc, char **argv) {
         break;
         case 'i':
             conf.invert = true;
+        break;
+        case '\0':
+            if (i->opt->lopt == "trajectory") {
+                conf.out_traj = i->arg;
+            } else {
+                throw std::invalid_argument("Invalid option");
+            }
         break;
         default:
             throw std::invalid_argument("Invalid option");
@@ -237,7 +247,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    std::ofstream out(args.out_traj.c_str());
+    std::ofstream out(args.out_csv.c_str());
     if (!out.good()) {
         std::cerr << "Could not open file" << std::endl;
         std::exit(EXIT_FAILURE);
@@ -256,25 +266,26 @@ int main(int argc, char **argv) {
     }
     out.close();
 
-#if 0
-    mve::CameraInfo cam = trajectory[0];
-    std::vector<mve::CameraInfo> traj;
-    for (std::size_t i = 0; i < xs.size(); ++i) {
-        math::Vec3f x = xs[i];
-        math::Quat4f q = qs[i];
 
-        math::Matrix3f R;
-        math::Vec3f t;
+    if (!args.out_traj.empty()) {
+        mve::CameraInfo cam = trajectory[0];
+        std::vector<mve::CameraInfo> traj;
+        for (std::size_t i = 0; i < xs.size(); ++i) {
+            math::Vec3f x = xs[i];
+            math::Quat4f q = qs[i];
 
-        q.to_rotation_matrix(R.begin());
-        t = -R * x;
+            math::Matrix3f R;
+            math::Vec3f t;
 
-        std::copy(t.begin(), t.begin() + 3, cam.trans);
-        std::copy(R.begin(), R.begin() + 9, cam.rot);
-        traj.push_back(cam);
+            q.to_rotation_matrix(R.begin());
+            t = -R * x;
+
+            std::copy(t.begin(), t.begin() + 3, cam.trans);
+            std::copy(R.begin(), R.begin() + 9, cam.rot);
+            traj.push_back(cam);
+        }
+        utp::save_trajectory(traj, args.out_traj);
     }
-    utp::save_trajectory(traj, args.out_traj);
-#endif
 
     return EXIT_SUCCESS;
 }
