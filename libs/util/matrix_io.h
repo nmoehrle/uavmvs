@@ -5,8 +5,9 @@
 
 #include "math/matrix.h"
 
+template <typename T, int N, int M>
 void
-save_matrix_to_file(math::Matrix4f m, std::string const & filename) {
+save_matrix_to_file(typename math::Matrix<T, N, M> m, std::string const & filename) {
     std::ofstream out(filename.c_str());
     if (!out.good()) {
         throw std::runtime_error("Could not open matrix file");
@@ -17,21 +18,22 @@ save_matrix_to_file(math::Matrix4f m, std::string const & filename) {
     out.close();
 }
 
-math::Matrix4f
+template <typename T, int N, int M>
+typename math::Matrix<T, N, M>
 load_matrix_from_file(std::string const & filename) {
-    math::Matrix4f ret;
+    typename math::Matrix<T, N, M> ret;
     std::ifstream in(filename.c_str());
     if (!in.good()) {
         throw std::runtime_error("Could not open matrix file");
     }
 
-    for (int i = 0; i < 16; ++i) {
+    for (int i = 0; i < N * M; ++i) {
         in >> ret[i];
     }
 
     if (in.fail()) {
         in.close();
-        throw std::runtime_error("Invalid matrix file");
+        throw std::runtime_error("Invalid matrix file or dimension");
     }
 
     in.close();

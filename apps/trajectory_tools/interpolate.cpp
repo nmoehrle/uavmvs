@@ -1,5 +1,6 @@
 #include <random>
 #include <limits>
+#include <iomanip>
 #include <iostream>
 
 #include "util/system.h"
@@ -164,7 +165,7 @@ int main(int argc, char **argv) {
 
     if (trajectory.empty()) return EXIT_SUCCESS;
 
-    std::vector<math::Vec3f> xs;
+    std::vector<math::Vec3d> xs;
     std::vector<math::Quat4f> qs;
     std::vector<bool> keys;
 
@@ -220,13 +221,13 @@ int main(int argc, char **argv) {
     }
 
     if (!args.transform.empty()) {
-        math::Matrix4f T = load_matrix_from_file(args.transform);
+        math::Matrix4d T = load_matrix_from_file<double, 4, 4>(args.transform);
 
         if (args.invert) {
-            T = inverse_transform(T);
+            T = math::matrix_invert_trans(T);
         }
 
-        math::Quat4f q = rot2quat(extract_rotation(T));
+        math::Quat4f q = rot2quat(math::Matrix3f(extract_rotation(T)));
 
         for (std::size_t i = 0; i < xs.size(); ++i) {
             xs[i] = T.mult(xs[i], 1.0f);
@@ -244,11 +245,13 @@ int main(int argc, char **argv) {
 
     out << "x,y,z,qw,qx,qy,qz,key" << std::endl;
     for (std::size_t i = 0; i < xs.size(); ++i) {
-        math::Vec3f x = xs[i];
+        math::Vec3d x = xs[i];
         math::Quat4f q = qs[i];
 
-        out << x[0] << ',' << x[1] << ',' << x[2] << ','
-            << q[0] << ',' << q[1] << ',' << q[2] << ',' << q[3]
+        out << std::fixed
+            << x[0] << ',' << x[1] << ',' << x[2] << ','
+            << std::defaultfloat
+            << q[0] << ',' << q[1] << ',' << q[2] << ',' << q[3] << ','
             << keys[i] << std::endl;
     }
     out.close();

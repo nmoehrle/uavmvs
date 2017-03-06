@@ -152,10 +152,10 @@ int main(int argc, char **argv) {
     }
 
     if (!args.transform.empty()) {
-        math::Matrix4f T = load_matrix_from_file(args.transform);
+        math::Matrix4f T = load_matrix_from_file<float, 4, 4>(args.transform);
 
         if (args.invert) {
-            T = inverse_transform(T);
+            T = math::matrix_invert_trans(T);
         }
 
         for (std::size_t i = 0; i < vertices.size(); ++i) {

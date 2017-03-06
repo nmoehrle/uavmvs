@@ -232,7 +232,7 @@ estimate_transform(mve::TriangleMesh::ConstPtr mesh,
 
     Correspondences correspondences(verts.size() + rverts.size());
     for (uint i = 0; i < num_iters + 1; ++i) {
-        math::Matrix4f Ti = inverse_transform(T);
+        math::Matrix4f Ti = math::matrix_invert_trans(T);
 
         prev_avg_dist = avg_dist;
         avg_dist = 0.0;
