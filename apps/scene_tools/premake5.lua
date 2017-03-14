@@ -8,6 +8,22 @@ project "convert-scene"
 
     mve.use({ "util" })
 
+project "evaluate-scene"
+    kind "ConsoleApp"
+    language "C++"
+
+    files { "evaluate.cpp" }
+
+    mve.use({ "util" })
+
+project "annotate-scene"
+    kind "ConsoleApp"
+    language "C++"
+
+    files { "annotate.cpp" }
+
+    mve.use({ "util" })
+
 project "estimate_transform-scene"
     kind "ConsoleApp"
     language "C++"
