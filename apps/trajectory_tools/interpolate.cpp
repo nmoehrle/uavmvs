@@ -1,6 +1,5 @@
 #include <random>
 #include <limits>
-#include <iomanip>
 #include <iostream>
 
 #include "util/system.h"
@@ -22,6 +21,7 @@ struct Arguments {
     std::string transform;
     std::string out_csv;
     std::string out_traj;
+    std::string out_seq;
     float resolution;
     bool invert;
 };
@@ -38,6 +38,7 @@ Arguments parse_args(int argc, char **argv) {
         "resolution for the trajectory (waypoints per meter) [1.0]");
     args.add_option('i', "invert", false, "invert transform");
     args.add_option('\0', "trajectory", true, "Write out a native trajectory file []");
+    args.add_option('\0', "sequence", true, "Write out a sequence file []");
     args.parse(argc, argv);
 
     Arguments conf;
@@ -61,6 +62,8 @@ Arguments parse_args(int argc, char **argv) {
         case '\0':
             if (i->opt->lopt == "trajectory") {
                 conf.out_traj = i->arg;
+            } else if (i->opt->lopt == "sequence") {
+                conf.out_seq = i->arg;
             } else {
                 throw std::invalid_argument("Invalid option");
             }
@@ -125,6 +128,18 @@ rot2quat(math::Matrix<T, 3, 3> const & R) {
 
         return q;
     //}
+}
+
+#define SQR(x) ((x) * (x))
+template <typename T>
+std::tuple<T, T, T> quat2euler(math::Quaternion<T> q) {
+    T phi = std::atan2(T(2) * (q[0] * q[1] + q[2] * q[3]),
+        1 - T(2) * (SQR(q[1]) + SQR(q[2])));
+    T tmp = T(2) * (q[0] * q[2] - q[3] * q[1]);
+    T theta = std::asin(math::clamp(tmp, T(-1.0), T(1.0)));
+    T psi = std::atan2(T(2) * (q[0] * q[3] + q[1] * q[2]),
+        1 - T(2) * (SQR(q[2]) + SQR(q[3])));
+    return std::make_tuple(phi, theta, psi);
 }
 
 //TODO move into mve
@@ -202,6 +217,16 @@ int main(int argc, char **argv) {
 
         math::Quat4f sq = rot2quat(math::Matrix3f(trajectory[i - 1].rot));
         math::Quat4f eq = rot2quat(math::Matrix3f(trajectory[i].rot));
+
+#if DEBUG_ANGLES
+        float phi, theta, psi;
+        std::tie(phi, theta, psi) = quat2euler(eq.conjugated() * math::Quat4f(0, 1, 0, 0));
+        float roll = MATH_RAD2DEG(phi);
+        float pitch = MATH_RAD2DEG(theta);
+        float yaw = MATH_RAD2DEG(psi);
+        yaw = yaw < 0.0f ? yaw * -1 : 360 - yaw;
+        std::cout << i << ' ' << roll << ' ' << pitch << ' ' << yaw << std::endl;
+#endif
 
         float t = s;
         float clength = 0.0f;
@@ -285,6 +310,37 @@ int main(int argc, char **argv) {
             traj.push_back(cam);
         }
         utp::save_trajectory(traj, args.out_traj);
+    }
+
+    if (!args.out_seq.empty()) {
+        std::vector<mve::CameraInfo> traj;
+
+        std::ofstream out(args.out_seq.c_str());
+        if (!out.good()) {
+            std::cerr << "Could not open file" << std::endl;
+            std::exit(EXIT_FAILURE);
+        }
+
+        int length = static_cast<int>(xs.size());
+        out << "fps 30" << '\n';
+        out << "sequence trajectory" << '\n';
+        out << "length " << xs.size() * 100 << '\n';
+        out << "camera-spline-begin" << '\n';
+        for (int i = -2; i < length + 2; ++i) {
+            std::size_t idx = std::max(0, std::min(i, length - 1));
+            math::Vec3f x = xs[idx];
+            out << x << '\n';
+        }
+        out << "camera-spline-end" << '\n';
+        out << "lookat-spline-begin" << '\n';
+        for (int i = -2; i < length + 2; ++i) {
+            std::size_t idx = std::max(0, std::min(i, length - 1));
+            math::Vec3f x = xs[idx];
+            math::Quat4f q = qs[idx].conjugated();
+            out << x + q.rotate(math::Vec3f(0, 0, 50.0f)) << '\n';
+        }
+        out << "lookat-spline-end" << '\n';
+        out.close();
     }
 
     return EXIT_SUCCESS;
