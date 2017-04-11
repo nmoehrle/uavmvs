@@ -55,3 +55,11 @@ project "deduce_bundle"
     mve.use({ "util", "sfm" })
 
     links { "gomp" }
+
+project "match-scene"
+    kind "ConsoleApp"
+    language "C++"
+
+    files { "match.cpp" }
+
+    mve.use({ "util" })
