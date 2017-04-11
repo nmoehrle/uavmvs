@@ -180,12 +180,10 @@ int main(int argc, char **argv) {
     incremental.invalidate_large_error_tracks();
 
     mve::Bundle::Ptr bundle = incremental.create_bundle();
-    mve::Bundle::Features const & features = bundle->get_features();
 
     for (auto & gcp_tid : gcp2tid) {
         std::cout << gcp_tid.first << ' '
-            << math::Vec3f((float const *)features[gcp_tid.second].pos)
-            << std::endl;
+            << tracks[gcp_tid.second].pos << std::endl;
     }
 
     mve::save_mve_bundle(bundle, args.bundle);
