@@ -228,43 +228,66 @@ estimate_transform(mve::TriangleMesh::ConstPtr mesh,
 
     math::Matrix4f T(0.0f);
     T(0, 0) = T(1, 1) = T(2, 2) = T(3, 3) = 1.0f;
-    double prev_avg_dist, avg_dist = std::numeric_limits<double>::max();
+    double prev_avg_sqdist, avg_sqdist = std::numeric_limits<double>::max();
 
-    Correspondences correspondences(verts.size() + rverts.size());
+    std::size_t num_verts = verts.size() + rverts.size();
+
+    float threshold = 0.25f;
+
+    Correspondences corrs(num_verts);
+    Correspondences valid_corrs;
+    std::vector<uint8_t> valid(num_verts);
     for (uint i = 0; i < num_iters + 1; ++i) {
         math::Matrix4f Ti = math::matrix_invert_trans(T);
 
-        prev_avg_dist = avg_dist;
-        avg_dist = 0.0;
+        prev_avg_sqdist = avg_sqdist;
+        avg_sqdist = 0.0;
+        std::fill(valid.begin(), valid.end(), 0);
+        valid_corrs.clear();
+        valid_corrs.reserve(num_verts);
 
         /* Find correspondences */
-        #pragma omp parallel for reduction(+:avg_dist)
+        #pragma omp parallel for reduction(+:avg_sqdist)
         for (std::size_t j = 0; j < verts.size(); ++j) {
-            math::Vec3f vertex = Ti.mult(verts[j], 1.0f);
+            math::Vec3f vertex = T.mult(verts[j], 1.0f);
             math::Vec3f cp = rbvh_tree.closest_point(vertex);
-
-            avg_dist += (vertex - cp).norm();
-            correspondences[j] = std::make_pair(vertex, cp);
+            float dist = (vertex - cp).norm();
+            if (dist < threshold) {
+                avg_sqdist += dist * dist;
+                corrs[j] = std::make_pair(vertex, cp);
+                valid[j] = 255;
+            }
         }
 
-        #pragma omp parallel for reduction(+:avg_dist)
+        #pragma omp parallel for reduction(+:avg_sqdist)
         for (std::size_t j = 0; j < rverts.size(); ++j) {
-            math::Vec3f vertex = T.mult(rverts[j], 1.0f);
+            math::Vec3f vertex = Ti.mult(rverts[j], 1.0f);
             math::Vec3f cp = bvh_tree.closest_point(vertex);
-
-            avg_dist += (vertex - cp).norm();
-            correspondences[verts.size() + j] = std::make_pair(vertex, cp);
+            float dist = (vertex - cp).norm();
+            if (dist < threshold) {
+                avg_sqdist += dist * dist;
+                corrs[verts.size() + j] = std::make_pair(vertex, cp);
+                valid[verts.size() + j] = 255;
+            }
         }
 
-        avg_dist /= (verts.size() + rverts.size());
-        double improvement = prev_avg_dist - avg_dist;
+        for (std::size_t j = 0; j < num_verts; ++j) {
+            if (valid[j] == 255) {
+                valid_corrs.push_back(corrs[j]);
+            }
+        }
+
+        avg_sqdist /= static_cast<double>(valid_corrs.size());
+        std::cout << avg_sqdist << ' '
+            << static_cast<double>(valid_corrs.size()) / num_verts << std::endl;
+        double improvement = prev_avg_sqdist - avg_sqdist;
 
         if (improvement < 1e-5f || i == num_iters) break;
 
-        T = estimate_transform(correspondences) * T;
+        T = estimate_transform(valid_corrs) * T;
     }
 
-    if (avg_dist_ptr != nullptr) *avg_dist_ptr = avg_dist;
+    if (avg_dist_ptr != nullptr) *avg_dist_ptr = std::sqrt(avg_sqdist);
 
     return T;
 }

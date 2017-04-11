@@ -211,9 +211,10 @@ int main(int argc, char **argv) {
     }
     std::cout << num_outliers << " outliers" << std::endl;
 
-    mve::geom::SavePLYOptions options;
-    options.format_binary = true;
-    options.write_vertex_colors = false;
-    options.write_vertex_values = true;
-    mve::geom::save_ply_mesh(mesh_to_normalize, args.out_mesh, options);
+    mve::geom::SavePLYOptions opts;
+    opts.format_binary = true;
+    opts.write_vertex_normals = true;
+    opts.write_vertex_colors = false;
+    opts.write_vertex_values = true;
+    mve::geom::save_ply_mesh(mesh_to_normalize, args.out_mesh, opts);
 }

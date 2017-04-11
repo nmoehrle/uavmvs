@@ -265,6 +265,8 @@ calculate_completeness(mve::TriangleMesh::Ptr in_mesh,
     cloud->get_vertices().assign(samples.begin(), samples.end());
     cloud->get_vertex_values().assign(values.begin(), values.end());
     mve::geom::SavePLYOptions opts;
+    opts.write_vertex_confidences = false;
+    opts.write_vertex_colors = false;
     opts.write_vertex_values = true;
     //mve::geom::save_ply_mesh(cloud, "/tmp/cloud.ply", opts);
 
@@ -293,6 +295,8 @@ int main(int argc, char **argv) {
     gt_mesh = load_mesh(args.gt_mesh);
 
     mve::geom::SavePLYOptions opts;
+    opts.write_vertex_confidences = false;
+    opts.write_vertex_colors = false;
     opts.write_vertex_values = true;
 
     calculate_accuracy(in_mesh, gt_mesh, args.acc_range);

@@ -117,9 +117,10 @@ int main(int argc, char **argv) {
         colors[i] = color;
     }
 
-    mve::geom::SavePLYOptions options;
-    options.write_vertex_colors = true;
-    options.write_vertex_values = true;
+    mve::geom::SavePLYOptions opts;
+    opts.write_vertex_normals = true;
+    opts.write_vertex_colors = true;
+    opts.write_vertex_values = true;
 
-    mve::geom::save_ply_mesh(mesh, args.out_mesh, options);
+    mve::geom::save_ply_mesh(mesh, args.out_mesh, opts);
 }

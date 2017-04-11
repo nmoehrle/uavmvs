@@ -209,6 +209,7 @@ int main(int argc, char * argv[])
             std::exit(EXIT_FAILURE);
         }
         mve::geom::SavePLYOptions opts;
+        opts.write_vertex_normals = true;
         opts.write_vertex_values = true;
 
         std::vector<float> & ovalues = mesh->get_vertex_values();
