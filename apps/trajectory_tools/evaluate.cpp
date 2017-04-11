@@ -55,6 +55,18 @@ int main(int argc, char **argv) {
     std::vector<math::Vec3f> pos(trajectory.size());
     for (std::size_t i = 0; i < trajectory.size(); ++i) {
         trajectory[i].fill_camera_pos(pos[i].begin());
+#if APPROX_ALTITUDE
+        acc::BVHTree<uint, math::Vec3f>::Ray ray;
+        ray.origin = pos[i];
+        ray.dir = math::Vec3f(0.0f, 0.0f, -1.0f);
+        ray.tmin = 0.0f;
+        ray.tmax = std::numeric_limits<float>::infinity();
+
+        acc::BVHTree<uint, math::Vec3f>::Hit hit;
+        if (bvh_tree->intersect(ray, &hit)) {
+            std::cout << i << ' ' << hit.t << std::endl;
+        }
+#endif
     }
 
     std::cout << "Fitting Spline... " << std::flush;

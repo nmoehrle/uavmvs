@@ -59,7 +59,7 @@ int main(int argc, char **argv) {
         std::exit(EXIT_FAILURE);
     }
 
-    float avg_dist;
+    float avg_dist = 1.0f;
     math::Matrix4f T = estimate_transform(mesh, rmesh, 100, &avg_dist);
 
     std::cout << "Average distance between surfaces " << avg_dist << std::endl;

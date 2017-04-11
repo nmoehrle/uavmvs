@@ -65,7 +65,7 @@ int main(int argc, char **argv) {
 
     sfm::bundler::Features::Options feature_opts;
     feature_opts.image_embedding = "original";
-    feature_opts.max_image_size = 150000000;
+    feature_opts.max_image_size = 6000000;
     feature_opts.feature_options.feature_types = sfm::FeatureSet::FEATURE_ALL;
 
     std::cout << "Computing image features..." << std::endl;
@@ -83,7 +83,7 @@ int main(int argc, char **argv) {
     matching_opts.ransac_opts.verbose_output = false;
     matching_opts.use_lowres_matching = false;
     matching_opts.match_num_previous_frames = false;
-    matching_opts.matcher_type = sfm::bundler::Matching::MATCHER_EXHAUSTIVE;
+    matching_opts.matcher_type = sfm::bundler::Matching::MATCHER_CASCADE_HASHING;
 
     std::cout << "Performing feature matching..." << std::endl;
     {
