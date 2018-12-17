@@ -1,3 +1,11 @@
+/*
+ * Copyright (C) 2016-2018, Nils Moehrle
+ * All rights reserved.
+ *
+ * This software may be modified and distributed under the terms
+ * of the BSD 3-Clause license. See the LICENSE.txt file for details.
+ */
+
 #ifndef GRID_MESH_MC_ACCESSOR_HEADER
 #define GRID_MESH_MC_ACCESSOR_HEADER
 
