@@ -20,17 +20,13 @@ The code and the build system have the following prerequisites:
 Furthermore the code depends on the following projects, some with adaptions so
 please clone and build the respective branches:
 
-- Premake
-    https://premake.github.io/
-    https://github.com/nmoehrle/premake-core/tree/toolset-nvcc
-- Multi-View Environment
-    https://www.gcc.tu-darmstadt.de/home/proj/mve
-    https://github.com/nmoehrle/mve/tree/master
-- MVS-Texturing
-    https://www.gcc.tu-darmstadt.de/home/proj/texrecon
-    https://github.com/nmoehrle/mvs-texturing/tree/develop
-- Eigen
-    http://eigen.tuxfamily.org
+- Premake https://premake.github.io/
+  - https://github.com/nmoehrle/premake-core/tree/toolset-nvcc
+- Multi-View Environment https://www.gcc.tu-darmstadt.de/home/proj/mve
+  - https://github.com/nmoehrle/mve/tree/master
+- MVS-Texturing https://www.gcc.tu-darmstadt.de/home/proj/texrecon
+  - https://github.com/nmoehrle/mvs-texturing/tree/develop
+- Eigen http://eigen.tuxfamily.org
 
 Execution
 --------------------------------------------------------------------------------
