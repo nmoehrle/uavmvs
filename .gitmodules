@@ -9,12 +9,7 @@
 	url = https://github.com/nmoehrle/libcol.git
 [submodule "libs/fmt"]
 	path = libs/fmt
-	url = https://github.com/nmoehrle/libfmt
-[submodule "libstat"]
-	path = libstat
-	url = https://github.com/nmoehrle/libstat.git
-	branch = develop
+	url = https://github.com/nmoehrle/libfmt.git
 [submodule "libs/stat"]
 	path = libs/stat
 	url = https://github.com/nmoehrle/libstat.git
-	branch = develop
