@@ -7,6 +7,7 @@
  */
 
 #include <iostream>
+#include <random>
 
 #include "util/system.h"
 #include "util/arguments.h"
