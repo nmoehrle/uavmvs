@@ -9,6 +9,8 @@
 #ifndef GEOM_PLANE_ESTIMATION_HEADER
 #define GEOM_PLANE_ESTIMATION_HEADER
 
+#include<random>
+
 #include "math/vector.h"
 #include "math/plane.h"
 #include "math/matrix_svd.h"
