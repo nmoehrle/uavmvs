@@ -61,7 +61,7 @@ workspace "uavmvs"
     include("apps/generate_gcp_bundle")
     include("apps/generate_proxy_mesh")
     include("apps/generate_proxy_cloud")
-    include("apps/generate_guidance_volume")
+    -- include("apps/generate_guidance_volume")
     include("apps/generate_initial_trajectory")
 
     include("apps/selector")
