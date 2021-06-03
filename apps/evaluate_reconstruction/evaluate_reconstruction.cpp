@@ -99,6 +99,7 @@ Arguments parse_args(int argc, char **argv) {
             } else {
                 throw std::invalid_argument("Invalid option");
             }
+        break;
         default:
             throw std::invalid_argument("Invalid option");
         }
