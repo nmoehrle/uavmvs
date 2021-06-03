@@ -9,7 +9,7 @@
 #include <cassert>
 #include <iostream>
 
-#include "fmt/format.h"
+//#include "fmt/format.h"
 
 #include "util/system.h"
 #include "util/arguments.h"
@@ -214,7 +214,9 @@ int main(int argc, char **argv) {
 
     std::size_t num_samples = sample_positions.size() * 128ull * 45ull;
 
-    std::string task = fmt::format("Sampling 5D volume at {} positions", litos(num_samples));
+    //TODO fix cuda compilation of libfmt
+    //std::string task = fmt::format("Sampling 5D volume at {} positions", litos(num_samples));
+    std::string task = "Sampling 5D volume at " + litos(num_samples) + " positions";
     ProgressCounter counter(task, sample_positions.size());
 
     #pragma omp parallel
