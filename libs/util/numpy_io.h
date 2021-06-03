@@ -9,7 +9,7 @@
 #include <fstream>
 #include <cstring>
 
-#include "util/endian.h"
+#include "util/system.h"
 
 #define NUMPY_FILE_SIGNATURE "\x93NUMPY"
 #define NUMPY_FILE_SIGNATURE_LEN 6
